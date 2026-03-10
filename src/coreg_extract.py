@@ -189,13 +189,16 @@ def prep_struct_once(
     fail_on_existing: bool = False,
 ) -> tuple[Path, Path, Path]:
     """
-    Ensure we have structural files exported from FreeSurfer into out_root:
+    Prepare structural files in out_root:
 
-      - T1.nii.gz       (from mri/T1.mgz)
-      - T1_brain.nii.gz (from mri/brain.mgz)
-      - wmparc.nii.gz   (from mri/wmparc.mgz)
+      - T1.nii.gz
+      - T1_brain.nii.gz
+      - wmparc.nii.gz
 
-    Reuses existing files unless --fail-on-existing is set.
+    Logic:
+      1) If the NIfTI files already exist in out_root, reuse them.
+      2) For any missing file, try to create it from FreeSurfer .mgz.
+      3) Only fail if, after that, some required output is still missing.
     """
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -203,31 +206,54 @@ def prep_struct_once(
     t1_brain = out_root / "T1_brain.nii.gz"
     wmparc = out_root / "wmparc.nii.gz"
 
+    # Announce reuse if already present
     maybe_reuse_existing(t1_full, "T1.nii.gz", fail_on_existing)
     maybe_reuse_existing(t1_brain, "T1_brain.nii.gz", fail_on_existing)
     maybe_reuse_existing(wmparc, "wmparc.nii.gz", fail_on_existing)
 
-    if t1_full.exists() and t1_brain.exists() and wmparc.exists():
-        return t1_full, t1_brain, wmparc
-
+    # FreeSurfer sources (used only for files that are still missing)
     t1_mgz = fs_subj / "mri" / "T1.mgz"
     brain_mgz = fs_subj / "mri" / "brain.mgz"
     wmparc_mgz = fs_subj / "mri" / "wmparc.mgz"
 
-    if not t1_mgz.exists() or not brain_mgz.exists() or not wmparc_mgz.exists():
-        raise SystemExit(
-            "[STOP] Missing FreeSurfer structural files. Could not find:\n"
-            f"  {t1_mgz}\n  {brain_mgz}\n  {wmparc_mgz}"
+    sources = [
+        (t1_full, t1_mgz, "T1"),
+        (t1_brain, brain_mgz, "T1_brain"),
+        (wmparc, wmparc_mgz, "wmparc"),
+    ]
+
+    # Convert only the missing outputs
+    for out_nii, src_mgz, label in sources:
+        if out_nii.exists():
+            continue
+
+        if not src_mgz.exists():
+            print(f"[WARN] Missing FreeSurfer source for {label}: {src_mgz}")
+            continue
+
+        run(
+            ["mri_convert", "-it", "mgz", "-ot", "nii", str(src_mgz), str(out_nii)],
+            dry_run=dry_run,
         )
 
-    if not t1_full.exists():
-        run(["mri_convert", "-it", "mgz", "-ot", "nii", str(t1_mgz), str(t1_full)], dry_run=dry_run)
-
-    if not t1_brain.exists():
-        run(["mri_convert", "-it", "mgz", "-ot", "nii", str(brain_mgz), str(t1_brain)], dry_run=dry_run)
-
-    if not wmparc.exists():
-        run(["mri_convert", "-it", "mgz", "-ot", "nii", str(wmparc_mgz), str(wmparc)], dry_run=dry_run)
+    # Final check: now all three outputs must exist
+    missing_outputs = [str(p) for p in (t1_full, t1_brain, wmparc) if not p.exists()]
+    if missing_outputs:
+        raise SystemExit(
+            "[STOP] Could not prepare structural files.\n"
+            "The following required NIfTI files are still missing:\n"
+            + "\n".join(f"  {p}" for p in missing_outputs)
+            + "\n\n"
+            "If you want to reuse already exported files, place them exactly here with these names:\n"
+            f"  {t1_full}\n"
+            f"  {t1_brain}\n"
+            f"  {wmparc}\n"
+            "\n"
+            "Otherwise the script expects the corresponding FreeSurfer files here:\n"
+            f"  {t1_mgz}\n"
+            f"  {brain_mgz}\n"
+            f"  {wmparc_mgz}"
+        )
 
     return t1_full, t1_brain, wmparc
 
@@ -651,12 +677,16 @@ def main():
     if args.syringe_mask_t1 is not None and args.syringe_mask_dwi is not None:
         raise SystemExit("[STOP] Use only one of --syringe-mask-t1 or --syringe-mask-dwi, not both.")
 
-    exp_root = args.exp_root
-    grad_root = args.grad_root if args.grad_root is not None else exp_root
+    exp_root = args.exp_root.resolve()
+    grad_root = args.grad_root.resolve() if args.grad_root is not None else exp_root
+    subjects_dir = args.subjects_dir.resolve()
+    out_root = args.out_root.resolve()
+
     subj = exp_root.name
 
-    fs_subj = args.subjects_dir / f"sub-{subj}"
-    out_subj = args.out_root / subj
+    fs_subj = subjects_dir / f"sub-{subj}"
+    out_subj = out_root / subj
+
     out_subj.mkdir(parents=True, exist_ok=True)
 
     # FreeSurfer exports
