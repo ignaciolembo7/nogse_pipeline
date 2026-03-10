@@ -1,0 +1,10 @@
+et_xmlfile==2.0.0
+importlib_resources==6.5.2
+nibabel==5.4.0
+numpy==2.4.2
+openpyxl==3.1.5
+packaging @ file:///home/task_176104885106445/conda-bld/packaging_1761049078006/work
+pandas==3.0.1
+python-dateutil==2.9.0.post0
+six==1.17.0
+typing_extensions==4.15.0
