@@ -441,7 +441,8 @@ def main() -> None:
         tables = extract_tables(dwi_nii, bval, rois)
         print("[INFO] Writing Excel...")
 
-        out_xlsx = out_seq / f"{seq_no_ext}_results.xlsx"
+        out_xlsx = out_root / "Results" / subj / f"{seq_no_ext}_results.xlsx"
+
         write_excel_like_matlab(tables, out_xlsx)
 
         print(f"[OK] Wrote: {out_xlsx}")
