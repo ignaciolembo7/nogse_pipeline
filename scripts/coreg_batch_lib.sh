@@ -30,12 +30,12 @@ init_run() {
   local run_name="$1"
 
   if [[ ! -f "$COREG_SCRIPT" ]]; then
-    echo "ERROR: no existe $COREG_SCRIPT"
+    echo "ERROR: file $COREG_SCRIPT does not exist"
     exit 1
   fi
 
   if [[ ! -d "$SUBJECTS_DIR" ]]; then
-    echo "ERROR: no existe $SUBJECTS_DIR"
+    echo "ERROR: directory $SUBJECTS_DIR does not exist"
     exit 1
   fi
 
@@ -113,7 +113,7 @@ init_run() {
       git -C "$REPO_ROOT" diff --stat || true
       echo
     else
-      echo "git no encontrado"
+      echo "git not found"
     fi
   } > "$GIT_FILE"
 
@@ -196,8 +196,8 @@ run_case() {
 
   echo
   echo "------------------------------------------------------------"
-  echo "[$(date '+%F %T')] Ejecutando: $label"
-  echo "Comando: python $COREG_SCRIPT $*"
+  echo "[$(date '+%F %T')] Executing: $label"
+  echo "Command: python $COREG_SCRIPT $*"
   echo "python $COREG_SCRIPT $*" >> "$COMMANDS_FILE"
   echo "------------------------------------------------------------"
 
@@ -215,17 +215,17 @@ finish_run() {
 
   echo
   echo "============================================================"
-  echo "Fin: $(date '+%F %T')"
+  echo "End: $(date '+%F %T')"
   if (( ${#FAILURES[@]} > 0 )); then
-    echo "Casos con error: ${#FAILURES[@]}"
+    echo "Cases with errors: ${#FAILURES[@]}"
     printf ' - %s\n' "${FAILURES[@]}"
-    echo "Revisa:"
+    echo "Check:"
     echo "  $LOG_FILE"
     echo "  $LOG_DIR"
     return 1
   else
-    echo "Todos los casos terminaron OK."
-    echo "Revisa:"
+    echo "[OK] All cases completed successfully."
+    echo "Check:"
     echo "  $LOG_FILE"
     echo "  $LOG_DIR"
     return 0
