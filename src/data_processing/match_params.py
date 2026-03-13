@@ -86,30 +86,42 @@ def _filter_close(df: pd.DataFrame, col: str, target: float, *, atol: float = 1e
 
 def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     """
-    Matching consistente con nombres canónicos:
-      - meta.delta_ms  -> params.delta_ms
-      - meta.Delta_ms  -> params.delta_app_ms
-      - meta.d_ms (legacy) -> params.max_dur_ms (o params.d_ms si existiera)
+    Strict match policy:
+    1) The sheet name must match exactly.
+    2) If the sheet is found, sequence matching is done only inside that sheet.
+    3) If no exact sheet is found, stop immediately.
+    4) Do not silently fall back to another sheet.
     """
     df = params.copy()
 
-    # 1) sheet
-    if meta.sheet and "sheet" in df.columns:
-        target = _norm_sheet(meta.sheet)
-        s_norm = df["sheet"].map(_norm_sheet)
-        cand = df[s_norm == target]
-        if cand.empty:
-            cand = df[s_norm.apply(lambda ss: target.startswith(ss) or ss.startswith(target))]
-        if not cand.empty:
-            df = cand
+    # 1) Strict sheet match
+    if meta.sheet is None or "sheet" not in df.columns:
+        raise ValueError(
+            f"Cannot match parameters: meta.sheet={meta.sheet!r} or 'sheet' column is missing."
+        )
 
-    # 2) seq
+    target_sheet = str(meta.sheet).strip()
+    sheet_values = df["sheet"].astype(str).str.strip()
+    df = df[sheet_values == target_sheet]
+
+    if df.empty:
+        available_sheets = sorted(params["sheet"].dropna().astype(str).unique().tolist())
+        raise ValueError(
+            "No exact sheet match found for this file. "
+            f"Parsed sheet from filename: {target_sheet!r}. "
+            f"Available sheets in Excel: {available_sheets}"
+        )
+
+    # 2) Sequence match only inside the already matched sheet
     if meta.seq is not None and "seq" in df.columns:
-        cand = df[pd.to_numeric(df["seq"], errors="coerce").fillna(-1).astype(int) == int(meta.seq)]
-        if len(cand) == 1:
-            return cand.iloc[0]
-        if len(cand) > 1:
-            df = cand
+        seq_values = pd.to_numeric(df["seq"], errors="coerce")
+        df = df[seq_values == int(meta.seq)]
+
+        if df.empty:
+            raise ValueError(
+                "Exact sheet was found, but sequence was not found inside that sheet. "
+                f"sheet={target_sheet!r}, seq={meta.seq}"
+            )
 
     # 3) Hz / bmax
     Hz = 0 if (meta.Hz is None and meta.encoding == "PGSE") else meta.Hz
@@ -123,7 +135,7 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     if meta.bmax is not None and "bmax" in df.columns:
         df = _filter_close(df, "bmax", float(meta.bmax), atol=1e-6)
 
-    # 4) tiempos
+    # 4) Timing fields
     if meta.delta_ms is not None and "delta_ms" in df.columns:
         df = _filter_close(df, "delta_ms", float(meta.delta_ms), atol=1e-3)
 
@@ -137,9 +149,16 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
             df = _filter_close(df, "d_ms", float(meta.d_ms), atol=1e-3)
 
     if df.empty:
-        raise ValueError("No encontré ninguna fila de parámetros que matchee este archivo.")
+        raise ValueError(
+            "No parameter row matched after filtering inside the exact sheet. "
+            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, bmax={meta.bmax}"
+        )
+
     if len(df) > 1:
-        if "protocol" in df.columns:
-            df = df.sort_values("protocol", kind="stable")
-        return df.iloc[0]
+        raise ValueError(
+            "More than one parameter row matched inside the exact sheet. "
+            "Refine the metadata or make the Excel table more specific.\n"
+            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, bmax={meta.bmax}"
+        )
+
     return df.iloc[0]
