@@ -5,9 +5,9 @@ set -u -o pipefail
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_HOME/../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
-COREG_SCRIPT="$REPO_ROOT/src/coreg_extract.py"
-SUBJECTS_DIR="$PROJECT_ROOT/Data_signals/DATA_PROCESSED/subjects"
-OUT_ROOT="$PROJECT_ROOT/Data_signals"
+COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
+SUBJECTS_DIR="$PROJECT_ROOT/Data-signals/DATA_PROCESSED/subjects"
+OUT_ROOT="$PROJECT_ROOT/Data-signals"
 
 declare -a FAILURES=()
 

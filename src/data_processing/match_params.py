@@ -45,6 +45,12 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     def _float(rx: str) -> float | None:
         m = re.search(rx, name, re.IGNORECASE)
         return float(m.group(1)) if m else None
+    
+    def _float_with_p(rx: str) -> float | None:
+        m = re.search(rx, name, re.IGNORECASE)
+        if not m:
+            return None
+        return float(m.group(1).replace("p", "."))
 
     nbvals = _int(r"(\d+)bval")
     ndirs  = _int(r"(\d+)dir")
@@ -54,7 +60,7 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     Delta_ms = _float(r"_Delta(\d+(?:\.\d+)?)")
 
     # legacy: _d55 (solo si NO hay _Delta...)
-    d_ms = _int(r"_d(\d+)") if delta_ms is None else None
+    d_ms = _float_with_p(r"_d(\d+(?:p\d+|\.\d+)?)") if delta_ms is None else None
 
     Hz   = _float(r"Hz(\d+(?:\.\d+)?)")
     bmax = _float(r"_b(\d+(?:\.\d+)?)")

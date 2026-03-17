@@ -367,7 +367,7 @@ def main() -> None:
 
     ap.add_argument("--dwi-glob", default="*.nii.gz", help="Glob pattern to find DWI NIfTIs within --exp-root.")
     ap.add_argument("--cut-token", action="append", default=[""], help="Token(s) used to derive seq_no_ext from seq_name_full.")
-    ap.add_argument("--mask-glob", default="*.nii*", help="Glob used inside each per-sequence output folder to discover manually drawn binary masks.")
+    ap.add_argument("--mask-glob", default="*mask*.nii*", help="Glob used inside each per-sequence output folder to discover manually drawn binary masks.")
 
     ap.add_argument("--write-fslmeants", action="store_true", help="Write fslmeants .txt files in addition to the Excel table.")
     ap.add_argument("--dry-run", action="store_true", help="Print commands but do not execute external commands.")
