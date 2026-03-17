@@ -40,8 +40,12 @@ def main():
         if miss:
             raise ValueError(f"En {path}: faltan columnas {sorted(miss)}")
 
-        if "param_N" not in df.columns:
-            raise ValueError(f"En {path}: falta param_N (necesaria para separar por N).")
+        if "N" in df.columns:
+            n_col = "N"
+        elif "param_N" in df.columns:
+            n_col = "param_N"
+        else:
+            raise ValueError(f"En {path}: falta N (necesaria para separar por N).")
 
         # --- output dir por experimento
         outdir = out_root / exp / "dproj"
@@ -53,7 +57,7 @@ def main():
             rois = [args.roi]
 
         # --- Ns disponibles
-        Ns = sorted(df["param_N"].dropna().unique())
+        Ns = sorted(df[n_col].dropna().unique())
 
         # ===========================
         # FIGURA 1: x y z (solo x,z) para todos los N en una sola gráfica (por ROI)
@@ -72,7 +76,7 @@ def main():
 
             for axis in axes_xz:
                 for N in Ns:
-                    dAN = d[(d["axis"] == axis) & (d["param_N"] == N)].sort_values("bvalue")
+                    dAN = d[(d["axis"] == axis) & (d[n_col] == N)].sort_values("bvalue")
                     if dAN.empty:
                         continue
                     plt.plot(
@@ -110,7 +114,7 @@ def main():
 
             for i, N in enumerate(Ns):
                 ax = axs[i]
-                dN = d[d["param_N"] == N]
+                dN = d[d[n_col] == N]
                 ax.set_title(f"N={int(N)}")
                 ax.set_xlabel("bvalue [s/mm²]")
                 ax.grid(True, linestyle="--", alpha=0.3)

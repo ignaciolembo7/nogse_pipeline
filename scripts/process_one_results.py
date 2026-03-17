@@ -10,6 +10,7 @@ from data_processing.io import infer_layout_from_filename, read_result_xls
 from data_processing.match_params import parse_results_filename, select_params_row
 from data_processing.params import read_sequence_params_xlsx
 from data_processing.reshape import to_long
+from data_processing.schema import finalize_clean_signal_long
 from ogse_fitting.b_from_g import b_from_g
 
 
@@ -225,27 +226,8 @@ def main() -> None:
     )
     df_long = _add_S0_and_signal_norm(df_long)
 
-    # --- quedarnos SOLO con columnas deseadas (sin duplicados) ---
-    keep_cols = [
-        "stat", "roi", "direction", "b_step",
-        "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
-        "g", "g_max", "g_lin_max", "g_thorsten",
-        "value", "value_norm", "S0",
-        "source_file",
-        "max_dur_ms", "tm_ms", "td_ms",
-        "Hz", "N", "TE", "TR", "bmax",
-        "protocol", "sequence", "sheet",
-        "Delta_app_ms", "delta_ms",
-    ]
-    # si alguna no existe, la creamos vacía (para formato fijo)
-    for c in keep_cols:
-        if c not in df_long.columns:
-            df_long[c] = np.nan
-    df_long = df_long[keep_cols].copy()
-
-    # ordenar filas
-    sort_cols = [c for c in ["stat", "roi", "direction", "b_step"] if c in df_long.columns]
-    df_long = df_long.sort_values(sort_cols, kind="stable").reset_index(drop=True)
+    df_long = finalize_clean_signal_long(df_long)
+    df_long = df_long.sort_values(["stat", "roi", "direction", "b_step"], kind="stable").reset_index(drop=True)
 
     # guardar
     args.out_dir.mkdir(parents=True, exist_ok=True)

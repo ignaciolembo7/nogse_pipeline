@@ -20,35 +20,39 @@ def main():
     ap.add_argument("--glob", action="append", required=True,
                     help="Glob(s) tipo: OGSE_signal/rotated/*BRAIN-3*.rot_tensor.long.parquet")
     ap.add_argument("--roi", required=True, help="Ej: PostCC")
-    ap.add_argument("--xcol", default="g_lin_max", help="Ej: g_lin_max | g | gthorsten")
-    ap.add_argument("--ycol", default="signal_norm", help="Ej: signal_norm | signal")
-    ap.add_argument("--axes", nargs="+", default=["x", "y", "z", "eig1", "eig2", "eig3", "long", "tra"])
+    ap.add_argument("--xcol", default="g_lin_max", help="Ej: g_lin_max | g | g_thorsten")
+    ap.add_argument("--ycol", default="value_norm", help="Ej: value_norm | value")
+    ap.add_argument("--directions", nargs="+", default=["x", "y", "z", "eig1", "eig2", "eig3", "long", "tra"])
+    ap.add_argument("--out_root", default="plots", help="Carpeta raíz de plots/")
     args = ap.parse_args()
 
     df = load_many(args.glob)
 
-    # filtro ROI + ejes
-    df = df[(df["roi"] == args.roi) & (df["axis"].isin(args.axes))].copy()
+    if "N" in df.columns:
+        n_col = "N"
+    elif "param_N" in df.columns:
+        n_col = "param_N"
+    else:
+        raise ValueError("No encuentro columna N en el parquet.")
 
-    # requiere param_N
-    if "param_N" not in df.columns:
-        raise ValueError("No encuentro columna param_N en el parquet. (Necesaria para facetear por N).")
+    # filtro ROI + direcciones rotadas
+    df = df[(df["roi"] == args.roi) & (df["direction"].isin(args.directions))].copy()
 
-    outdir = Path(args.out)
+    outdir = Path(args.out_root) / "rot_signal"
     outdir.mkdir(parents=True, exist_ok=True)
 
-    Ns = sorted(df["param_N"].dropna().unique())
+    Ns = sorted(df[n_col].dropna().unique())
     fig, axs = plt.subplots(1, len(Ns), figsize=(6 * len(Ns), 5), sharey=True)
     if len(Ns) == 1:
         axs = [axs]
 
     for i, N in enumerate(Ns):
         ax = axs[i]
-        dN = df[df["param_N"] == N]
+        dN = df[df[n_col] == N]
 
-        for axis in args.axes:
-            dA = dN[dN["axis"] == axis].sort_values(args.xcol)
-            ax.plot(dA[args.xcol], dA[args.ycol], marker="o", label=axis)
+        for direction in args.directions:
+            dA = dN[dN["direction"] == direction].sort_values(args.xcol)
+            ax.plot(dA[args.xcol], dA[args.ycol], marker="o", label=direction)
 
         ax.set_title(f"N={int(N)}")
         ax.set_xlabel(args.xcol)
