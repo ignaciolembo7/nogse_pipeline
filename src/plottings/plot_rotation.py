@@ -13,6 +13,10 @@ def load_dproj_parquet(paths: list[str | Path]) -> pd.DataFrame:
     dfs = []
     for p in paths:
         df = pd.read_parquet(p)
+        if "direction" not in df.columns and "axis" in df.columns:
+            df["direction"] = df["axis"]
+        if "axis" in df.columns:
+            df = df.drop(columns=["axis"])
         df["source"] = Path(p).name
         dfs.append(df)
     out = pd.concat(dfs, ignore_index=True)
@@ -30,7 +34,7 @@ def plot_dproj_subplots_by_N(
 ):
     """
     Replica el plot tipo 'subplots 1 x len(Ns)' del notebook (cell 10).
-    Requiere que df_all tenga columnas: roi, axis, bvalue, D_proj, N
+    Requiere que df_all tenga columnas: roi, direction, bvalue, D_proj, N
     """
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -53,7 +57,7 @@ def plot_dproj_subplots_by_N(
         ax.grid(True, alpha=0.3)
 
         for lab in axes:
-            dd = dn[dn["axis"] == lab]
+            dd = dn[dn["direction"] == lab]
             if dd.empty:
                 continue
             ax.plot(dd["bvalue"], dd["D_proj"], marker="o", linewidth=2, label=lab)
@@ -81,7 +85,7 @@ def plot_dproj_gradient_xyz(
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
-    d = df_all[(df_all["roi"] == roi) & (df_all["axis"].isin(["x", "y", "z"]))].copy()
+    d = df_all[(df_all["roi"] == roi) & (df_all["direction"].isin(["x", "y", "z"]))].copy()
     if d.empty:
         raise ValueError(f"No hay datos xyz para roi={roi}")
 
@@ -103,7 +107,7 @@ def plot_dproj_gradient_xyz(
         colors = [cmap(start + (1 - start) * i / max(1, (len(Ns) - 1))) for i in range(len(Ns))]
 
         for i, N in enumerate(Ns):
-            dn = d[(d["N"] == N) & (d["axis"] == axname)]
+            dn = d[(d["N"] == N) & (d["direction"] == axname)]
             if dn.empty:
                 continue
             plt.plot(

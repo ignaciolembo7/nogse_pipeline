@@ -20,7 +20,7 @@ CLEAN_SIGNAL_LONG_COLUMNS = [
 ]
 
 CLEAN_DPROJ_LONG_COLUMNS = [
-    "roi", "axis", "direction", "b_step",
+    "roi", "direction", "b_step",
     "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
     "g", "g_max", "g_lin_max", "g_thorsten",
     "D_proj",
@@ -274,15 +274,19 @@ def finalize_clean_signal_long(df: pd.DataFrame) -> pd.DataFrame:
 
 def finalize_clean_dproj_long(df: pd.DataFrame) -> pd.DataFrame:
     out = _apply_clean_aliases(df)
-    required = {"roi", "axis", "b_step", "bvalue", "D_proj"}
+    required = {"roi", "b_step", "bvalue", "D_proj"}
     missing = required - set(out.columns)
     if missing:
         raise ValueError(f"Not a valid clean dproj-long table, missing: {sorted(missing)}")
 
     if "source_file" not in out.columns:
         out["source_file"] = ""
-    if "direction" not in out.columns:
+    if "direction" not in out.columns and "axis" in out.columns:
         out["direction"] = out["axis"]
+    if "direction" not in out.columns:
+        raise ValueError("Not a valid clean dproj-long table, missing: ['direction']")
+    if "axis" in out.columns:
+        out = out.drop(columns=["axis"])
 
     out = _ensure_clean_bvalue_derivatives(out)
 

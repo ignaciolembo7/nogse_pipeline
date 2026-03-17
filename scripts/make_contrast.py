@@ -247,7 +247,7 @@ def main():
     ap.add_argument("ref_parquet", help="signal parquet (ref)")
     ap.add_argument("cmp_parquet", help="signal parquet (cmp)")
     ap.add_argument("--direction", nargs="+", default=None, help="Filtra por valores de 'direction' (ej: 1 2 3 o long tra).")
-    ap.add_argument("--out_root", default="ogse_experiments/contrast", help="directory root")
+    ap.add_argument("--out_root", default="analysis/ogse_experiments/contrast", help="directory root")
     ap.add_argument("--exp", default=None, help="override de sheet (solo naming)")
     args = ap.parse_args()
 

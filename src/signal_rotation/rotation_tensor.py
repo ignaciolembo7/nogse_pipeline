@@ -74,7 +74,7 @@ def _build_signal_row(
 def _build_dproj_row(
     template: pd.Series,
     *,
-    axis: str,
+    direction: str,
     b_step: int,
     bvalue: float,
     D_proj: float,
@@ -87,8 +87,7 @@ def _build_dproj_row(
     bvalue_thorsten: float,
 ) -> dict:
     row = template.to_dict()
-    row["axis"] = axis
-    row["direction"] = axis
+    row["direction"] = direction
     row["b_step"] = int(b_step)
     row["bvalue"] = float(bvalue)
     row["D_proj"] = float(D_proj)
@@ -363,7 +362,7 @@ def rotate_signals_tensor(
                     dproj_rows.append(
                         _build_dproj_row(
                             template,
-                            axis=axis_name,
+                            direction=axis_name,
                             b_step=int(b_step),
                             bvalue=b_fit,
                             D_proj=Dp,
@@ -381,7 +380,7 @@ def rotate_signals_tensor(
                 dproj_rows.append(
                     _build_dproj_row(
                         template,
-                        axis=f"dir{k+1}",
+                        direction=f"dir{k+1}",
                         b_step=int(b_step),
                         bvalue=b_fit,
                         D_proj=D_proj(D, n_dirs[k]),
@@ -419,7 +418,7 @@ def rotate_signals_tensor(
     df_rot["direction"] = df_rot["direction"].astype(str)
     df_rot = finalize_clean_signal_long(df_rot)
 
-    df_dproj = pd.DataFrame(dproj_rows).sort_values(["roi", "axis", "b_step"], kind="stable").reset_index(drop=True)
+    df_dproj = pd.DataFrame(dproj_rows).sort_values(["roi", "direction", "b_step"], kind="stable").reset_index(drop=True)
     df_dproj = finalize_clean_dproj_long(df_dproj)
 
     return RotResult(rotated_signal_long=df_rot, dproj_long=df_dproj)

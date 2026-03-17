@@ -34,8 +34,12 @@ def main():
     out_root.mkdir(parents=True, exist_ok=True)
 
     for exp, path, df in iter_parquets(args.glob):
+        dir_col = "direction" if "direction" in df.columns else ("axis" if "axis" in df.columns else None)
+        if dir_col is None:
+            raise ValueError(f"En {path}: falta direction (y tampoco hay axis legacy).")
+
         # --- sanity checks
-        needed = {"roi", "axis", "b_step", "bvalue", "D_proj"}
+        needed = {"roi", "b_step", "bvalue", "D_proj"}
         miss = needed - set(df.columns)
         if miss:
             raise ValueError(f"En {path}: faltan columnas {sorted(miss)}")
@@ -60,11 +64,11 @@ def main():
         Ns = sorted(df[n_col].dropna().unique())
 
         # ===========================
-        # FIGURA 1: x y z (solo x,z) para todos los N en una sola gráfica (por ROI)
+        # FIGURA 1: x y z para todos los N en una sola gráfica (por ROI)
         # ===========================
-        axes_xz = ["x", "y","z"]
+        axes_xz = ["x", "y", "z"]
         for roi in rois:
-            d = df[(df["roi"] == roi) & (df["axis"].isin(axes_xz))].copy()
+            d = df[(df["roi"] == roi) & (df[dir_col].isin(axes_xz))].copy()
             if d.empty:
                 continue
 
@@ -76,7 +80,7 @@ def main():
 
             for axis in axes_xz:
                 for N in Ns:
-                    dAN = d[(d["axis"] == axis) & (d[n_col] == N)].sort_values("bvalue")
+                    dAN = d[(d[dir_col] == axis) & (d[n_col] == N)].sort_values("bvalue")
                     if dAN.empty:
                         continue
                     plt.plot(
@@ -103,7 +107,7 @@ def main():
         nrows = int(np.ceil(len(Ns) / ncols))
 
         for roi in rois:
-            d = df[(df["roi"] == roi) & (df["axis"].isin(axes_panel))].copy()
+            d = df[(df["roi"] == roi) & (df[dir_col].isin(axes_panel))].copy()
             if d.empty:
                 continue
 
@@ -120,7 +124,7 @@ def main():
                 ax.grid(True, linestyle="--", alpha=0.3)
 
                 for axis in axes_panel:
-                    dA = dN[dN["axis"] == axis].sort_values("bvalue")
+                    dA = dN[dN[dir_col] == axis].sort_values("bvalue")
                     if dA.empty:
                         continue
                     lab = label_map.get(axis, axis)
