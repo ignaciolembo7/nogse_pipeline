@@ -151,7 +151,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("results_file", type=Path)
     ap.add_argument("params_xlsx", type=Path)
-    ap.add_argument("--out_dir", type=Path, default=Path("ogse_experiments/data"))
+    ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data"))
     ap.add_argument("--gamma", type=float, default=267.5221900, help="1/(ms*mT)")
     args = ap.parse_args()
 
