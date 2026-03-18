@@ -154,7 +154,7 @@ def main() -> None:
     analysis_id = _analysis_id_from_path(args.contrast_parquet)
 
     sheet_hint = analysis_id.split("_")[0]
-    outdir = Path(args.out_root) / sheet_hint / analysis_id
+    outdir = Path(args.out_root) / analysis_id
     tables_dir = outdir
     plots_dir = outdir
     tables_dir.mkdir(parents=True, exist_ok=True)
@@ -219,6 +219,7 @@ def main() -> None:
         D0_vary=D0_vary,
         M0_value=M0_value,
         D0_value=D0_value,
+        source_file=args.contrast_parquet.name,
     )
 
     out_parquet = tables_dir / "fit_params.parquet"

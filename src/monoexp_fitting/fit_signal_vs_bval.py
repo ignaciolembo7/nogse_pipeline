@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
 from ogse_fitting.b_from_g import b_from_g
+from tools.fit_params_schema import standardize_fit_params
 
 
 def monoexp(b: np.ndarray, M0: float, D0: float) -> np.ndarray:
@@ -344,7 +345,10 @@ def run_fit_from_parquet(
     # agregar metadata escalar útil
     fp = outs.fit_params.copy()
     if not fp.empty:
-        fp["sheet"] = sheet
+        fp["max_dur_ms"] = _unique_float_any(df, ["max_dur_ms"], required=False, name="max_dur_ms")
+        fp["tm_ms"] = _unique_float_any(df, ["tm_ms"], required=False, name="tm_ms")
+        fp["td_ms"] = td_ms if td_ms is not None else _unique_float_any(df, ["td_ms"], required=False, name="td_ms")
+        fp = standardize_fit_params(fp, fit_kind="monoexp", source_file=p.name)
 
     # guardar tablas (nombres estables)
     out_params_parquet = tables_dir / "fit_params.parquet"

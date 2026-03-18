@@ -177,7 +177,7 @@ def _fit_free(
         return float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "fixed", None, None
 
     # bounds razonables alrededor del guess
-    D_lo, D_hi = float(D0_value / 2.0), float(D0_value * 2.0)
+    D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
 
     if M0_vary and D0_vary:
         def f(_dummy, M0, D0):
@@ -310,7 +310,7 @@ def fit_ogse_contrast_long(
     D0_vary: bool = True,
     M0_value: float = 1.0,
     D0_value: float = 1e-12,
-    source: str | None = None,
+    source_file: str | None = None,
     tc_value: float = 5.0,
     tc_vary: bool = True,
 ) -> pd.DataFrame:
@@ -549,7 +549,7 @@ def fit_ogse_contrast_long(
     out = pd.DataFrame([r.__dict__ for r in rows])
 
     # Mantengo esto porque tu pipeline ya lo usa downstream.
-    out = standardize_fit_params(out, fit_kind="nogse_contrast", source=source)
+    out = standardize_fit_params(out, fit_kind="nogse_contrast", source_file=source_file)
     return out
 
 
