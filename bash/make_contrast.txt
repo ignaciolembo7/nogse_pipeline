@@ -1,3 +1,9 @@
+python nogse_pipeline/scripts/make_contrast.py "analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz050_b0250_19800122XXXX_20220622170141_7_results.rot_tensor.long.parquet" "analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz025_b1075_19800122XXXX_20220622170141_6_results.rot_tensor.long.parquet" --direction long tra --out_root "analysis/ogse_experiments/contrast-data-rotated"
+
+
+python nogse_pipeline/scripts/make_contrast.py "analysis/ogse_experiments/data-rotated/20230619_BRAIN-3_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d55_Hz040_b0505_QC-ROUTINE_20230619152408_12_results.rot_tensor.long.parquet" "analysis/ogse_experiments/data-rotated/20230619_BRAIN-3_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d55_Hz020_b1770_QC-ROUTINE_20230619152408_11_results.rot_tensor.long.parquet" --direction long tra --out_root "analysis/ogse_experiments/contrast-data-rotated"
+
+
 python nogse_pipeline/scripts/make_contrast.py "analysis/ogse_experiments/data-rotated/20230619_BRAIN-3_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d66p7_Hz030_b1175_QC-ROUTINE_20230619152408_7_results.rot_tensor.long.parquet" "analysis/ogse_experiments/data-rotated/20230619_BRAIN-3_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d66p7_Hz015_b3210_QC-ROUTINE_20230619152408_6_results.rot_tensor.long.parquet" --direction long tra --out_root "analysis/ogse_experiments/contrast-data-rotated"
 
 
