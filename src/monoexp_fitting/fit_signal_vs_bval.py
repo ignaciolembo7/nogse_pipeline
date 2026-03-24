@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -52,12 +52,21 @@ def _unique_str(df: pd.DataFrame, col: str) -> Optional[str]:
     return None
 
 
-def apply_dir_map(df: pd.DataFrame, *, dir_map: Optional[Dict[str, str]]) -> pd.DataFrame:
-    if not dir_map:
-        return df
-    out = df.copy()
-    out["direction"] = out["direction"].astype(str).map(lambda x: dir_map.get(str(x), str(x)))
-    return out
+def _normalize_requested_rois(
+    *,
+    roi: str = "ALL",
+    rois: Optional[Sequence[str]] = None,
+) -> Optional[list[str]]:
+    if rois is not None:
+        vals = [str(x) for x in rois]
+        if any(v.upper() == "ALL" for v in vals):
+            return None
+        return vals
+
+    roi_val = str(roi)
+    if roi_val.upper() == "ALL":
+        return None
+    return [roi_val]
 
 
 def _require_no_axis(df: pd.DataFrame) -> None:
@@ -101,9 +110,6 @@ def _b_from_mode(
             raise ValueError("Falta columna 'bvalue'.")
         return pd.to_numeric(d["bvalue"], errors="coerce").to_numpy(dtype=float)
 
-    if g_type == "gthorsten":
-        g_type = "g_thorsten"
-
     # Preferimos columnas precomputadas (si están)
     bcol_map = {"g": "bvalue_g", "g_lin_max": "bvalue_g_lin_max", "g_thorsten": "bvalue_thorsten"}
     bcol = bcol_map.get(g_type)
@@ -139,6 +145,7 @@ def fit_signal_vs_bval_long(
     *,
     dirs: Optional[Sequence[str]] = None,
     roi: str = "ALL",
+    rois: Optional[Sequence[str]] = None,
     ycol: str = "value_norm",
     fit_points: int = 6,
     g_type: str = "bvalue",
@@ -161,6 +168,8 @@ def fit_signal_vs_bval_long(
         if c not in dfa.columns:
             raise ValueError(f"Falta columna requerida '{c}'. Columns={list(dfa.columns)}")
 
+    if ycol not in {"value", "value_norm"}:
+        raise ValueError("ycol debe ser 'value' o 'value_norm'. Este pipeline no admite nombres legacy.")
     if ycol not in dfa.columns:
         raise ValueError(f"Falta ycol='{ycol}'. Columns={list(dfa.columns)}")
 
@@ -173,10 +182,16 @@ def fit_signal_vs_bval_long(
 
     if dirs is not None:
         dfa = dfa[dfa["direction"].isin([str(x) for x in dirs])].copy()
-    if roi != "ALL":
-        dfa = dfa[dfa["roi"] == str(roi)].copy()
+    rois_keep = _normalize_requested_rois(roi=roi, rois=rois)
+    if rois_keep is not None:
+        dfa = dfa[dfa["roi"].isin(rois_keep)].copy()
     if dfa.empty:
-        raise ValueError("No quedaron filas luego de filtrar dirs/roi.")
+        dirs_avail = sorted(df["direction"].astype(str).dropna().unique().tolist()) if "direction" in df.columns else []
+        rois_avail = sorted(df["roi"].astype(str).dropna().unique().tolist()) if "roi" in df.columns else []
+        raise ValueError(
+            "No quedaron filas luego de filtrar direction/roi. "
+            f"Direcciones disponibles={dirs_avail}. ROIs disponibles={rois_avail}."
+        )
 
     if outdir_plots is not None:
         outdir_plots.mkdir(parents=True, exist_ok=True)
@@ -201,8 +216,8 @@ def fit_signal_vs_bval_long(
             results.append(
                 dict(
                     roi=str(roi_val), direction=str(dir_val), stat=str(stat_keep),
-                    ycol=str(ycol), g_type=str(g_type), fit_points=int(fit_points),
-                    td_ms=float(td_ms), ok=False, msg="Muy pocos puntos válidos."
+                    model="monoexp", ycol=str(ycol), g_type=str(g_type), fit_points=int(fit_points),
+                    n_points=int(len(b)), n_fit=int(len(b_fit)), td_ms=float(td_ms), ok=False, msg="Muy pocos puntos válidos."
                 )
             )
             continue
@@ -232,7 +247,8 @@ def fit_signal_vs_bval_long(
         results.append(
             dict(
                 roi=str(roi_val), direction=str(dir_val), stat=str(stat_keep),
-                ycol=str(ycol), g_type=str(g_type), fit_points=int(fit_points), td_ms=float(td_ms),
+                model="monoexp", ycol=str(ycol), g_type=str(g_type), fit_points=int(fit_points),
+                n_points=int(len(b)), n_fit=int(len(b_fit)), td_ms=float(td_ms),
                 N=float(N) if N is not None else np.nan,
                 delta_ms=float(delta_ms) if delta_ms is not None else np.nan,
                 Delta_app_ms=float(Delta_app_ms) if Delta_app_ms is not None else np.nan,
@@ -283,10 +299,10 @@ def fit_signal_vs_bval_long(
 def run_fit_from_parquet(
     parquet_path: str | Path,
     *,
-    dir_map: Optional[Dict[str, str]] = None,
     dirs: Optional[Sequence[str]] = None,
     roi: str = "ALL",
-    ycol: str = "signal_norm",
+    rois: Optional[Sequence[str]] = None,
+    ycol: str = "value_norm",
     g_type: str = "bvalue",
     fit_points: int = 6,
     free_M0: bool = False,
@@ -308,9 +324,6 @@ def run_fit_from_parquet(
 
     exp_id = infer_exp_id(p)
 
-    # apply direction mapping first (so filters match)
-    df = apply_dir_map(df, dir_map=dir_map)
-
     # --- layout final: out_root/<SHEET>/<exp_id>/{tables,plots} ---
     sheet = _unique_str(df, "sheet") or exp_id.split("_")[0]
 
@@ -326,6 +339,7 @@ def run_fit_from_parquet(
         df,
         dirs=dirs,
         roi=roi,
+        rois=rois,
         ycol=ycol,
         fit_points=fit_points,
         g_type=g_type,

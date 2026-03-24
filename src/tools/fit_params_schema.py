@@ -10,7 +10,38 @@ _MM2_S_TO_M2_MS = 1e-9
 _M2_MS_TO_MM2_S = 1e9
 
 
-COMMON_COLS = [
+MONOEXP_COLS = [
+    "source_file",
+    "roi",
+    "direction",
+    "max_dur_ms",
+    "tm_ms",
+    "td_ms",
+    "N",
+    "delta_ms",
+    "Delta_app_ms",
+    "fit_kind",
+    "model",
+    "ycol",
+    "stat",
+    "n_points",
+    "n_fit",
+    "M0",
+    "M0_err",
+    "D0_m2_ms",
+    "D0_err_m2_ms",
+    "D0_mm2_s",
+    "D0_err_mm2_s",
+    "rmse",
+    "chi2",
+    "g_type",
+    "fit_points",
+    "method",
+    "ok",
+    "msg",
+]
+
+NOGSE_CONTRAST_COLS = [
     "source_file",
     "roi",
     "direction",
@@ -31,18 +62,6 @@ COMMON_COLS = [
     "D0_err_mm2_s",
     "rmse",
     "chi2",
-    "method",
-    "ok",
-    "msg",
-]
-
-MONOEXP_COLS = [
-    "g_type",
-    "fit_points",
-    "N",
-]
-
-NOGSE_CONTRAST_COLS = [
     "gbase",
     "N1",
     "N2",
@@ -51,14 +70,17 @@ NOGSE_CONTRAST_COLS = [
     "tc_err_ms",
     "alpha",
     "alpha_err",
+    "method",
+    "ok",
+    "msg",
 ]
 
 
 def _schema_cols_for_kind(fit_kind: str) -> list[str]:
     if fit_kind == "monoexp":
-        return COMMON_COLS + MONOEXP_COLS
+        return MONOEXP_COLS
     if fit_kind == "nogse_contrast":
-        return COMMON_COLS + NOGSE_CONTRAST_COLS
+        return NOGSE_CONTRAST_COLS
     raise ValueError(f"fit_kind desconocido: {fit_kind}")
 
 

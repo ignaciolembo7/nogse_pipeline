@@ -125,7 +125,7 @@ def main() -> None:
     ap.add_argument("--y", dest="ycol", default="contrast_norm", help="ej: value_norm | contrast_norm")
     ap.add_argument("--out_root", default="plots")
     ap.add_argument("--exp", default=None, help="nombre carpeta experimento (opcional)")
-    ap.add_argument("--axes", nargs="+", default=None, help="Directions to plot (e.g. long tra). Required.")
+    ap.add_argument("--dirs", nargs="+", default=None, help="Directions to plot (e.g. long tra). Required.")
     ap.add_argument("--rois", nargs="+", default=None, help="Subset opcional de ROIs para un plot combinado adicional.")
     args = ap.parse_args()
 
