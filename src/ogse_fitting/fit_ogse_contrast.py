@@ -251,17 +251,34 @@ class FitRow:
     direction: str
     stat: str | None
 
-    # timing (we assume one td per contrast table)
-    td_ms: float | None
-    max_dur_ms: float | None
-    tm_ms: float | None
-
-    # sequence params (from contrast table)
-    N1: int
-    N2: int
+    # sequence 1 params
+    max_dur_ms_1: float | None
+    tm_ms_1: float | None
+    td_ms_1: float | None
+    N_1: int
+    delta_ms_1: float | None
+    Delta_app_ms_1: float | None
     Hz_1: float | None
-    Hz_2: float | None
+    TE_1: float | None
+    TR_1: float | None
+    bmax_1: float | None
+    protocol_1: str | None
+    sequence_1: str | None
     sheet_1: str | None
+
+    # sequence 2 params
+    max_dur_ms_2: float | None
+    tm_ms_2: float | None
+    td_ms_2: float | None
+    N_2: int
+    delta_ms_2: float | None
+    Delta_app_ms_2: float | None
+    Hz_2: float | None
+    TE_2: float | None
+    TR_2: float | None
+    bmax_2: float | None
+    protocol_2: str | None
+    sequence_2: str | None
     sheet_2: str | None
 
     # fit config
@@ -362,51 +379,70 @@ def fit_ogse_contrast_long(
         stat = str(key_dict["stat"]) if "stat" in key_dict else None
 
         # scalars (must be unique inside the group)
+        def _get_float(col: str) -> float | None:
+            if col not in gg.columns:
+                return None
+            v = _unique_scalar(gg[col], name=col, required=False)
+            if v is None:
+                return None
+            vf = float(v)
+            return vf if np.isfinite(vf) else None
+
+        def _get_str(col: str) -> str | None:
+            if col not in gg.columns:
+                return None
+            v = _unique_scalar(gg[col], name=col, required=False)
+            if v is None:
+                return None
+            return str(v)
+
         N1 = int(round(float(_unique_scalar(gg["N_1"], name="N_1", required=True))))
         N2 = int(round(float(_unique_scalar(gg["N_2"], name="N_2", required=True))))
 
-        Hz_1 = float(_unique_scalar(gg["Hz_1"], name="Hz_1", required=False)) if "Hz_1" in gg.columns else None
-        Hz_2 = float(_unique_scalar(gg["Hz_2"], name="Hz_2", required=False)) if "Hz_2" in gg.columns else None
-        sheet_1 = str(_unique_scalar(gg["sheet_1"], name="sheet_1", required=False)) if "sheet_1" in gg.columns else None
-        sheet_2 = str(_unique_scalar(gg["sheet_2"], name="sheet_2", required=False)) if "sheet_2" in gg.columns else None
+        max_dur_ms_1 = _get_float("max_dur_ms_1")
+        tm_ms_1 = _get_float("tm_ms_1")
+        td_ms_1 = _get_float("td_ms_1")
+        delta_ms_1 = _get_float("delta_ms_1")
+        Delta_app_ms_1 = _get_float("Delta_app_ms_1")
+        Hz_1 = _get_float("Hz_1")
+        TE_1 = _get_float("TE_1")
+        TR_1 = _get_float("TR_1")
+        bmax_1 = _get_float("bmax_1")
+        protocol_1 = _get_str("protocol_1")
+        sequence_1 = _get_str("sequence_1")
+        sheet_1 = _get_str("sheet_1")
 
-        # timing: prefer override > td_ms_1/2 > compute from max_dur_ms_1 + tm_ms_1
+        max_dur_ms_2 = _get_float("max_dur_ms_2")
+        tm_ms_2 = _get_float("tm_ms_2")
+        td_ms_2 = _get_float("td_ms_2")
+        delta_ms_2 = _get_float("delta_ms_2")
+        Delta_app_ms_2 = _get_float("Delta_app_ms_2")
+        Hz_2 = _get_float("Hz_2")
+        TE_2 = _get_float("TE_2")
+        TR_2 = _get_float("TR_2")
+        bmax_2 = _get_float("bmax_2")
+        protocol_2 = _get_str("protocol_2")
+        sequence_2 = _get_str("sequence_2")
+        sheet_2 = _get_str("sheet_2")
+
+        # timing summary for fitting internals: prefer override > td_ms_1/2 > compute from side 1
         td_ms: float | None
-        max_dur_ms: float | None = None
-        tm_ms: float | None = None
-
         if td_override_ms is not None:
             td_ms = float(td_override_ms)
         else:
-            td1 = float(_unique_scalar(gg["td_ms_1"], name="td_ms_1", required=False)) if "td_ms_1" in gg.columns else None
-            td2 = float(_unique_scalar(gg["td_ms_2"], name="td_ms_2", required=False)) if "td_ms_2" in gg.columns else None
-
-            if td1 is not None and td2 is not None and np.isfinite(td1) and np.isfinite(td2):
-                if abs(td1 - td2) > float(td_tol_ms):
+            if td_ms_1 is not None and td_ms_2 is not None:
+                if abs(td_ms_1 - td_ms_2) > float(td_tol_ms):
                     raise ValueError(
                         f"td_ms_1 != td_ms_2 para roi={roi}, direction={direction}. "
-                        f"td1={td1}, td2={td2}. Si es intencional, pasá td_override_ms."
+                        f"td1={td_ms_1}, td2={td_ms_2}. Si es intencional, pasá td_override_ms."
                     )
-                td_ms = float(0.5 * (td1 + td2))
-            elif td1 is not None and np.isfinite(td1):
-                td_ms = float(td1)
+                td_ms = float(0.5 * (td_ms_1 + td_ms_2))
+            elif td_ms_1 is not None:
+                td_ms = float(td_ms_1)
+            elif max_dur_ms_1 is not None and tm_ms_1 is not None:
+                td_ms = float(2.0 * max_dur_ms_1 + tm_ms_1)
             else:
-                # compute from max_dur_ms_1 + tm_ms_1
-                if "max_dur_ms_1" in gg.columns:
-                    max_dur_ms = float(_unique_scalar(gg["max_dur_ms_1"], name="max_dur_ms_1", required=False))
-                if "tm_ms_1" in gg.columns:
-                    tm_ms = float(_unique_scalar(gg["tm_ms_1"], name="tm_ms_1", required=False))
-                if max_dur_ms is not None and tm_ms is not None and np.isfinite(max_dur_ms) and np.isfinite(tm_ms):
-                    td_ms = float(2.0 * max_dur_ms + tm_ms)
-                else:
-                    td_ms = None
-
-        if max_dur_ms is None and "max_dur_ms_1" in gg.columns:
-            v = _unique_scalar(gg["max_dur_ms_1"], name="max_dur_ms_1", required=False)
-            max_dur_ms = float(v) if v is not None and np.isfinite(float(v)) else None
-        if tm_ms is None and "tm_ms_1" in gg.columns:
-            v = _unique_scalar(gg["tm_ms_1"], name="tm_ms_1", required=False)
-            tm_ms = float(v) if v is not None and np.isfinite(float(v)) else None
+                td_ms = None
 
         # arrays
         y = pd.to_numeric(gg[y_eff], errors="coerce").to_numpy(dtype=float)
@@ -426,14 +462,31 @@ def fit_ogse_contrast_long(
                     roi=roi,
                     direction=direction,
                     stat=stat,
-                    td_ms=td_ms,
-                    max_dur_ms=max_dur_ms,
-                    tm_ms=tm_ms,
-                    N1=N1,
-                    N2=N2,
+                    max_dur_ms_1=max_dur_ms_1,
+                    tm_ms_1=tm_ms_1,
+                    td_ms_1=td_ms_1,
+                    N_1=N1,
+                    delta_ms_1=delta_ms_1,
+                    Delta_app_ms_1=Delta_app_ms_1,
                     Hz_1=Hz_1,
-                    Hz_2=Hz_2,
+                    TE_1=TE_1,
+                    TR_1=TR_1,
+                    bmax_1=bmax_1,
+                    protocol_1=protocol_1,
+                    sequence_1=sequence_1,
                     sheet_1=sheet_1,
+                    max_dur_ms_2=max_dur_ms_2,
+                    tm_ms_2=tm_ms_2,
+                    td_ms_2=td_ms_2,
+                    N_2=N2,
+                    delta_ms_2=delta_ms_2,
+                    Delta_app_ms_2=Delta_app_ms_2,
+                    Hz_2=Hz_2,
+                    TE_2=TE_2,
+                    TR_2=TR_2,
+                    bmax_2=bmax_2,
+                    protocol_2=protocol_2,
+                    sequence_2=sequence_2,
                     sheet_2=sheet_2,
                     model=model,
                     ycol=ycol,
@@ -470,14 +523,31 @@ def fit_ogse_contrast_long(
             roi=roi,
             direction=direction,
             stat=stat,
-            td_ms=td_ms,
-            max_dur_ms=max_dur_ms,
-            tm_ms=tm_ms,
-            N1=N1,
-            N2=N2,
+            max_dur_ms_1=max_dur_ms_1,
+            tm_ms_1=tm_ms_1,
+            td_ms_1=td_ms_1,
+            N_1=N1,
+            delta_ms_1=delta_ms_1,
+            Delta_app_ms_1=Delta_app_ms_1,
             Hz_1=Hz_1,
-            Hz_2=Hz_2,
+            TE_1=TE_1,
+            TR_1=TR_1,
+            bmax_1=bmax_1,
+            protocol_1=protocol_1,
+            sequence_1=sequence_1,
             sheet_1=sheet_1,
+            max_dur_ms_2=max_dur_ms_2,
+            tm_ms_2=tm_ms_2,
+            td_ms_2=td_ms_2,
+            N_2=N2,
+            delta_ms_2=delta_ms_2,
+            Delta_app_ms_2=Delta_app_ms_2,
+            Hz_2=Hz_2,
+            TE_2=TE_2,
+            TR_2=TR_2,
+            bmax_2=bmax_2,
+            protocol_2=protocol_2,
+            sequence_2=sequence_2,
             sheet_2=sheet_2,
             model=model,
             ycol=ycol,
