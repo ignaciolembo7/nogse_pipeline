@@ -107,7 +107,8 @@ for fname in "${FILES[@]}"; do
         --auto_fit_points \
         --auto_fit_min_points 3 \
 	--auto_fit_max_points 11 \
-        --auto_fit_tol 0.75; then
+	--auto_fit_err_floor 0.5 \     
+	--auto_fit_tol 0.75; then 
         ok=$((ok + 1))
         echo "  OK"
     else

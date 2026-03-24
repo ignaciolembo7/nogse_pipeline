@@ -88,6 +88,7 @@ def main():
         help='Busca automáticamente cuántos puntos iniciales ajustan mejor al modelo monoexp.',
     )
     ap.add_argument('--auto_fit_tol', type=float, default=0.05, help='Tolerancia relativa del modo automático al agregar un punto nuevo.')
+    ap.add_argument('--auto_fit_err_floor', type=float, default=0.005, help='Piso absoluto para rmse_log antes de compararlo entre k consecutivos.')
     ap.add_argument('--auto_fit_min_points', type=int, default=3, help='Primer k a probar en el modo automático.')
     ap.add_argument('--auto_fit_max_points', type=int, default=9, help='Último k a probar en el modo automático.')
 
@@ -113,6 +114,8 @@ def main():
         raise ValueError('--fit_points debe ser > 0.')
     if args.auto_fit_tol < 0:
         raise ValueError('--auto_fit_tol debe ser >= 0.')
+    if args.auto_fit_err_floor < 0:
+        raise ValueError('--auto_fit_err_floor debe ser >= 0.')
     if args.auto_fit_min_points < 1:
         raise ValueError('--auto_fit_min_points debe ser >= 1.')
     if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
@@ -151,6 +154,7 @@ def main():
         auto_fit_min_points=args.auto_fit_min_points,
         auto_fit_max_points=args.auto_fit_max_points,
         auto_fit_rel_tol=args.auto_fit_tol,
+        auto_fit_err_floor=args.auto_fit_err_floor,
         free_M0=args.free_M0,
         fix_M0=args.fix_M0,
         D0_init=args.D0_init,

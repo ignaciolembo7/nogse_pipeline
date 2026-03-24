@@ -17,6 +17,7 @@ from tools.fit_params_schema import standardize_fit_params
 AUTO_FIT_MIN_POINTS = 3
 AUTO_FIT_MAX_POINTS = 9
 AUTO_FIT_REL_TOL = 0.05
+AUTO_FIT_ERR_FLOOR = 5e-3
 AUTO_FIT_ABS_TOL = 1e-6
 
 
@@ -242,6 +243,7 @@ def _select_fit_result(
     auto_fit_min_points: int = AUTO_FIT_MIN_POINTS,
     auto_fit_max_points: Optional[int] = AUTO_FIT_MAX_POINTS,
     auto_fit_rel_tol: float = AUTO_FIT_REL_TOL,
+    auto_fit_err_floor: float = AUTO_FIT_ERR_FLOOR,
 ) -> dict:
     if auto_fit_points:
         k_min = max(1, int(auto_fit_min_points))
@@ -283,7 +285,8 @@ def _select_fit_result(
 
             prev_score = float(last_ok['rmse_log'])
             curr_score = float(cand['rmse_log'])
-            allowed_score = prev_score * (1.0 + auto_fit_rel_tol) + AUTO_FIT_ABS_TOL
+            effective_prev_score = max(prev_score, float(auto_fit_err_floor))
+            allowed_score = effective_prev_score * (1.0 + auto_fit_rel_tol) + AUTO_FIT_ABS_TOL
             if curr_score <= allowed_score:
                 last_ok = cand
                 continue
@@ -291,7 +294,7 @@ def _select_fit_result(
             stop_msg = (
                 f'Stopped at k={k}: rmse_log={curr_score:.4g} exceeded '
                 f'allowed={allowed_score:.4g} from previous k={int(last_ok["fit_points"])} '
-                f'(tol={auto_fit_rel_tol:.2%}).'
+                f'(prev={prev_score:.4g}, floor={float(auto_fit_err_floor):.4g}, tol={auto_fit_rel_tol:.2%}).'
             )
             break
 
@@ -312,7 +315,7 @@ def _select_fit_result(
             selected['method'] = (
                 f'{selected["method"]} | '
                 f'auto_fit_points_sequential(rmse_log, tol={auto_fit_rel_tol:.2%}, '
-                f'min_k={k_min}, max_k={k_max})'
+                f'err_floor={float(auto_fit_err_floor):.4g}, min_k={k_min}, max_k={k_max})'
             )
             return selected
 
@@ -425,6 +428,7 @@ def fit_signal_vs_bval_long(
     auto_fit_min_points: int = AUTO_FIT_MIN_POINTS,
     auto_fit_max_points: Optional[int] = AUTO_FIT_MAX_POINTS,
     auto_fit_rel_tol: float = AUTO_FIT_REL_TOL,
+    auto_fit_err_floor: float = AUTO_FIT_ERR_FLOOR,
     g_type: str = 'bvalue',
     gamma: float = 267.5221900,
     N: Optional[float] = None,
@@ -493,6 +497,7 @@ def fit_signal_vs_bval_long(
             auto_fit_min_points=auto_fit_min_points,
             auto_fit_max_points=auto_fit_max_points,
             auto_fit_rel_tol=auto_fit_rel_tol,
+            auto_fit_err_floor=auto_fit_err_floor,
         )
 
         selected_fit_points = fit_res.get('fit_points')
@@ -573,6 +578,7 @@ def run_fit_from_parquet(
     auto_fit_min_points: int = AUTO_FIT_MIN_POINTS,
     auto_fit_max_points: Optional[int] = AUTO_FIT_MAX_POINTS,
     auto_fit_rel_tol: float = AUTO_FIT_REL_TOL,
+    auto_fit_err_floor: float = AUTO_FIT_ERR_FLOOR,
     free_M0: bool = False,
     fix_M0: float = 1.0,
     D0_init: float = 0.0023,
@@ -611,6 +617,7 @@ def run_fit_from_parquet(
         auto_fit_min_points=auto_fit_min_points,
         auto_fit_max_points=auto_fit_max_points,
         auto_fit_rel_tol=auto_fit_rel_tol,
+        auto_fit_err_floor=auto_fit_err_floor,
         g_type=g_type,
         gamma=gamma,
         N=N,
