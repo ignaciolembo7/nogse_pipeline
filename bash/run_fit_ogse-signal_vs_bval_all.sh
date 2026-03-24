@@ -1,9 +1,22 @@
 python nogse_pipeline/scripts/fit_ogse-signal_vs_bval.py   "analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz000_b2000_19800122XXXX_20220622170141_5_results.rot_tensor.long.parquet"   --out_root "analysis/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated"   --directions long tra   --ycol value_norm   --g_type bvalue   --fit_points 7   --fix_M0 1.0   --rois Left-Lateral-Ventricle Right-Lateral-Ventricle
 
+python nogse_pipeline/scripts/fit_ogse-signal_vs_bval.py   "analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz025_b1075_19800122XXXX_20220622170141_6_results.rot_tensor.long.parquet"   --out_root "analysis/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated"   --directions long tra   --ycol value_norm   --g_type bvalue   --fit_points 7   --fix_M0 1.0   --rois Left-Lateral-Ventricle Right-Lateral-Ventricle
 
-20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz025_b1075_19800122XXXX_20220622170141_6_results.rot_tensor.long.parquet
 
-20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz050_b0250_19800122XXXX_20220622170141_7_results.rot_tensor.long.parquet
+python nogse_pipeline/scripts/fit_ogse-signal_vs_bval.py   "analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz050_b0250_19800122XXXX_20220622170141_7_results.rot_tensor.long.parquet"   --out_root "analysis/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated"   --directions long tra   --ycol value_norm   --g_type bvalue   --fit_points 7   --fix_M0 1.0   --rois Left-Lateral-Ventricle Right-Lateral-Ventricle
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 20230619_BRAIN-3_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d55_Hz000_b2000_QC-ROUTINE_20230619152408_10_results.rot_tensor.long.parquet
 

@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
 from ogse_fitting.b_from_g import b_from_g
+from plottings.fit_plot_style import finish_fit_figure, highlight_fit_points, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.fit_params_schema import standardize_fit_params
 
 
@@ -138,6 +139,73 @@ def _b_from_mode(
 class FitOutputs:
     fit_params: pd.DataFrame
     fit_table: pd.DataFrame
+
+
+def plot_fit_one_group_monoexp(
+    df_group: pd.DataFrame,
+    fit_row: dict,
+    *,
+    out_png: Path,
+    ycol: str,
+    g_type: str,
+    fit_points: int,
+) -> None:
+    df_group = _ensure_keys_types(df_group.copy())
+
+    if ycol not in df_group.columns:
+        raise KeyError(f"No encuentro ycol='{ycol}' en df_group.")
+
+    N = fit_row.get("N")
+    delta_ms = fit_row.get("delta_ms")
+    Delta_app_ms = fit_row.get("Delta_app_ms")
+    gamma = 267.5221900
+
+    y = pd.to_numeric(df_group[ycol], errors="coerce").to_numpy(dtype=float)
+    b = _b_from_mode(
+        df_group,
+        g_type=g_type,
+        gamma=gamma,
+        N=None if pd.isna(N) else float(N),
+        delta_ms=None if pd.isna(delta_ms) else float(delta_ms),
+        Delta_app_ms=None if pd.isna(Delta_app_ms) else float(Delta_app_ms),
+    )
+
+    m = np.isfinite(y) & np.isfinite(b)
+    y = y[m]
+    b = b[m]
+    if len(b) == 0:
+        raise ValueError("No hay puntos válidos para plotear.")
+
+    bmax = float(np.nanmax(b)) if np.any(np.isfinite(b)) else 0.0
+    b_dense = np.linspace(0.0, bmax, 250)
+
+    ys = None
+    label = "monoexp"
+    if bool(fit_row.get("ok", True)):
+        M0 = float(fit_row["M0"])
+        D0 = float(fit_row["D0_mm2_s"])
+        ys = monoexp(b_dense, M0, D0)
+        label = f"monoexp: M0={M0:.3g}, D0={D0:.3g} mm²/s"
+
+    start_fit_figure()
+    plot_fit_data(b, y, label="data")
+    highlight_fit_points(b[: int(fit_points)], y[: int(fit_points)], label=f"fit first {int(fit_points)}")
+    if ys is not None:
+        plot_fit_curve(b_dense, ys, label=label)
+
+    roi = fit_row.get("roi", "roi")
+    direction = fit_row.get("direction", "direction")
+    td = fit_row.get("td_ms")
+    td_txt = f"{float(td):.1f}" if td is not None and not pd.isna(td) else "NA"
+    N_txt = f"{int(round(float(N)))}" if N is not None and not pd.isna(N) else "NA"
+
+    plt.yscale("log")
+    finish_fit_figure(
+        title=f"OGSE signal fit | ROI={roi} | direction={direction} | $t_d$={td_txt} ms | N={N_txt}",
+        xlabel="bvalue (s/mm$^2$)",
+        ylabel=ycol,
+        out_png=out_png,
+    )
 
 
 def fit_signal_vs_bval_long(
@@ -273,25 +341,15 @@ def fit_signal_vs_bval_long(
             )
 
         if outdir_plots is not None:
-            bmax = float(np.nanmax(b)) if np.any(np.isfinite(b)) else 0.0
-            b_dense = np.linspace(0, bmax, 500)
-            y_dense = monoexp(b_dense, M0_hat, D0_hat)
-
-            plt.figure(figsize=(8, 6))
-            plt.plot(b, y, "o", markersize=6, label="data")
-            plt.plot(b[:k], y[:k], "o", markersize=8, label=f"fit first {fit_points}")
-            plt.plot(b_dense, y_dense, "-", linewidth=2, label=f"D0={D0_hat:.3e} mm^2/s")
-            plt.yscale("log")
-            plt.xlabel("b [s/mm^2]")
-            plt.ylabel(ycol)
-            plt.title(f"td_ms={td_ms} | dir={dir_val} | roi={roi_val} | g_type={g_type}", fontsize=11)
-            plt.grid(True, linestyle="--", alpha=0.3)
-            plt.legend()
-            plt.tight_layout()
-
-            out_png = outdir_plots / f"fit.dir-{dir_val}.ROI-{roi_val}.g-{g_type}.k-{fit_points}.stat-{stat_keep}.png"
-            plt.savefig(out_png, dpi=200)
-            plt.close()
+            out_png = outdir_plots / f"{roi_val}.monoexp.{g_type}.{ycol}.direction_{dir_val}.png"
+            plot_fit_one_group_monoexp(
+                d,
+                results[-1],
+                out_png=out_png,
+                ycol=ycol,
+                g_type=g_type,
+                fit_points=int(fit_points),
+            )
 
     return FitOutputs(fit_params=pd.DataFrame(results), fit_table=pd.DataFrame(points))
 
