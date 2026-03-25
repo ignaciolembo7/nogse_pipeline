@@ -174,6 +174,13 @@ def alpha_macro_scatter_if_available(cfg: OGSEFitConfig, fit_type_dir: Path, met
 
 
     df_summary = df_summary.rename(columns={"region":"roi", "direccion":"direction"})
+    if "alpha" not in df_summary.columns and "alpha_macro" in df_summary.columns:
+        df_summary["alpha"] = df_summary["alpha_macro"]
+    if "alpha_error" not in df_summary.columns:
+        if "alpha_macro_error" in df_summary.columns:
+            df_summary["alpha_error"] = df_summary["alpha_macro_error"]
+        else:
+            df_summary["alpha_error"] = np.nan
     df_ajustes["roi"] = df_ajustes["roi"].str.replace("_norm","", regex=False)
     df_summary["roi"] = df_summary["roi"].str.replace("_norm","", regex=False)
 

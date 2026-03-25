@@ -1,205 +1,408 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import re
+from typing import Iterable, Sequence
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 
-def _as_str(s: pd.Series) -> pd.Series:
-    return s.astype(str).str.strip()
+DEFAULT_CC_REGIONS = ["PostCC", "MidPostCC", "CentralCC", "MidAntCC", "AntCC"]
+DEFAULT_LATERAL_VENTRICLES = ["Left-Lateral-Ventricle", "Right-Lateral-Ventricle"]
+DEFAULT_DIRECTION_ALIASES = {"x": "long", "y": "tra", "z": "tra"}
+DEFAULT_BRAIN_COLORS = {"BRAIN": "#377eb8", "LUDG": "#ff7f00", "MBBL": "#4daf4a"}
+REQUIRED_DPROJ_COLUMNS = {"roi", "direction", "bvalue", "D_proj"}
 
 
-def _pick_col(cols: list[str], candidates: list[str]) -> str | None:
-    lc = {c.lower(): c for c in cols}
-    for cand in candidates:
-        if cand.lower() in lc:
-            return lc[cand.lower()]
-    return None
+def _as_str(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip()
 
 
-def _infer_id_from_filename(p: Path) -> str:
-    """
-    ID estable desde filename para agrupar replicados exp01/exp02, etc.
-    Quita '_expNN' y también cosas de timing muy específicas.
-    """
-    s = p.stem
-    s = re.sub(r"_exp\d+", "", s)
-    return s
+def _sanitize_token(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", str(value).strip())
 
 
-@dataclass(frozen=True)
-class Columns:
-    brain: str
-    sheet: str | None
-    region: str
-    direction: str
-    td_ms: str
-    D0: str
+def _merge_pipe_lists(values: Iterable[object]) -> str:
+    items: set[str] = set()
+    for value in values:
+        for token in str(value).split("|"):
+            token = token.strip()
+            if token:
+                items.add(token)
+    return "|".join(sorted(items))
 
 
-def detect_columns(df: pd.DataFrame) -> Columns:
-    cols = list(df.columns)
-
-    brain = _pick_col(cols, ["brain"])
-    sheet = _pick_col(cols, ["sheet"])
-    region = _pick_col(cols, ["roi", "region", "roi"])
-    direction = _pick_col(cols, ["direction", "direction", "dir"])
-    td = _pick_col(cols, ["delta_app_ms", "Delta_app_ms", "Td (ms)", "td_ms", "Td_ms", "td_ms_1"])
-    D0 = _pick_col(cols, ["D0_mm2_s", "D0_m2_ms", "D0", "D_fit", "D0_fit"])
-
-    if region is None:
-        raise KeyError("No pude detectar columna de roi (roi/region/roi).")
-    if direction is None:
-        raise KeyError("No pude detectar columna de direction (direction/direction).")
-    if td is None:
-        raise KeyError("No pude detectar columna de tiempo (delta_app_ms/Delta_app_ms/td_ms/Td (ms)).")
-    if D0 is None:
-        raise KeyError("No pude detectar columna de difusión (D0_mm2_s / D0_m2_ms / D0).")
-
-    # brain puede faltar -> se llena luego
-    return Columns(
-        brain=brain or "__MISSING__",
-        sheet=sheet,
-        region=region,
-        direction=direction,
-        td_ms=td,
-        D0=D0,
-    )
+def _read_table(path: Path) -> pd.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix == ".parquet":
+        return pd.read_parquet(path)
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path, sheet_name=0)
+    raise ValueError(f"Formato no soportado para {path}")
 
 
-def read_fit_params(files: list[Path]) -> pd.DataFrame:
-    frames = []
-    for p in files:
-        if p.suffix.lower() in [".xlsx", ".xls"]:
-            df = pd.read_excel(p)
-        elif p.suffix.lower() == ".parquet":
-            df = pd.read_parquet(p)
-        elif p.suffix.lower() == ".csv":
-            df = pd.read_csv(p)
-        else:
+def discover_dproj_files(root: str | Path, pattern: str = "**/*.rot_tensor.Dproj.long.parquet") -> list[Path]:
+    base = Path(root)
+    if base.is_file():
+        return [base]
+    files = sorted(base.glob(pattern))
+    if not files:
+        raise FileNotFoundError(f"No encontré archivos con pattern={pattern!r} dentro de {base}")
+    return files
+
+
+def parse_direction_aliases(items: Sequence[str] | None) -> dict[str, str]:
+    aliases = dict(DEFAULT_DIRECTION_ALIASES)
+    if not items:
+        return aliases
+    for raw in items:
+        if "=" not in raw:
+            raise ValueError(f"Alias inválido {raw!r}. Usá formato origen=destino, por ejemplo x=long.")
+        source, target = raw.split("=", 1)
+        source = source.strip()
+        target = target.strip()
+        if not source or not target:
+            raise ValueError(f"Alias inválido {raw!r}. Usá formato origen=destino.")
+        aliases[source] = target
+    return aliases
+
+
+def infer_brain_group(sheet: str | None, source_name: str | None = None) -> str:
+    raw = str(sheet or source_name or "").strip()
+    if not raw:
+        return "UNKNOWN"
+    stem = Path(raw).stem
+    match = re.match(r"^\d{8}_(.+)$", stem)
+    tail = match.group(1) if match else stem
+    token = tail.split("_")[0]
+    token = re.sub(r"-\d+$", "", token)
+    return token or stem
+
+
+def load_dproj_measurements(
+    dproj_root: str | Path,
+    *,
+    pattern: str = "**/*.rot_tensor.Dproj.long.parquet",
+    brains: Sequence[str] | None = None,
+    rois: Sequence[str] | None = None,
+    directions: Sequence[str] | None = None,
+    N: float | None = None,
+    Hz: float | None = None,
+    bvalue_decimals: int = 1,
+) -> pd.DataFrame:
+    if N is not None and Hz is not None:
+        raise ValueError("Elegí solo uno entre N y Hz para filtrar.")
+
+    brain_set = {str(x) for x in brains} if brains is not None else None
+    roi_set = {str(x) for x in rois} if rois is not None else None
+    direction_set = {str(x) for x in directions} if directions is not None else None
+
+    frames: list[pd.DataFrame] = []
+    for path in discover_dproj_files(dproj_root, pattern=pattern):
+        df = _read_table(path)
+        missing = REQUIRED_DPROJ_COLUMNS - set(df.columns)
+        if missing:
+            raise ValueError(f"En {path} faltan columnas requeridas: {sorted(missing)}")
+
+        out = df.copy()
+        out["roi"] = _as_str(out["roi"])
+        out["direction"] = _as_str(out["direction"])
+        out["bvalue"] = pd.to_numeric(out["bvalue"], errors="coerce")
+        out["D_proj"] = pd.to_numeric(out["D_proj"], errors="coerce")
+        out["Delta_app_ms"] = pd.to_numeric(out.get("Delta_app_ms", np.nan), errors="coerce")
+        out["delta_ms"] = pd.to_numeric(out.get("delta_ms", np.nan), errors="coerce")
+        out["td_ms"] = pd.to_numeric(out.get("td_ms", np.nan), errors="coerce")
+        out["N"] = pd.to_numeric(out.get("N", np.nan), errors="coerce")
+        out["Hz"] = pd.to_numeric(out.get("Hz", np.nan), errors="coerce")
+        out["sheet"] = _as_str(out["sheet"]) if "sheet" in out.columns else path.stem
+        out["brain"] = out["sheet"].map(lambda x: infer_brain_group(x, source_name=path.name))
+        out["source_file"] = path.name
+
+        if brain_set is not None:
+            out = out[out["brain"].isin(brain_set)]
+        if roi_set is not None:
+            out = out[out["roi"].isin(roi_set)]
+        if direction_set is not None:
+            out = out[out["direction"].isin(direction_set)]
+        if N is not None:
+            out = out[np.isclose(out["N"], float(N), atol=1e-6, equal_nan=False)]
+        if Hz is not None:
+            out = out[np.isclose(out["Hz"], float(Hz), atol=1e-6, equal_nan=False)]
+
+        out = out.dropna(subset=["bvalue", "D_proj", "Delta_app_ms"])
+        if out.empty:
             continue
-
-        df["__source_file"] = str(p)
-        frames.append(df)
+        frames.append(out)
 
     if not frames:
-        raise FileNotFoundError("No encontré archivos de fit_params (.xlsx/.parquet/.csv).")
+        selector = f"N={N}" if N is not None else (f"Hz={Hz}" if Hz is not None else "sin filtro N/Hz")
+        raise ValueError(f"No quedó data luego de filtrar ({selector}).")
 
-    return pd.concat(frames, ignore_index=True)
+    df_all = pd.concat(frames, ignore_index=True)
+    df_all["bvalue"] = df_all["bvalue"].round(int(bvalue_decimals))
 
-
-def compute_alpha_macro_powerlaw(
-    df_fit_params: pd.DataFrame,
-    *,
-    min_points: int = 3,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    1) Agrega D0 promedio vs td (delta_app_ms) por (brain, roi, direction, td)
-    2) Ajusta ley de potencia: D0(td) = a * td^{-alpha_macro}
-       => log D0 = log a - alpha_macro * log td
-
-    Devuelve:
-      - df_avg: tabla D0_mean vs td
-      - df_summary: summary_alpha_values.xlsx compatible
-    """
-    df = df_fit_params.copy()
-    cols = detect_columns(df)
-
-    # normalizar columnas básicas
-    df["roi"] = _as_str(df[cols.region]).str.replace("_norm", "", regex=False)
-    df["direction"] = _as_str(df[cols.direction])
-
-    df["td_ms"] = pd.to_numeric(df[cols.td_ms], errors="coerce")
-    df["D0_raw"] = pd.to_numeric(df[cols.D0], errors="coerce")
-
-    # brain (si no existe, inferir desde filename o sheet)
-    if cols.brain != "__MISSING__":
-        df["brain"] = _as_str(df[cols.brain])
-    elif cols.sheet is not None:
-        df["brain"] = _as_str(df[cols.sheet])
-    else:
-        df["brain"] = df["__source_file"].astype(str).apply(lambda s: _infer_id_from_filename(Path(s)))
-
-    # sheet opcional (para matching alternativo)
-    if cols.sheet is not None:
-        df["sheet"] = _as_str(df[cols.sheet])
-    else:
-        df["sheet"] = ""
-
-    # limpiar
-    df = df[np.isfinite(df["td_ms"]) & (df["td_ms"] > 0) & np.isfinite(df["D0_raw"]) & (df["D0_raw"] > 0)].copy()
-    if df.empty:
-        raise ValueError("Luego de limpiar NaNs/<=0, no quedó data para alpha_macro.")
-
-    # promedio por td
-    gcols = ["brain", "sheet", "roi", "direction", "td_ms"]
+    group_cols = ["brain", "roi", "direction", "bvalue", "Delta_app_ms"]
     df_avg = (
-        df.groupby(gcols, as_index=False)
-          .agg(D0_mean=("D0_raw", "mean"), D0_std=("D0_raw", "std"), n=("D0_raw", "count"))
+        df_all.groupby(group_cols, as_index=False)
+        .agg(
+            D_mean_mm2_s=("D_proj", "mean"),
+            D_std_mm2_s=("D_proj", "std"),
+            n_measurements=("D_proj", "count"),
+            Hz=("Hz", "mean"),
+            N=("N", "mean"),
+            delta_ms=("delta_ms", "mean"),
+            td_ms=("td_ms", "mean"),
+            sheet_count=("sheet", "nunique"),
+            sheets=("sheet", lambda s: "|".join(sorted({str(x) for x in s.dropna()}))),
+            source_files=("source_file", lambda s: "|".join(sorted({str(x) for x in s.dropna()}))),
+        )
     )
-    df_avg["D0_se"] = df_avg["D0_std"] / np.sqrt(df_avg["n"].clip(lower=1))
+    df_avg["D_std_mm2_s"] = df_avg["D_std_mm2_s"].fillna(0.0)
+    return df_avg.sort_values(["brain", "roi", "direction", "bvalue", "Delta_app_ms"], kind="stable").reset_index(drop=True)
 
-    # fit por grupo (brain, roi, direction)
-    rows = []
-    for (brain, sheet, region, direc), sub in df_avg.groupby(["brain", "sheet", "roi", "direction"], sort=False):
-        sub = sub.sort_values("td_ms")
-        # requiere puntos distintos
-        if sub["td_ms"].nunique() < min_points:
+
+def plot_d_vs_delta_curves(
+    df_avg: pd.DataFrame,
+    *,
+    out_dir: str | Path,
+    reference_D0: float | None = None,
+    reference_D0_error: float | None = None,
+) -> list[Path]:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    outputs: list[Path] = []
+    for (brain, roi, direction), sub in df_avg.groupby(["brain", "roi", "direction"], sort=True):
+        sub = sub.sort_values(["bvalue", "Delta_app_ms"], kind="stable")
+        bvalues = sorted(sub["bvalue"].dropna().unique().tolist())
+        if not bvalues:
             continue
 
-        x = np.log(sub["td_ms"].to_numpy(float))
-        y = np.log(sub["D0_mean"].to_numpy(float))
+        fig, ax = plt.subplots(figsize=(8, 6))
+        cmap = plt.get_cmap("viridis")
+        selected = sub[np.isclose(sub["bvalue"], max(bvalues), atol=1e-9)].sort_values("Delta_app_ms")
 
-        # pesos ~ 1/var(log D) ; var(log D) ≈ (se/D)^2
-        se = sub["D0_se"].to_numpy(float)
-        D = sub["D0_mean"].to_numpy(float)
-        se_log = np.where((se > 0) & (D > 0), se / D, np.nan)
-        w = np.where(np.isfinite(se_log) & (se_log > 0), 1.0 / (se_log**2), 1.0)
+        for idx, bvalue in enumerate(bvalues):
+            curve = sub[np.isclose(sub["bvalue"], bvalue, atol=1e-9)].sort_values("Delta_app_ms")
+            if curve.empty:
+                continue
+            color = cmap(idx / max(1, len(bvalues) - 1))
+            ax.plot(
+                curve["Delta_app_ms"],
+                curve["D_mean_mm2_s"],
+                marker="o",
+                linewidth=2,
+                color=color,
+                label=f"b-value = {bvalue:g} s/mm$^2$",
+            )
 
-        # regresión lineal ponderada
-        X = np.column_stack([np.ones_like(x), x])
-        W = np.diag(w)
-        XtWX = X.T @ W @ X
-        try:
-            beta = np.linalg.solve(XtWX, X.T @ W @ y)
-        except np.linalg.LinAlgError:
+        if not selected.empty:
+            d0_mean = float(np.nanmean(selected["D_mean_mm2_s"].to_numpy(float)))
+            d0_std = float(np.nanstd(selected["D_mean_mm2_s"].to_numpy(float)))
+            label = f"D (b={max(bvalues):g}) = {d0_mean:.6f}"
+            if reference_D0 is not None and np.isfinite(reference_D0) and reference_D0 > 0:
+                alpha = d0_mean / float(reference_D0)
+                if reference_D0_error is not None and np.isfinite(reference_D0_error):
+                    rel_d = d0_std / d0_mean if d0_mean > 0 else np.nan
+                    rel_ref = float(reference_D0_error) / float(reference_D0)
+                    alpha_err = np.sqrt(rel_d**2 + rel_ref**2) * alpha if np.isfinite(rel_d) else np.nan
+                    label = f"{label}\n$\\alpha$ = ({alpha:.4f} $\\pm$ {alpha_err:.4f})"
+                else:
+                    label = f"{label}\n$\\alpha$ = ({alpha:.4f})"
+            ax.axhline(d0_mean, color="black", linestyle="--", linewidth=1.1, alpha=0.7, label=label)
+
+        if reference_D0 is not None and np.isfinite(reference_D0):
+            title = f"{brain} | {roi} | dir={direction} | $D_0$ = {float(reference_D0):.4f} mm$^2$/s"
+        else:
+            title = f"{brain} | {roi} | dir={direction}"
+        ax.set_title(title, fontsize=15)
+        ax.set_xlabel(r"$\Delta_{app}$ [ms]", fontsize=13)
+        ax.set_ylabel(r"D [mm$^2$/s]", fontsize=13)
+        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.legend(fontsize=9, title="b-value")
+        plt.tight_layout()
+
+        out_path = out_dir / f"D_vs_delta_app_{_sanitize_token(brain)}_{_sanitize_token(roi)}_dir={_sanitize_token(direction)}.png"
+        fig.savefig(out_path, dpi=300)
+        plt.close(fig)
+        outputs.append(out_path)
+
+    return outputs
+
+
+def _expand_direction_alias_rows(df_summary: pd.DataFrame, aliases: dict[str, str]) -> pd.DataFrame:
+    if df_summary.empty:
+        return df_summary.copy()
+
+    raw = df_summary.copy()
+    raw["direction_kind"] = "raw"
+    raw["direction_components"] = raw["direction"]
+
+    derived_rows: list[dict[str, object]] = []
+    for (brain, roi, alias), sub in (
+        raw.assign(direction_alias=raw["direction"].map(lambda x: aliases.get(str(x), str(x))))
+        .groupby(["brain", "roi", "direction_alias"], sort=True)
+    ):
+        directions = sorted(sub["direction"].astype(str).unique().tolist())
+        if len(directions) == 1 and directions[0] == alias:
+            continue
+        derived_rows.append(
+            {
+                "brain": brain,
+                "sheet": _merge_pipe_lists(sub["sheet"].dropna()),
+                "roi": roi,
+                "direction": alias,
+                "direction_kind": "derived",
+                "direction_components": "|".join(directions),
+                "alpha_macro": float(sub["alpha_macro"].mean()),
+                "alpha_macro_error": float(sub["alpha_macro_error"].mean()),
+                "D0_mean_mm2_s": float(sub["D0_mean_mm2_s"].mean()),
+                "D0_std_mm2_s": float(sub["D0_std_mm2_s"].mean()),
+                "selected_bvalue": float(sub["selected_bvalue"].mean()),
+                "n_delta_app": int(round(sub["n_delta_app"].mean())),
+                "delta_app_min_ms": float(sub["delta_app_min_ms"].min()),
+                "delta_app_max_ms": float(sub["delta_app_max_ms"].max()),
+                "reference_D0_mm2_s": float(sub["reference_D0_mm2_s"].iloc[0]),
+                "reference_D0_error_mm2_s": float(sub["reference_D0_error_mm2_s"].iloc[0]),
+                "model": "fixed_bvalue_mean",
+            }
+        )
+
+    if not derived_rows:
+        return raw
+    derived = pd.DataFrame(derived_rows)
+    return pd.concat([raw, derived], ignore_index=True, sort=False)
+
+
+def compute_alpha_macro_summary(
+    df_avg: pd.DataFrame,
+    *,
+    reference_D0: float = 0.0032,
+    reference_D0_error: float = 0.0000283512,
+    direction_aliases: dict[str, str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if reference_D0 <= 0:
+        raise ValueError("reference_D0 debe ser > 0.")
+    if df_avg.empty:
+        raise ValueError("df_avg está vacío.")
+
+    rows: list[dict[str, object]] = []
+    for (brain, roi, direction), sub in df_avg.groupby(["brain", "roi", "direction"], sort=True):
+        bvalues = sub["bvalue"].dropna().unique()
+        if len(bvalues) == 0:
+            continue
+        selected_bvalue = float(np.max(bvalues))
+        chosen = sub[np.isclose(sub["bvalue"], selected_bvalue, atol=1e-9)].sort_values("Delta_app_ms")
+        if chosen.empty:
             continue
 
-        yhat = X @ beta
-        resid = y - yhat
-        dof = max(1, len(y) - 2)
-        s2 = float((resid.T @ W @ resid) / dof)
+        dvals = chosen["D_mean_mm2_s"].to_numpy(float)
+        d0_mean = float(np.nanmean(dvals))
+        d0_std = float(np.nanstd(dvals))
+        alpha = float(d0_mean / reference_D0)
 
-        try:
-            cov = np.linalg.inv(XtWX) * s2
-            se_beta = np.sqrt(np.diag(cov))
-        except np.linalg.LinAlgError:
-            se_beta = np.array([np.nan, np.nan])
+        rel_d = d0_std / d0_mean if d0_mean > 0 else np.nan
+        rel_ref = float(reference_D0_error) / float(reference_D0) if reference_D0_error is not None else 0.0
+        alpha_error = float(np.sqrt(rel_d**2 + rel_ref**2) * alpha) if np.isfinite(rel_d) else np.nan
 
-        intercept, slope = float(beta[0]), float(beta[1])
-        intercept_se, slope_se = float(se_beta[0]), float(se_beta[1])
-
-        alpha_macro = float(-slope)
-        alpha_macro_err = float(slope_se) if np.isfinite(slope_se) else np.nan
-
-        rows.append({
-            "brain": str(brain),
-            "sheet": str(sheet),
-            "roi": str(region),
-            "direction": str(direc),
-            "alpha_macro": alpha_macro,
-            "alpha_macro_error": alpha_macro_err,
-            "model": "powerlaw_loglog",
-            "n_points": int(sub["td_ms"].nunique()),
-            "td_min_ms": float(sub["td_ms"].min()),
-            "td_max_ms": float(sub["td_ms"].max()),
-            "D0_at_1ms": float(np.exp(intercept)),  # D0 cuando td=1ms (en las unidades de D0)
-        })
+        rows.append(
+            {
+                "brain": str(brain),
+                "sheet": _merge_pipe_lists(chosen["sheets"].astype(str).tolist()),
+                "roi": str(roi),
+                "direction": str(direction),
+                "alpha_macro": alpha,
+                "alpha_macro_error": alpha_error,
+                "D0_mean_mm2_s": d0_mean,
+                "D0_std_mm2_s": d0_std,
+                "selected_bvalue": selected_bvalue,
+                "n_delta_app": int(chosen["Delta_app_ms"].nunique()),
+                "delta_app_min_ms": float(chosen["Delta_app_ms"].min()),
+                "delta_app_max_ms": float(chosen["Delta_app_ms"].max()),
+                "reference_D0_mm2_s": float(reference_D0),
+                "reference_D0_error_mm2_s": float(reference_D0_error),
+                "model": "fixed_bvalue_mean",
+            }
+        )
 
     df_summary = pd.DataFrame(rows)
-    return df_avg, df_summary
+    if df_summary.empty:
+        raise ValueError("No pude construir alpha_macro: no hubo grupos válidos.")
+
+    aliases = direction_aliases or dict(DEFAULT_DIRECTION_ALIASES)
+    df_summary = _expand_direction_alias_rows(df_summary, aliases)
+    df_summary["region"] = df_summary["roi"]
+    df_summary["direccion"] = df_summary["direction"]
+    return df_avg.copy(), df_summary.sort_values(["brain", "roi", "direction"], kind="stable").reset_index(drop=True)
+
+
+def plot_alpha_macro_vs_roi(
+    df_summary: pd.DataFrame,
+    *,
+    out_png: str | Path,
+    roi_order: Sequence[str],
+    directions: Sequence[str],
+    brains: Sequence[str] | None = None,
+    title_prefix: str = r"$\alpha_{macro}$",
+) -> Path:
+    out_png = Path(out_png)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+
+    sub = df_summary[
+        (df_summary["roi"].isin([str(x) for x in roi_order]))
+        & (df_summary["direction"].isin([str(x) for x in directions]))
+    ].copy()
+    if "direction_kind" in sub.columns and (sub["direction_kind"] == "derived").any():
+        sub = sub[sub["direction_kind"] == "derived"].copy()
+    if sub.empty:
+        raise ValueError(f"No hay datos para plotear {out_png.name}")
+
+    brain_list = list(brains) if brains is not None else sorted(sub["brain"].astype(str).unique().tolist())
+    fig, axes = plt.subplots(1, len(directions), figsize=(8 * len(directions), 6), sharey=True)
+    if len(directions) == 1:
+        axes = [axes]
+
+    x = np.arange(len(roi_order))
+    for ax, direction in zip(axes, directions):
+        ddir = sub[sub["direction"] == str(direction)]
+        for brain in brain_list:
+            db = ddir[ddir["brain"] == str(brain)]
+            yvals: list[float] = []
+            evals: list[float] = []
+            for roi in roi_order:
+                row = db[db["roi"] == str(roi)]
+                if row.empty:
+                    yvals.append(np.nan)
+                    evals.append(np.nan)
+                    continue
+                yvals.append(float(row["alpha_macro"].iloc[0]))
+                evals.append(float(row["alpha_macro_error"].iloc[0]))
+
+            y = np.asarray(yvals, dtype=float)
+            yerr = np.asarray(evals, dtype=float)
+            color = DEFAULT_BRAIN_COLORS.get(str(brain), None)
+            ax.plot(x, y, "o-", linewidth=2, markersize=7, color=color, label=str(brain))
+            if np.isfinite(yerr).any():
+                low = y - np.nan_to_num(yerr, nan=0.0)
+                high = y + np.nan_to_num(yerr, nan=0.0)
+                ax.fill_between(x, low, high, alpha=0.2, color=color)
+
+        ax.set_title(f"{title_prefix} | dir={direction}", fontsize=15)
+        ax.set_xticks(x)
+        ax.set_xticklabels(list(roi_order), rotation=45, ha="right")
+        ax.set_xlabel("ROI", fontsize=12)
+        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.legend()
+
+    axes[0].set_ylabel(r"$\alpha_{macro}$", fontsize=12)
+    plt.tight_layout()
+    fig.savefig(out_png, dpi=300)
+    plt.close(fig)
+    return out_png
 
 
 def write_alpha_macro_outputs(
@@ -211,6 +414,15 @@ def write_alpha_macro_outputs(
 ) -> None:
     out_summary_xlsx.parent.mkdir(parents=True, exist_ok=True)
     df_summary.to_excel(out_summary_xlsx, index=False)
+    df_summary.to_csv(out_summary_xlsx.with_suffix(".csv"), index=False)
     if out_avg_xlsx is not None:
         out_avg_xlsx.parent.mkdir(parents=True, exist_ok=True)
         df_avg.to_excel(out_avg_xlsx, index=False)
+        df_avg.to_csv(out_avg_xlsx.with_suffix(".csv"), index=False)
+
+
+def ensure_list_or_none(values: Iterable[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    out = [str(x) for x in values]
+    return out or None

@@ -4,42 +4,58 @@ import argparse
 from pathlib import Path
 
 from monoexp_fitting.plot_D0_vs_Delta import (
-    load_all_fits,
-    plot_all_rois_same_scale,
-    plot_per_roi,
+    load_all_measurements,
+    plot_all_groups,
 )
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--fits-root", required=True, help="Carpeta raíz con monoexp_fits/<exp_id>/*.fit_params.csv")
-    ap.add_argument("--out-dir", required=True, help="Carpeta salida para plots")
-    ap.add_argument("--dirs", nargs="+", default=None, help="Direcciones a incluir (ej: x y z)")
-    ap.add_argument("--rois", nargs="+", default=None, help="ROIs a incluir (si no, usa todas)")
-    ap.add_argument("--agg", default="mean", choices=["mean", "median", "none"], help="Agregado si hay replicados")
-    ap.add_argument("--ncols", type=int, default=3, help="Columnas en la figura comparativa de ROIs")
+
+def main() -> None:
+    ap = argparse.ArgumentParser(
+        description="Construye curvas D vs Delta_app_ms a b fijo desde tablas rot_tensor.Dproj.long.parquet."
+    )
+    ap.add_argument("--dproj-root", required=True, help="Carpeta raíz con *.rot_tensor.Dproj.long.parquet.")
+    ap.add_argument("--pattern", default="**/*.rot_tensor.Dproj.long.parquet", help="Glob relativo dentro de dproj-root.")
+    ap.add_argument("--out-dir", required=True, help="Carpeta de salida para plots y tabla combinada.")
+    ap.add_argument("--brains", nargs="+", default=None, help="Brains a incluir (ej: BRAIN LUDG MBBL).")
+    ap.add_argument("--rois", nargs="+", default=None, help="ROIs a incluir.")
+    ap.add_argument("--dirs", nargs="+", default=["x", "y", "z"], help="Direcciones a incluir.")
+
+    selector = ap.add_mutually_exclusive_group()
+    selector.add_argument("--N", type=float, default=None, help="Filtra por N.")
+    selector.add_argument("--Hz", type=float, default=None, help="Filtra por Hz.")
+
+    ap.add_argument("--bvalue-decimals", type=int, default=1, help="Decimales para redondear bvalue antes de agrupar.")
+    ap.add_argument("--reference-D0", type=float, default=0.0032, help="Valor de referencia para anotar alpha en el plot.")
+    ap.add_argument("--reference-D0-error", type=float, default=0.0000283512, help="Error del valor de referencia.")
     args = ap.parse_args()
 
-    df = load_all_fits(
-        args.fits_root,
+    N = 1.0 if args.N is None and args.Hz is None else args.N
+
+    df = load_all_measurements(
+        args.dproj_root,
+        pattern=args.pattern,
         dirs=args.dirs,
         rois=args.rois,
-        agg=args.agg,
+        brains=args.brains,
+        N=N,
+        Hz=args.Hz,
+        bvalue_decimals=int(args.bvalue_decimals),
     )
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1 plot por ROI (con todas las direcciones)
-    rois_list = sorted(df["roi"].unique().tolist())
-    for roi in rois_list:
-        plot_per_roi(df, out_dir=out_dir, roi=roi, dirs=args.dirs)
+    plot_all_groups(
+        df,
+        out_dir=out_dir,
+        reference_D0=float(args.reference_D0),
+        reference_D0_error=float(args.reference_D0_error),
+    )
 
-    # figura comparativa (todas las ROIs, mismo eje Y)
-    plot_all_rois_same_scale(df, out_dir=out_dir, dirs=args.dirs, rois=args.rois, ncols=args.ncols)
+    df.to_csv(out_dir / "D_vs_delta_app.combined.csv", index=False)
+    df.to_excel(out_dir / "D_vs_delta_app.combined.xlsx", index=False)
+    print(f"[OK] Plots + tablas en: {out_dir}")
 
-    # guardar tabla combinada
-    df.to_csv(out_dir / "D0_vs_Delta.combined.csv", index=False)
-    print(f"OK. Plots + tabla en: {out_dir}")
 
 if __name__ == "__main__":
     main()
