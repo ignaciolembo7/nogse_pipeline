@@ -9,6 +9,16 @@ from monoexp_fitting.fit_signal_vs_bval import run_fit_from_parquet
 
 
 VALID_YCOLS = {'value', 'value_norm'}
+VALID_G_TYPES = [
+    'bvalue',
+    'g',
+    'bvalue_g',
+    'g_max',
+    'g_lin_max',
+    'bvalue_g_lin_max',
+    'g_thorsten',
+    'bvalue_thorsten',
+]
 LEGACY_DEFAULT_FIT_POINTS = 6
 
 
@@ -95,7 +105,7 @@ def main():
     ap.add_argument(
         '--g_type',
         default='bvalue',
-        choices=['bvalue', 'g', 'g_max', 'g_lin_max', 'g_thorsten'],
+        choices=VALID_G_TYPES,
     )
     ap.add_argument('--gamma', type=float, default=267.5221900)
     ap.add_argument('--td_ms', type=float, default=None)

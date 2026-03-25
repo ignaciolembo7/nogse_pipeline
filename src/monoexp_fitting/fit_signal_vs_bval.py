@@ -20,6 +20,17 @@ AUTO_FIT_REL_TOL = 0.05
 AUTO_FIT_ERR_FLOOR = 5e-3
 AUTO_FIT_ABS_TOL = 1e-6
 
+GTYPE_ALIASES = {
+    'bvalue': 'bvalue',
+    'g': 'g',
+    'bvalue_g': 'g',
+    'g_max': 'g_max',
+    'g_lin_max': 'g_lin_max',
+    'bvalue_g_lin_max': 'g_lin_max',
+    'g_thorsten': 'g_thorsten',
+    'bvalue_thorsten': 'g_thorsten',
+}
+
 
 def monoexp(b: np.ndarray, M0: float, D0: float) -> np.ndarray:
     return M0 * np.exp(-b * D0)
@@ -110,6 +121,10 @@ def _rmse_log(y: np.ndarray, yhat: np.ndarray) -> float:
     return float(np.sqrt(np.mean((np.log(y_safe) - np.log(yhat_safe)) ** 2)))
 
 
+def _normalize_g_type(g_type: str) -> str:
+    return GTYPE_ALIASES.get(str(g_type).strip(), str(g_type).strip())
+
+
 def _b_from_mode(
     d: pd.DataFrame,
     *,
@@ -119,6 +134,8 @@ def _b_from_mode(
     delta_ms: Optional[float],
     Delta_app_ms: Optional[float],
 ) -> np.ndarray:
+    g_type = _normalize_g_type(g_type)
+
     if g_type == 'bvalue':
         if 'bvalue' not in d.columns:
             raise ValueError("Falta columna 'bvalue'.")

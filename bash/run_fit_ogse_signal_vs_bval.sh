@@ -101,14 +101,14 @@ for fname in "${FILES[@]}"; do
         --out_root "$OUT_ROOT" \
         --directions long tra \
         --ycol value_norm \
-        --g_type bvalue \
+        --g_type bvalue_thorsten \
         --fix_M0 1.0 \
         --rois "${ROI_ARGS[@]}" \
         --auto_fit_points \
         --auto_fit_min_points 3 \
 	--auto_fit_max_points 11 \
-	--auto_fit_err_floor 0.5 \     
-	--auto_fit_tol 0.75; then 
+	--auto_fit_err_floor 0.05 \
+	--auto_fit_tol 0.15; then 
         ok=$((ok + 1))
         echo "  OK"
     else
