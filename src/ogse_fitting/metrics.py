@@ -48,7 +48,7 @@ def augment_params_and_plot_individual(cfg: OGSEFitConfig, all_curves: dict[str,
 
             g1_fit = np.linspace(0, g1.max(), 1000)
             g2_fit = np.linspace(0, g2.max(), 1000)
-            y_fit = nogse_model_fitting.OGSE_contrast_vs_g_rest(td, g1_fit, g2_fit, cfg.N1, cfg.N2, tc, M0, D0)
+            y_fit = nogse_model_fitting.OGSE_contrast_vs_g_rest(td, g1_fit, g2_fit, cfg.N_1, cfg.N_2, tc, M0, D0)
 
             signal_max = float(np.max(y_fit))
             g_at_max = float(g1_fit[np.argmax(y_fit)])
@@ -78,7 +78,7 @@ def augment_params_and_plot_individual(cfg: OGSEFitConfig, all_curves: dict[str,
                 linewidth=2, color=color
             )
             plt.xlabel("Gradient strength $G$ [mT/m]", fontsize=18)
-            plt.ylabel(f"OGSE contrast $\Delta M_{{N{cfg.N1}-N{cfg.N2}}}$", fontsize=18)
+            plt.ylabel(f"OGSE contrast $\Delta M_{{N{cfg.N_1}-N{cfg.N_2}}}$", fontsize=18)
             plt.title(f"{name} | {cfg.method} | {region} | dir {direction} | d = {d} ms", fontsize=14)
             plt.xticks(fontsize=14)
             plt.yticks(fontsize=14)

@@ -28,8 +28,8 @@ def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
 
     model = str(fit_row["model"])
     td_ms = float(fit_row["td_ms"])
-    N1 = int(fit_row["N1"])
-    N2 = int(fit_row["N2"])
+    n_1 = int(fit_row["N_1"])
+    n_2 = int(fit_row["N_2"])
     xplot = str(fit_row.get("xplot", "1"))
 
     g1_max = float(fit_row["g1_max"])
@@ -42,17 +42,17 @@ def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
     if model == "free":
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
-        y = OGSE_contrast_vs_g_free(td_ms, G1, G2, N1, N2, M0, D0)
+        y = OGSE_contrast_vs_g_free(td_ms, G1, G2, n_1, n_2, M0, D0)
     elif model == "tort":
         alpha = float(fit_row["alpha"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
-        y = OGSE_contrast_vs_g_tort(td_ms, G1, G2, N1, N2, alpha, M0, D0)
+        y = OGSE_contrast_vs_g_tort(td_ms, G1, G2, n_1, n_2, alpha, M0, D0)
     elif model == "rest":
         tc_ms = float(fit_row["tc_ms"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
-        y = OGSE_contrast_vs_g_rest(td_ms, G1, G2, N1, N2, tc_ms, M0, D0)
+        y = OGSE_contrast_vs_g_rest(td_ms, G1, G2, n_1, n_2, tc_ms, M0, D0)
     else:
         raise ValueError(f"peak_from_fit_row: modelo '{model}' no soportado.")
 

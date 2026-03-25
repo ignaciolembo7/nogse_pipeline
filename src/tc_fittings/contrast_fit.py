@@ -49,9 +49,9 @@ def fit_global(cfg: OGSEFitConfig, all_curves: dict[str, pd.DataFrame], tabla_f:
         G2 = df["g2"].values * f_valor
         y  = df["signal"].values
 
-        # Modelo por curva (TE, N1, N2 fijos en closure)
+        # Modelo por curva (TE, N_1, N_2 fijos en closure)
         def curve_model(G1, G2, tc, M0, D0):
-            return model_func(td, G1, G2, cfg.N1, cfg.N2, tc, M0, D0)
+            return model_func(td, G1, G2, cfg.N_1, cfg.N_2, tc, M0, D0)
 
         model = lmfit.Model(curve_model, independent_vars=["G1", "G2"])
         params = lmfit.Parameters()

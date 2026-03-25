@@ -54,9 +54,9 @@ def load_all_curves(cfg: OGSEFitConfig, tabla_f: pd.DataFrame) -> Dict[str, pd.D
             d_folder = format_d_folder(d_float)
             td = td_ms(d_float, cfg.TM)
 
-            base = Path(f"../analysis/OGSE_contrast/{cfg.method}/{name}/contrast_N{cfg.N1}-N{cfg.N2}_d={d_folder}/")
+            base = Path(f"../analysis/OGSE_contrast/{cfg.method}/{name}/contrast_N{cfg.N_1}-N{cfg.N_2}_d={d_folder}/")
             for direction in cfg.dirs:
-                fname = f"OGSE_contrast_N{cfg.N1}-N{cfg.N2}_dir={direction}_d={d_folder}_{cfg.method}.xlsx"
+                fname = f"OGSE_contrast_N{cfg.N_1}-N{cfg.N_2}_dir={direction}_d={d_folder}_{cfg.method}.xlsx"
                 fpath = base / fname
                 if not fpath.exists():
                     print(f"⚠️ No encontrado: {fpath}")

@@ -108,12 +108,12 @@ def _infer_td_ms(group: pd.DataFrame) -> Optional[float]:
 @dataclass(frozen=True)
 class CorrLookup:
     tol_ms: float
-    table: dict[tuple[str, int, str], float]
+    table: dict[tuple[str, int, str, int, int], float]
 
 
 def _load_corr_xlsx(path: Path, sheet_name: str, tol_ms: float) -> CorrLookup:
     df = pd.read_excel(path, sheet_name=sheet_name)
-    needed = {"sheet", "td_ms", "direction", "correction_factor"}
+    needed = {"sheet", "td_ms", "direction", "correction_factor", "N_1", "N_2"}
     miss = needed - set(df.columns)
     if miss:
         raise KeyError(f"En {path} faltan columnas {sorted(miss)}. Tengo {list(df.columns)}")
@@ -123,22 +123,26 @@ def _load_corr_xlsx(path: Path, sheet_name: str, tol_ms: float) -> CorrLookup:
     df["direction"] = df["direction"].astype(str)
     df["td_ms"] = pd.to_numeric(df["td_ms"], errors="coerce")
     df["correction_factor"] = pd.to_numeric(df["correction_factor"], errors="coerce")
-    df = df.dropna(subset=["sheet", "td_ms", "direction", "correction_factor"])
+    df["N_1"] = pd.to_numeric(df["N_1"], errors="coerce")
+    df["N_2"] = pd.to_numeric(df["N_2"], errors="coerce")
+    df = df.dropna(subset=["sheet", "td_ms", "direction", "correction_factor", "N_1", "N_2"])
 
     df["_td_key"] = np.round(df["td_ms"].astype(float) / float(tol_ms)).astype(int)
 
-    table: dict[tuple[str, int, str], float] = {}
-    for sheet, td_key, direction, cf in df[["sheet", "_td_key", "direction", "correction_factor"]].itertuples(
+    table: dict[tuple[str, int, str, int, int], float] = {}
+    for sheet, td_key, direction, n_1, n_2, cf in df[
+        ["sheet", "_td_key", "direction", "N_1", "N_2", "correction_factor"]
+    ].itertuples(
         index=False, name=None
     ):
-        table[(str(sheet), int(td_key), str(direction))] = float(cf)
+        table[(str(sheet), int(td_key), str(direction), int(n_1), int(n_2))] = float(cf)
 
     return CorrLookup(tol_ms=float(tol_ms), table=table)
 
 
-def _corr_factor(corr: CorrLookup, sheet: str, td_ms: float, direction: str) -> float:
+def _corr_factor(corr: CorrLookup, sheet: str, td_ms: float, direction: str, n_1: int, n_2: int) -> float:
     td_key = int(round(float(td_ms) / float(corr.tol_ms)))
-    key = (_canonical_sheet(sheet), td_key, str(direction))
+    key = (_canonical_sheet(sheet), td_key, str(direction), int(n_1), int(n_2))
     # notebook: si no hay factor, usa 1.0
     return float(corr.table.get(key, 1.0))
 
@@ -149,8 +153,8 @@ def _fit_restricted_curvefit(
     G2: np.ndarray,
     y: np.ndarray,
     *,
-    N1: int,
-    N2: int,
+    N_1: int,
+    N_2: int,
     tc_value: float,
     D0_value: float,
     M0_value: float,
@@ -175,7 +179,7 @@ def _fit_restricted_curvefit(
         tc = tc_value if not tc_vary else next(it)
         M0 = M0_value if not M0_vary else next(it)
         D0 = D0_value if not D0_vary else next(it)
-        return OGSE_contrast_vs_g_rest(td_ms, G1, G2, N1, N2, tc, M0, D0)
+        return OGSE_contrast_vs_g_rest(td_ms, G1, G2, N_1, N_2, tc, M0, D0)
 
     if tc_vary:
         p0.append(float(tc_value))
@@ -191,7 +195,7 @@ def _fit_restricted_curvefit(
         hi.append(float(D0_bounds[1]))
 
     if len(p0) == 0:
-        yhat = OGSE_contrast_vs_g_rest(td_ms, G1, G2, N1, N2, float(tc_value), float(M0_value), float(D0_value))
+        yhat = OGSE_contrast_vs_g_rest(td_ms, G1, G2, N_1, N_2, float(tc_value), float(M0_value), float(D0_value))
         return {
             "tc_fit": float(tc_value),
             "tc_error": np.nan,
@@ -230,7 +234,7 @@ def _fit_restricted_curvefit(
         D0_err = float(perr[idx])
         idx += 1
 
-    yhat = OGSE_contrast_vs_g_rest(td_ms, G1, G2, N1, N2, tc_fit, M0_fit, D0_fit)
+    yhat = OGSE_contrast_vs_g_rest(td_ms, G1, G2, N_1, N_2, tc_fit, M0_fit, D0_fit)
     rmse = float(np.sqrt(np.mean((y - yhat) ** 2)))
 
     return {
@@ -293,8 +297,8 @@ def main():
     ap.add_argument("--overwrite", action="store_true", help="Sobrescribe el out-xlsx (default: append+dedup).")
 
     # si no están en la tabla, forzarlos
-    ap.add_argument("--N1", type=int, default=None)
-    ap.add_argument("--N2", type=int, default=None)
+    ap.add_argument("--N_1", type=int, default=None)
+    ap.add_argument("--N_2", type=int, default=None)
 
     # guesses
     ap.add_argument("--tc-value", type=float, default=5.0)
@@ -379,12 +383,12 @@ def main():
             if td_ms is None or not np.isfinite(td_ms):
                 continue
 
-            n1_col = _pick_col(gg, ["N_1", "N1"])
-            n2_col = _pick_col(gg, ["N_2", "N2"])
-            N1 = int(round(_to_float_unique(gg[n1_col]) if n1_col else (args.N1 if args.N1 is not None else np.nan)))
-            N2 = int(round(_to_float_unique(gg[n2_col]) if n2_col else (args.N2 if args.N2 is not None else np.nan)))
-            if not np.isfinite(N1) or not np.isfinite(N2):
-                raise ValueError(f"[{p.name}] No pude inferir N1/N2 (ni en tabla ni via CLI).")
+            n1_col = _pick_col(gg, ["N_1"])
+            n2_col = _pick_col(gg, ["N_2"])
+            n_1 = int(round(_to_float_unique(gg[n1_col]) if n1_col else (args.N_1 if args.N_1 is not None else np.nan)))
+            n_2 = int(round(_to_float_unique(gg[n2_col]) if n2_col else (args.N_2 if args.N_2 is not None else np.nan)))
+            if not np.isfinite(n_1) or not np.isfinite(n_2):
+                raise ValueError(f"[{p.name}] No pude inferir N_1/N_2 (ni en tabla ni via CLI).")
 
             y = pd.to_numeric(gg[args.ycol], errors="coerce").to_numpy(float)
             g1_raw = pd.to_numeric(gg[g1c], errors="coerce").to_numpy(float)
@@ -397,7 +401,7 @@ def main():
 
             f_val = 1.0
             if corr is not None:
-                f_val = _corr_factor(corr, sheet=sheet, td_ms=float(td_ms), direction=str(direction))
+                f_val = _corr_factor(corr, sheet=sheet, td_ms=float(td_ms), direction=str(direction), n_1=n_1, n_2=n_2)
 
             # fit con g corregido (igual notebook)
             g1 = g1_raw * float(f_val)
@@ -411,8 +415,8 @@ def main():
                 g1,
                 g2,
                 y,
-                N1=N1,
-                N2=N2,
+                N_1=n_1,
+                N_2=n_2,
                 tc_value=float(args.tc_value),
                 D0_value=float(args.D0_value),
                 M0_value=float(args.M0_value),
@@ -431,7 +435,7 @@ def main():
             # peak como notebook: máximo del modelo en grilla
             g1_fit = np.linspace(0.0, float(np.max(g1)), int(args.grid_n))
             g2_fit = np.linspace(0.0, float(np.max(g2)), int(args.grid_n))
-            y_fit = OGSE_contrast_vs_g_rest(float(td_ms), g1_fit, g2_fit, N1, N2, tc_fit, M0_fit, D0_fit)
+            y_fit = OGSE_contrast_vs_g_rest(float(td_ms), g1_fit, g2_fit, n_1, n_2, tc_fit, M0_fit, D0_fit)
 
             i_max = int(np.nanargmax(y_fit))
             signal_max = float(y_fit[i_max])
@@ -455,8 +459,8 @@ def main():
                     "direction": str(direction),
                     "td_ms": float(td_ms),
                     "f": float(f_val),
-                    "N1": int(N1),
-                    "N2": int(N2),
+                    "N_1": int(n_1),
+                    "N_2": int(n_2),
                     "M0_fit": float(M0_fit),
                     "M0_error": float(fit.get("M0_error", np.nan)),
                     "tc_fit": float(tc_fit),

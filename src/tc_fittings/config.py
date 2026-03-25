@@ -35,8 +35,8 @@ class OGSEFitConfig:
     dirs: List[str] = field(default_factory=lambda: ["long", "tra"])
 
     # Contrast file naming
-    N1: int = 8
-    N2: int = 4
+    N_1: int = 8
+    N_2: int = 4
     method: str = "rot_tensor-solve"
     g_type_fit: str = "gthorsten"
 

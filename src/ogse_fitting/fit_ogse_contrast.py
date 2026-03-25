@@ -155,8 +155,8 @@ def _fit_free(
     td: float,
     G1: np.ndarray,
     G2: np.ndarray,
-    N1: int,
-    N2: int,
+    n_1: int,
+    n_2: int,
     y: np.ndarray,
     *,
     M0_vary: bool,
@@ -173,7 +173,7 @@ def _fit_free(
     #     )
 
     if not M0_vary and not D0_vary:
-        yhat = OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, M0_value, D0_value)
+        yhat = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0_value, D0_value)
         return float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "fixed", None, None
 
     # bounds razonables alrededor del guess
@@ -181,7 +181,7 @@ def _fit_free(
 
     if M0_vary and D0_vary:
         def f(_dummy, M0, D0):
-            return OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, M0, D0)
+            return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, D0)
         p0 = [float(M0_value), float(D0_value)]
         bounds = ([0.0, D_lo], [2.0, D_hi])
         popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
@@ -191,7 +191,7 @@ def _fit_free(
 
     if (not M0_vary) and D0_vary:
         def f(_dummy, D0):
-            return OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, float(M0_value), D0)
+            return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), D0)
         p0 = [float(D0_value)]
         bounds = ([D_lo], [D_hi])
         popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
@@ -201,7 +201,7 @@ def _fit_free(
         return float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", None, D0_err
 
     def f(_dummy, M0):
-        return OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, M0, float(D0_value))
+        return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, float(D0_value))
     p0 = [float(M0_value)]
     bounds = ([0.0], [2.0])
     popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
@@ -210,10 +210,10 @@ def _fit_free(
     M0_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
     return M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", M0_err, None
 
-def _fit_tort(td: float, G1: np.ndarray, G2: np.ndarray, N1: int, N2: int, y: np.ndarray):
+def _fit_tort(td: float, G1: np.ndarray, G2: np.ndarray, n_1: int, n_2: int, y: np.ndarray):
 
     def f(_dummy, alpha, M0, D0):
-        return OGSE_contrast_vs_g_tort(td, G1, G2, N1, N2, alpha, M0, D0)
+        return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, D0)
 
     p0 = [0.7, 1.0, 1e-12]
     bounds = ([0.0, 0.0, 1e-14], [2.0, 5.0, 1e-9])
@@ -226,10 +226,10 @@ def _fit_tort(td: float, G1: np.ndarray, G2: np.ndarray, N1: int, N2: int, y: np
     alpha, M0, D0 = map(float, popt)
     return alpha, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
 
-def _fit_rest(td: float, G1: np.ndarray, G2: np.ndarray, N1: int, N2: int, y: np.ndarray):
+def _fit_rest(td: float, G1: np.ndarray, G2: np.ndarray, n_1: int, n_2: int, y: np.ndarray):
 
     def f(_dummy, tc, M0, D0):
-        return OGSE_contrast_vs_g_rest(td, G1, G2, N1, N2, tc, M0, D0)
+        return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, D0)
 
     p0 = [0.7, 1.0, 1e-12]
     bounds = ([0.0, 0.0, 1e-14], [2.0, 5.0, 1e-9])
@@ -396,8 +396,8 @@ def fit_ogse_contrast_long(
                 return None
             return str(v)
 
-        N1 = int(round(float(_unique_scalar(gg["N_1"], name="N_1", required=True))))
-        N2 = int(round(float(_unique_scalar(gg["N_2"], name="N_2", required=True))))
+        n_1 = int(round(float(_unique_scalar(gg["N_1"], name="N_1", required=True))))
+        n_2 = int(round(float(_unique_scalar(gg["N_2"], name="N_2", required=True))))
 
         max_dur_ms_1 = _get_float("max_dur_ms_1")
         tm_ms_1 = _get_float("tm_ms_1")
@@ -465,7 +465,7 @@ def fit_ogse_contrast_long(
                     max_dur_ms_1=max_dur_ms_1,
                     tm_ms_1=tm_ms_1,
                     td_ms_1=td_ms_1,
-                    N_1=N1,
+                    N_1=n_1,
                     delta_ms_1=delta_ms_1,
                     Delta_app_ms_1=Delta_app_ms_1,
                     Hz_1=Hz_1,
@@ -478,7 +478,7 @@ def fit_ogse_contrast_long(
                     max_dur_ms_2=max_dur_ms_2,
                     tm_ms_2=tm_ms_2,
                     td_ms_2=td_ms_2,
-                    N_2=N2,
+                    N_2=n_2,
                     delta_ms_2=delta_ms_2,
                     Delta_app_ms_2=Delta_app_ms_2,
                     Hz_2=Hz_2,
@@ -526,7 +526,7 @@ def fit_ogse_contrast_long(
             max_dur_ms_1=max_dur_ms_1,
             tm_ms_1=tm_ms_1,
             td_ms_1=td_ms_1,
-            N_1=N1,
+            N_1=n_1,
             delta_ms_1=delta_ms_1,
             Delta_app_ms_1=Delta_app_ms_1,
             Hz_1=Hz_1,
@@ -539,7 +539,7 @@ def fit_ogse_contrast_long(
             max_dur_ms_2=max_dur_ms_2,
             tm_ms_2=tm_ms_2,
             td_ms_2=td_ms_2,
-            N_2=N2,
+            N_2=n_2,
             delta_ms_2=delta_ms_2,
             Delta_app_ms_2=Delta_app_ms_2,
             Hz_2=Hz_2,
@@ -561,7 +561,7 @@ def fit_ogse_contrast_long(
         try:
             if model == "free":
                 M0, D0, rmse, chi2, method, M0_err, D0_err = _fit_free(
-                    td, G1, G2, N1, N2, y,
+                    td, G1, G2, n_1, n_2, y,
                     M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value
                 )
                 rows.append(
@@ -578,7 +578,7 @@ def fit_ogse_contrast_long(
                 )
 
             elif model == "tort":
-                alpha, M0, D0, rmse, chi2, method, alpha_err, M0_err, D0_err = _fit_tort(td, G1, G2, N1, N2, y)
+                alpha, M0, D0, rmse, chi2, method, alpha_err, M0_err, D0_err = _fit_tort(td, G1, G2, n_1, n_2, y)
                 rows.append(
                     FitRow(
                         **base,
@@ -595,7 +595,7 @@ def fit_ogse_contrast_long(
                 )
 
             elif model == "rest":
-                tc, M0, D0, rmse, chi2, method, tc_err, M0_err, D0_err = _fit_rest(td, G1, G2, N1, N2, y)
+                tc, M0, D0, rmse, chi2, method, tc_err, M0_err, D0_err = _fit_rest(td, G1, G2, n_1, n_2, y)
                 rows.append(
                     FitRow(
                         **base,
@@ -659,8 +659,8 @@ def plot_fit_one_group(
     y, G1, G2 = y[m], G1[m], G2[m]
 
     td = float(fit_row.get("td_ms_1") if fit_row.get("td_ms_1") is not None else fit_row.get("td_ms_2") if fit_row.get("td_ms_2") is not None else 0.0)
-    N1 = int(fit_row.get("N_1"))
-    N2 = int(fit_row.get("N_2"))
+    n_1 = int(fit_row.get("N_1"))
+    n_2 = int(fit_row.get("N_2"))
     model = str(fit_row.get("model", "free"))
 
     # curva suave
@@ -676,21 +676,21 @@ def plot_fit_one_group(
     if model == "free" and bool(fit_row.get("ok", True)):
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
-        ys = OGSE_contrast_vs_g_free(td, G1s, G2s, N1, N2, M0, D0)
+        ys = OGSE_contrast_vs_g_free(td, G1s, G2s, n_1, n_2, M0, D0)
         label = f"free: M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     if model == "tort" and bool(fit_row.get("ok", True)):
         alpha = float(fit_row["alpha"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
-        ys = OGSE_contrast_vs_g_tort(td, G1s, G2s, N1, N2, alpha, M0, D0)
+        ys = OGSE_contrast_vs_g_tort(td, G1s, G2s, n_1, n_2, alpha, M0, D0)
         label = f"tort: a={alpha:.3g}, M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     if model == "rest" and bool(fit_row.get("ok", True)):
         tc = float(fit_row["tc_ms"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
-        ys = OGSE_contrast_vs_g_rest(td, G1s, G2s, N1, N2, tc, M0, D0)
+        ys = OGSE_contrast_vs_g_rest(td, G1s, G2s, n_1, n_2, tc, M0, D0)
         label = f"rest: tc={tc:.3g} ms, M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     start_fit_figure()
@@ -701,7 +701,7 @@ def plot_fit_one_group(
     roi = fit_row.get("roi", "roi")
     direction = fit_row.get("direction", "direction")
     finish_fit_figure(
-        title=f"OGSE contrast fit | ROI={roi} | direction={direction} | $t_d$={td:.1f} ms | N{N1}-N{N2}",
+        title=f"OGSE contrast fit | ROI={roi} | direction={direction} | $t_d$={td:.1f} ms | N{n_1}-N{n_2}",
         xlabel=f"{_normalize_gbase(gbase)}_1 (mT/m)",
         ylabel=ycol,
         out_png=out_png,

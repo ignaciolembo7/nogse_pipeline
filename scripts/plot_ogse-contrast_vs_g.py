@@ -149,10 +149,10 @@ def main() -> None:
 
     rois = _selected_rois(df, None)
     selected_rois = _selected_rois(df, args.rois)
-    N1 = _unique_int_or_none(df, "N_1")
-    N2 = _unique_int_or_none(df, "N_2")
-    title_suffix = f"N{N1}-N{N2}" if (N1 is not None and N2 is not None) else exp_id
-    ylabel = rf"OGSE contrast $\Delta M_{{N{N1}-N{N2}}}$" if (N1 is not None and N2 is not None) else ycol
+    n_1 = _unique_int_or_none(df, "N_1")
+    n_2 = _unique_int_or_none(df, "N_2")
+    title_suffix = f"N{n_1}-N{n_2}" if (n_1 is not None and n_2 is not None) else exp_id
+    ylabel = rf"OGSE contrast $\Delta M_{{N{n_1}-N{n_2}}}$" if (n_1 is not None and n_2 is not None) else ycol
 
     for direction_name in args.axes:
         _plot_rois_together(
@@ -189,7 +189,7 @@ def main() -> None:
         plt.figure(figsize=(8, 6))
         plt.title(f"ROI={roi} | {title_suffix}", fontsize=14)
         plt.xlabel(f"Gradient strength ({xcol}) [mT/m]", fontsize=18)
-        plt.ylabel(rf"OGSE contrast $\Delta M_{{N{N1}-N{N2}}}$" if (N1 is not None and N2 is not None) else ycol, fontsize=18)
+        plt.ylabel(rf"OGSE contrast $\Delta M_{{N{n_1}-N{n_2}}}$" if (n_1 is not None and n_2 is not None) else ycol, fontsize=18)
         plt.grid(True, linestyle="--", alpha=0.3)
 
         for direction_name in args.axes:

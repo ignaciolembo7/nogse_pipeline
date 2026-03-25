@@ -203,8 +203,8 @@ class ColumnMap:
     d0_col: str = 'D0_m2_ms'
     stat_col: str = 'stat'
     sheet_col: str = 'sheet'
-    n1_col: str = 'N1'
-    n2_col: str = 'N2'
+    n1_col: str = 'N_1'
+    n2_col: str = 'N_2'
 
 
 # ---------------------------
@@ -352,20 +352,20 @@ def load_nogse_fit_d0(
         sub['sheet'] = _infer_sheet_from_df_or_id(sub, exp_id, canonicalize=canonicalize_sheet, source_path=f)
         sub['roi'] = sub[roi_col].astype(str).str.strip()
         sub['direction'] = sub[dir_col].astype(str)
-        sub['N1'] = pd.to_numeric(sub[n1_col], errors='coerce')
-        sub['N2'] = pd.to_numeric(sub[n2_col], errors='coerce')
+        sub['N_1'] = pd.to_numeric(sub[n1_col], errors='coerce')
+        sub['N_2'] = pd.to_numeric(sub[n2_col], errors='coerce')
         sub['D0_fit_nogse'] = _convert_d0_to_m2_ms(sub[d0_col], source_col=d0_col, mm2s_scale=1e-9) * float(nogse_scale)
 
-        keep = sub[['sheet', 'roi', 'direction', 'td_ms', 'N1', 'N2', 'D0_fit_nogse']].copy()
-        keep = keep.dropna(subset=['sheet', 'roi', 'direction', 'td_ms', 'N1', 'N2', 'D0_fit_nogse'])
+        keep = sub[['sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse']].copy()
+        keep = keep.dropna(subset=['sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse'])
         if not keep.empty:
             blocks.append(keep)
 
     out = pd.concat(blocks, ignore_index=True) if blocks else pd.DataFrame()
     if out.empty:
-        raise ValueError('No pude construir D0_fit_nogse. Revisá ruta, columnas, ROI y N1/N2.')
+        raise ValueError('No pude construir D0_fit_nogse. Revisá ruta, columnas, ROI y N_1/N_2.')
 
-    out = out.groupby(['sheet', 'roi', 'direction', 'td_ms', 'N1', 'N2'], as_index=False).agg(
+    out = out.groupby(['sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2'], as_index=False).agg(
         D0_fit_nogse=('D0_fit_nogse', 'mean'),
         D0_fit_nogse_std=('D0_fit_nogse', 'std'),
         n_nogse=('D0_fit_nogse', 'size'),
@@ -377,7 +377,7 @@ def load_nogse_fit_d0(
 # Matching + correction factor
 # ---------------------------
 def _format_missing_matches(missing: pd.DataFrame, monoexp_ref: pd.DataFrame) -> str:
-    sample_missing = missing[['sheet', 'roi', 'td_ms', 'direction', 'N1', 'N2']].drop_duplicates().head(10)
+    sample_missing = missing[['sheet', 'roi', 'td_ms', 'direction', 'N_1', 'N_2']].drop_duplicates().head(10)
     sample_exp = monoexp_ref[['sheet', 'roi', 'td_ms']].drop_duplicates().head(20)
     return (
         'Faltan referencias monoexp para algunos fits de contraste.\n\n'
@@ -462,11 +462,11 @@ def make_grad_correction_table(
     out['correction_factor_std'] = out.apply(_propagate_correction_std, axis=1)
 
     cols = [
-        'sheet', 'roi', 'direction', 'td_ms', 'N1', 'N2',
+        'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2',
         'D0_fit_nogse', 'D0_fit_nogse_std', 'n_nogse',
         'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
         'ratio', 'correction_factor', 'correction_factor_std',
     ]
     cols = [c for c in cols if c in out.columns]
-    out = out[cols].sort_values(['sheet', 'td_ms', 'N1', 'N2', 'direction'], kind='stable').reset_index(drop=True)
+    out = out[cols].sort_values(['sheet', 'td_ms', 'N_1', 'N_2', 'direction'], kind='stable').reset_index(drop=True)
     return out

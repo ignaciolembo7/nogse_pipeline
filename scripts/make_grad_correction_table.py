@@ -44,8 +44,8 @@ def main() -> None:
         d0_col=args.nogse_d0_col,
         stat_col='stat',
         sheet_col='sheet',
-        n1_col='N1',
-        n2_col='N2',
+        n1_col='N_1',
+        n2_col='N_2',
     )
 
     out = make_grad_correction_table(

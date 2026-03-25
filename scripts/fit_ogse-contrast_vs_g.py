@@ -17,12 +17,38 @@ def _analysis_id_from_path(p: Path) -> str:
     return stem
 
 
+def _canonical_sheet_name(name: str | None) -> str | None:
+    if name is None:
+        return None
+    s = str(name).strip()
+    if not s:
+        return None
+
+    m = re.match(r"^(\d{8}_[^_]+)", s)
+    if m:
+        return m.group(1)
+
+    m = re.match(r"^(.+?)_(?:N\d|td)", s)
+    if m:
+        return m.group(1)
+
+    return s
+
+
 def _unique_float(df: pd.DataFrame, col: str) -> float | None:
     if col not in df.columns:
         return None
     u = pd.to_numeric(df[col], errors="coerce").dropna().unique()
     if len(u) == 1:
         return float(u[0])
+    return None
+
+
+def _unique_int(df: pd.DataFrame, *cols: str) -> int | None:
+    for col in cols:
+        v = _unique_float(df, col)
+        if v is not None:
+            return int(round(float(v)))
     return None
 
 
@@ -54,7 +80,7 @@ def _infer_td_ms(df: pd.DataFrame, analysis_id: str, override: float | None) -> 
 
 def _read_corr_table(path: Path) -> pd.DataFrame:
     """
-    Strict: requires direction, roi, td_ms, correction_factor.
+    Strict: requires direction, roi, td_ms, correction_factor, N_1, N_2.
     (No axis fallback; keep pipeline consistent.)
     """
     # si el writer guardó "grad_correction", lo usamos; si no, usamos la primera
@@ -73,7 +99,7 @@ def _read_corr_table(path: Path) -> pd.DataFrame:
     if rename:
         corr = corr.rename(columns=rename)
 
-    required = {"roi", "direction", "td_ms", "correction_factor"}
+    required = {"roi", "direction", "td_ms", "correction_factor", "N_1", "N_2"}
     missing = required - set(corr.columns)
     if missing:
         raise ValueError(f"Tabla de corrección inválida. Faltan columnas: {sorted(missing)}")
@@ -81,11 +107,18 @@ def _read_corr_table(path: Path) -> pd.DataFrame:
     corr["direction"] = corr["direction"].astype(str)
     corr["roi"] = corr["roi"].astype(str).str.strip()
     if "sheet" in corr.columns:
-        corr["sheet"] = corr["sheet"].astype(str).str.strip()
+        corr["sheet"] = corr["sheet"].map(_canonical_sheet_name)
 
     corr["td_ms"] = pd.to_numeric(corr["td_ms"], errors="coerce")
     corr["correction_factor"] = pd.to_numeric(corr["correction_factor"], errors="coerce")
-    corr = corr[np.isfinite(corr["td_ms"]) & np.isfinite(corr["correction_factor"])].copy()
+    corr["N_1"] = pd.to_numeric(corr["N_1"], errors="coerce")
+    corr["N_2"] = pd.to_numeric(corr["N_2"], errors="coerce")
+    corr = corr[
+        np.isfinite(corr["td_ms"])
+        & np.isfinite(corr["correction_factor"])
+        & np.isfinite(corr["N_1"])
+        & np.isfinite(corr["N_2"])
+    ].copy()
     return corr
 
 
@@ -96,16 +129,31 @@ def _build_f_by_direction(
     td_ms: float,
     tol_ms: float,
     sheet: str | None = None,
+    n1: int | None = None,
+    n2: int | None = None,
 ) -> dict[str, float]:
     c = corr[corr["roi"].astype(str) == str(roi_ref).strip()].copy()
 
     # ✅ si hay columna sheet, filtramos para evitar mezclar datasets
     if sheet is not None and "sheet" in c.columns:
-        c = c[c["sheet"].astype(str) == str(sheet).strip()].copy()
+        sheet_key = _canonical_sheet_name(sheet)
+        c = c[c["sheet"] == sheet_key].copy()
+
+    if n1 is not None:
+        c = c[pd.to_numeric(c["N_1"], errors="coerce") == int(n1)].copy()
+    if n2 is not None:
+        c = c[pd.to_numeric(c["N_2"], errors="coerce") == int(n2)].copy()
 
     c = c[np.isclose(c["td_ms"].astype(float), float(td_ms), rtol=0.0, atol=float(tol_ms))].copy()
     if c.empty:
-        extra = f" y sheet={sheet}" if sheet is not None and "sheet" in corr.columns else ""
+        extra_parts: list[str] = []
+        if sheet is not None and "sheet" in corr.columns:
+            extra_parts.append(f"sheet={_canonical_sheet_name(sheet)}")
+        if n1 is not None:
+            extra_parts.append(f"N_1={int(n1)}")
+        if n2 is not None:
+            extra_parts.append(f"N_2={int(n2)}")
+        extra = f" y {'; '.join(extra_parts)}" if extra_parts else ""
         raise ValueError(f"No encontré factores para roi={roi_ref}{extra} y td_ms={td_ms:.3f} (tol={tol_ms}).")
 
     # if duplicates: average
@@ -153,7 +201,9 @@ def main() -> None:
     df = pd.read_parquet(args.contrast_parquet)
     analysis_id = _analysis_id_from_path(args.contrast_parquet)
 
-    sheet_hint = analysis_id.split("_")[0]
+    sheet_hint = _canonical_sheet_name(analysis_id)
+    n1_hint = _unique_int(df, "N_1")
+    n2_hint = _unique_int(df, "N_2")
     outdir = Path(args.out_root) / analysis_id
     tables_dir = outdir
     plots_dir = outdir
@@ -176,6 +226,8 @@ def main() -> None:
             td_ms=float(td_ms_hint),
             tol_ms=float(args.corr_tol_ms),
             sheet=(args.corr_sheet or sheet_hint),
+            n1=n1_hint,
+            n2=n2_hint,
         )
 
     # M0 flags
