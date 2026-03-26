@@ -22,7 +22,7 @@ from .tc_td_pseudohuber import (
     block1b_alpha_vs_Td,
     block1c_smallTd_tc_approx,
     block2_region_plots,
-    block3_alpha_macro_vs_micro,
+    block3_alpha_macro_summary_vs_fit,
     block4_qquad_vs_alpha_macro,
     block2b_cc_vars_long_tra_sameY,  # ahora es genérico (usa todas las direcciones presentes)
 )
@@ -31,7 +31,7 @@ from .tc_td_pseudohuber import (
 def _ensure_direction_col(df: pd.DataFrame) -> pd.DataFrame:
     """
     Normaliza el nombre de la columna de direction para todo el pipeline.
-    Preferimos 'direction' (como el globalfit).
+    Preferimos 'direction' (como en groupfits).
     """
     df = df.copy()
     if "direction" in df.columns:
@@ -75,7 +75,7 @@ def run_pseudohuber_free(
         cfg_regions=regions,
         palette=palette,
         k_last=k_last,
-        mode="free_alpha",
+        mode="free_macro",
         alpha_macro_df=None,
         y_col=y_col,
         y_label=y_label,
@@ -96,13 +96,13 @@ def run_pseudohuber_free(
         out_dir=out_dir,
         cfg_regions=regions,
         palette=palette,
-        tag=f"pseudohuber_free_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'free_alpha'}",
+        tag=f"pseudohuber_free_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'free_macro'}",
     )
 
     # Block3/4 solo si hay summary alpha_macro (macro)
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
-        block3_alpha_macro_vs_micro(
+        block3_alpha_macro_summary_vs_fit(
             df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}"
         )
         block4_qquad_vs_alpha_macro(
@@ -152,7 +152,7 @@ def run_pseudohuber_fixed_macro(
 
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
-        block3_alpha_macro_vs_micro(
+        block3_alpha_macro_summary_vs_fit(
             df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
         )
         block4_qquad_vs_alpha_macro(
@@ -166,13 +166,13 @@ METHODS = {
         func=run_pseudohuber_free,
         default_k_last=None,
         needs_alpha_macro=False,
-        description="PseudoHuber model: ajusta c, delta, alpha_inf (alpha_inf libre).",
+        description="PseudoHuber model: ajusta c, delta, alpha_macro (alpha_macro libre).",
     ),
     "pseudohuber_fixed_macro": FitSpec(
         name="pseudohuber_fixed_macro",
         func=run_pseudohuber_fixed_macro,
         default_k_last=None,
         needs_alpha_macro=True,
-        description="PseudoHuber model: fija alpha_inf=alpha_macro(summary) y ajusta c, delta.",
+        description="PseudoHuber model: fija alpha_macro=alpha_macro(summary) y ajusta c, delta.",
     ),
 }

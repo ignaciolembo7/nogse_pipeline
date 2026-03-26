@@ -18,8 +18,9 @@ YCOL_LABELS = {
 
 
 def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
-    if args.globalfit is not None:
-        path = Path(args.globalfit)
+    groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
+    if groupfits_path is not None:
+        path = Path(groupfits_path)
         if not path.exists():
             raise FileNotFoundError(path)
         if path.suffix.lower() == ".parquet":
@@ -31,7 +32,7 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
         df = canonicalize_contrast_fit_params(df)
     else:
         if not args.fits:
-            raise ValueError("Pasá --globalfit o al menos una raíz/archivo en --fits.")
+            raise ValueError("Pasá --groupfits/--globalfit o al menos una raíz/archivo en --fits.")
         df = load_contrast_fit_params(
             args.fits,
             pattern=args.pattern,
@@ -55,7 +56,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--method", required=True, choices=sorted(METHODS.keys()))
     ap.add_argument("--k-last", type=int, default=None, help="Usar últimos K puntos (default: método).")
-    ap.add_argument("--globalfit", default=None, help="Tabla global ya combinada (xlsx/csv/parquet).")
+    ap.add_argument("--groupfits", default=None, help="Tabla groupfits ya combinada (xlsx/csv/parquet).")
+    ap.add_argument("--globalfit", default=None, help="Alias legacy de --groupfits.")
     ap.add_argument("--fits", nargs="*", default=None, help="Raíces o archivos fit_params para cargar directamente.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo si se usa --fits con directorios.")
     ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos de contraste.")
@@ -81,11 +83,13 @@ def main() -> None:
 
     if args.out_dir is not None:
         out_dir = Path(args.out_dir)
-    elif args.globalfit is not None:
-        out_dir = Path(args.globalfit).resolve().parent / "tc_vs_td" / args.method / args.y_col
     else:
-        first = Path(args.fits[0]).resolve()
-        out_dir = (first if first.is_dir() else first.parent) / "tc_vs_td" / args.method / args.y_col
+        groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
+        if groupfits_path is not None:
+            out_dir = Path(groupfits_path).resolve().parent / "tc_vs_td" / args.method / args.y_col
+        else:
+            first = Path(args.fits[0]).resolve()
+            out_dir = (first if first.is_dir() else first.parent) / "tc_vs_td" / args.method / args.y_col
 
     out_dir.mkdir(parents=True, exist_ok=True)
 

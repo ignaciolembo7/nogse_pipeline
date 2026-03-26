@@ -8,7 +8,7 @@ from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Combina fit_params de fit_ogse-contrast_vs_g.py en una tabla global coherente para el tramo tc-vs-td."
+        description="Combina fit_params de fit_ogse-contrast_vs_g.py en una tabla groupfits coherente para el tramo tc-vs-td."
     )
     ap.add_argument(
         "fits",
@@ -40,7 +40,7 @@ def main() -> None:
         args.out_parquet.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(args.out_parquet, index=False)
 
-    print(f"[OK] Tabla global: {args.out_xlsx}")
+    print(f"[OK] Tabla groupfits: {args.out_xlsx}")
     if args.out_parquet is not None:
         print(f"[OK] Parquet:      {args.out_parquet}")
 

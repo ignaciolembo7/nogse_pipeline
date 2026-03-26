@@ -12,33 +12,33 @@ from scipy.optimize import least_squares
 # ---------------------------
 # Modelo pseudo-huber (reparam)
 # ---------------------------
-def tc_pseudohuber(Td: np.ndarray, c: float, delta: float, alpha_inf: float) -> np.ndarray:
+def tc_pseudohuber(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
     Td = np.asarray(Td, float)
     delta = float(delta)
-    return c + alpha_inf * delta * (np.sqrt(1.0 + (Td / delta) ** 2) - 1.0)
+    return c + alpha_macro * delta * (np.sqrt(1.0 + (Td / delta) ** 2) - 1.0)
 
-def alpha_of_Td(Td: np.ndarray, delta: float, alpha_inf: float) -> np.ndarray:
+def alpha_of_Td(Td: np.ndarray, delta: float, alpha_macro: float) -> np.ndarray:
     Td = np.asarray(Td, float)
-    return alpha_inf * Td / np.sqrt(delta**2 + Td**2)
+    return alpha_macro * Td / np.sqrt(delta**2 + Td**2)
 
-def tc_quadratic_smallTd(Td: np.ndarray, c: float, delta: float, alpha_inf: float) -> np.ndarray:
+def tc_quadratic_smallTd(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
     Td = np.asarray(Td, float)
-    q = alpha_inf / (2.0 * delta)
+    q = alpha_macro / (2.0 * delta)
     return c + q * Td**2
 
-def A_from_params(delta: float, alpha_inf: float) -> float:
-    return float(alpha_inf / delta) if delta > 0 else float("nan")
+def A_from_params(delta: float, alpha_macro: float) -> float:
+    return float(alpha_macro / delta) if delta > 0 else float("nan")
 
-def qquad_from_params(delta: float, alpha_inf: float) -> float:
-    return float(alpha_inf / (2.0 * delta)) if delta > 0 else float("nan")
+def qquad_from_params(delta: float, alpha_macro: float) -> float:
+    return float(alpha_macro / (2.0 * delta)) if delta > 0 else float("nan")
 
-def qquad_se(delta: float, alpha_inf: float, delta_se: float, alpha_se: float) -> float:
+def qquad_se(delta: float, alpha_macro: float, delta_se: float, alpha_se: float) -> float:
     if not np.isfinite(delta) or delta <= 0:
         return float("nan")
     if not np.isfinite(delta_se) or not np.isfinite(alpha_se):
         return float("nan")
     dqda = 1.0 / (2.0 * delta)
-    dqdd = -alpha_inf / (2.0 * delta**2)
+    dqdd = -alpha_macro / (2.0 * delta**2)
     var = (dqda**2) * (alpha_se**2) + (dqdd**2) * (delta_se**2)
     return float(np.sqrt(var))
 
@@ -75,8 +75,16 @@ def _ensure_brain(df: pd.DataFrame) -> pd.DataFrame:
 
 def _ensure_direction(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    _ensure_required_cols(df, ["direction"], "globalfit/df_fit")
+    _ensure_required_cols(df, ["direction"], "groupfits/df_fit")
     df["direction"] = _as_str_series(df["direction"])
+    return df
+
+def _ensure_alpha_macro_cols(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if "alpha_macro" not in df.columns and "alpha_inf" in df.columns:
+        df = df.rename(columns={"alpha_inf": "alpha_macro"})
+    if "alpha_macro_se" not in df.columns and "alpha_inf_se" in df.columns:
+        df = df.rename(columns={"alpha_inf_se": "alpha_macro_se"})
     return df
 
 def _directions_present(df: pd.DataFrame, preferred: tuple[str, ...] = ("long", "tra")) -> list[str]:
@@ -246,15 +254,15 @@ def fit_tc_vs_td_pseudohuber(
     cfg_regions: list[str],
     palette: list[str],
     k_last: Optional[int],
-    mode: str,  # "free_alpha" | "fixed_macro"
+    mode: str,  # "free_macro" | "fixed_macro"
     alpha_macro_df: Optional[pd.DataFrame] = None,
     y_col: str = "tc_peak_ms",
     y_label: str = "$t_{c,peak}$ [ms]",
 ) -> pd.DataFrame:
     """
     mode:
-      - free_alpha: ajusta (c, delta, alpha_inf)
-      - fixed_macro: fija alpha_inf = alpha_macro(summary) y ajusta (c, delta)
+      - free_macro: ajusta (c, delta, alpha_macro)
+      - fixed_macro: fija alpha_macro = alpha_macro(summary) y ajusta (c, delta)
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -277,7 +285,7 @@ def fit_tc_vs_td_pseudohuber(
 
     dirs = _directions_present(df)
     if not dirs:
-        raise ValueError("No hay valores en la columna 'direction' del globalfit.")
+        raise ValueError("No hay valores en la columna 'direction' de groupfits.")
 
     # Normalizar alpha_macro_df si se usa
     if alpha_macro_df is not None:
@@ -355,11 +363,11 @@ def fit_tc_vs_td_pseudohuber(
                     c, delta = map(float, p)
                     c_se, delta_se = map(float, se)
 
-                    alpha_inf = alpha_fixed
-                    alpha_inf_se = alpha_fixed_err
+                    alpha_macro = alpha_fixed
+                    alpha_macro_se = alpha_fixed_err
 
                 else:
-                    # free alpha_inf
+                    # free alpha_macro
                     if len(x_fit) < 3:
                         # 3 parámetros -> al menos 3 puntos
                         continue
@@ -372,22 +380,22 @@ def fit_tc_vs_td_pseudohuber(
                     bounds = ([-np.inf, 1e-6, alpha_min], [np.inf, np.inf, alpha_max])
 
                     def fun(p):
-                        c, delta, alpha_inf = p
-                        return tc_pseudohuber(x_fit, c, delta, alpha_inf) - y_fit
+                        c, delta, alpha_macro = p
+                        return tc_pseudohuber(x_fit, c, delta, alpha_macro) - y_fit
 
                     p, se, res = _fit_least_squares(fun, p0, bounds)
-                    c, delta, alpha_inf = map(float, p)
-                    c_se, delta_se, alpha_inf_se = map(float, se)
+                    c, delta, alpha_macro = map(float, p)
+                    c_se, delta_se, alpha_macro_se = map(float, se)
 
                 # r2
-                yhat = tc_pseudohuber(x_fit, c, delta, alpha_inf)
+                yhat = tc_pseudohuber(x_fit, c, delta, alpha_macro)
                 ss_res = float(np.sum((y_fit - yhat) ** 2))
                 ss_tot = float(np.sum((y_fit - np.mean(y_fit)) ** 2))
                 r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
 
-                A = A_from_params(delta, alpha_inf)
-                q_quad = qquad_from_params(delta, alpha_inf)
-                q_quad_se = qquad_se(delta, alpha_inf, delta_se, alpha_inf_se)
+                A = A_from_params(delta, alpha_macro)
+                q_quad = qquad_from_params(delta, alpha_macro)
+                q_quad_se = qquad_se(delta, alpha_macro, delta_se, alpha_macro_se)
 
                 rows.append({
                     "brain": brain,
@@ -399,7 +407,7 @@ def fit_tc_vs_td_pseudohuber(
                     "y_label": y_label,
                     "c": c, "c_se": c_se,
                     "delta": delta, "delta_se": delta_se,
-                    "alpha_inf": alpha_inf, "alpha_inf_se": alpha_inf_se,
+                    "alpha_macro": alpha_macro, "alpha_macro_se": alpha_macro_se,
                     "A": A,
                     "q_quad": q_quad,
                     "q_quad_se": q_quad_se,
@@ -443,7 +451,7 @@ def fit_tc_vs_td_pseudohuber(
 
                 if fit_row is not None and len(x) >= 2:
                     xx = np.linspace(np.min(x), np.max(x), 200)
-                    yy = tc_pseudohuber(xx, fit_row["c"], fit_row["delta"], fit_row["alpha_inf"])
+                    yy = tc_pseudohuber(xx, fit_row["c"], fit_row["delta"], fit_row["alpha_macro"])
                     ax.plot(xx, yy, "-", color=col, linewidth=2)
 
             ax.set_title(region, fontsize=14)
@@ -465,9 +473,9 @@ def fit_tc_vs_td_pseudohuber(
     if not rows:
         raise ValueError(
             "No se generó ningún ajuste tc_vs_td (df_fit quedó vacío). "
-            "Causas típicas: (i) no hay >=3 puntos Td por (brain, roi, direction) en modo free_alpha; "
+            "Causas típicas: (i) no hay >=3 puntos Td por (brain, roi, direction) en modo free_macro; "
             "(ii) en fixed_macro falta alpha_macro para esas claves; "
-            "(iii) Direcciones no coinciden entre globalfit y summary."
+            "(iii) Direcciones no coinciden entre groupfits y summary."
         )
 
     df_fit = pd.DataFrame(rows)
@@ -476,7 +484,7 @@ def fit_tc_vs_td_pseudohuber(
 
 
 # ---------------------------
-# BLOQUE 2: plots vs regiones (alpha_inf y delta) + opcional A
+# BLOQUE 2: plots vs regiones (alpha_macro y delta) + opcional A
 # ---------------------------
 def block2_region_plots(
     df_fit: pd.DataFrame,
@@ -487,7 +495,7 @@ def block2_region_plots(
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_fit = df_fit.copy()
+    df_fit = _ensure_alpha_macro_cols(df_fit.copy())
     df_fit = _ensure_brain(df_fit)
     df_fit = _ensure_direction(df_fit)
 
@@ -542,11 +550,11 @@ def block2_region_plots(
             plt.savefig(out_dir / f"{fname}_dir={dir_actual}.png", dpi=300)
             plt.close()
 
-    plot_var("alpha_inf", "alpha_inf_se", r"$\alpha_\infty = A\delta$", "BLOCK2_alpha_inf_vs_region")
+    plot_var("alpha_macro", "alpha_macro_se", r"$\alpha_{macro} = A\delta$", "BLOCK2_alpha_macro_vs_region")
     plot_var("delta", "delta_se", r"$\delta$", "BLOCK2_delta_vs_region")
     plot_var("c", "c_se", r"$c$", "BLOCK2_c_vs_region")
     plot_var("sqrt_q", "sqrt_q_se", r"$\sqrt{q}$", "BLOCK2_sqrt_q_vs_region")
-    plot_var("q_quad", "q_quad_se", r"$q=\alpha_\infty/(2\delta)$", "BLOCK2_qquad_vs_region")
+    plot_var("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$", "BLOCK2_qquad_vs_region")
     if plot_A:
         plot_var("A", "A_se", r"$A$", "BLOCK2_A_vs_region")
 
@@ -555,18 +563,18 @@ def _ensure_A_se(df_fit: pd.DataFrame) -> pd.DataFrame:
     if "A_se" in df_fit.columns:
         return df_fit
 
-    out = df_fit.copy()
+    out = _ensure_alpha_macro_cols(df_fit.copy())
     A_se = np.full(len(out), np.nan, dtype=float)
 
-    if ("alpha_inf_se" not in out.columns) or ("delta_se" not in out.columns):
+    if ("alpha_macro_se" not in out.columns) or ("delta_se" not in out.columns):
         out["A_se"] = A_se
         return out
 
     for i, row in out.iterrows():
         delta = float(row.get("delta", np.nan))
-        alpha = float(row.get("alpha_inf", np.nan))
+        alpha = float(row.get("alpha_macro", np.nan))
         dse = float(row.get("delta_se", np.nan))
-        ase = float(row.get("alpha_inf_se", np.nan))
+        ase = float(row.get("alpha_macro_se", np.nan))
 
         if not np.isfinite(delta) or delta <= 0 or not np.isfinite(alpha) or not np.isfinite(dse) or not np.isfinite(ase):
             continue
@@ -597,7 +605,7 @@ def block2b_cc_vars_long_tra_sameY(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_fit = df_fit.copy()
+    df_fit = _ensure_alpha_macro_cols(df_fit.copy())
     df_fit = _ensure_brain(df_fit)
     df_fit = _ensure_direction(df_fit)
     df_fit = _ensure_A_se(df_fit)
@@ -618,10 +626,10 @@ def block2b_cc_vars_long_tra_sameY(
     x = np.arange(len(regiones))
 
     specs = [
-        ("q_quad", "q_quad_se", r"$q=\alpha_\infty/(2\delta)$"),
-        ("alpha_inf", "alpha_inf_se", r"$\alpha_{micro}\equiv\alpha_\infty$"),
+        ("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$"),
+        ("alpha_macro", "alpha_macro_se", r"$\alpha_{macro}$"),
         ("delta", "delta_se", r"$\delta$ [ms]"),
-        ("A", "A_se", r"$A=\alpha_\infty/\delta$"),
+        ("A", "A_se", r"$A=\alpha_{macro}/\delta$"),
         ("c", "c_se", r"$c$"),
         ("sqrt_q", "sqrt_q_se", r"$\sqrt{q}$"),
     ]
@@ -701,16 +709,16 @@ def block2b_cc_vars_long_tra_sameY(
         dirs_tag = "_".join(directions)
         fname = f"BLOCK2b_vars_sameY_dirs={dirs_tag}_{tag}.png"
 
-    fig.suptitle("Pseudo-Huber: q (Taylor), $\\alpha_{micro}$, $\\delta$, A, c, $\\sqrt{q}$ vs regiones", fontsize=14)
+    fig.suptitle("Pseudo-Huber: q (Taylor), $\\alpha_{macro}$, $\\delta$, A, c, $\\sqrt{q}$ vs regiones", fontsize=14)
     plt.tight_layout(rect=[0, 0.02, 1, 0.95])
     plt.savefig(out_dir / fname, dpi=300)
     plt.close()
 
 
 # ---------------------------
-# BLOQUE 3: alpha_macro vs alpha_micro (GENÉRICO)
+# BLOQUE 3: alpha_macro summary vs alpha_macro pseudo-Huber
 # ---------------------------
-def block3_alpha_macro_vs_micro(
+def block3_alpha_macro_summary_vs_fit(
     df_fit: pd.DataFrame,
     out_dir: Path,
     alpha_macro_df: pd.DataFrame,
@@ -722,10 +730,16 @@ def block3_alpha_macro_vs_micro(
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_fit = _ensure_brain(_ensure_direction(df_fit))
+    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit)))
     alpha_macro_df = _ensure_brain(_ensure_direction(alpha_macro_df))
+    alpha_summary = alpha_macro_df.rename(
+        columns={
+            "alpha_macro": "alpha_macro_summary",
+            "alpha_macro_error": "alpha_macro_summary_error",
+        }
+    )
 
-    dfm = df_fit.merge(alpha_macro_df, on=["brain", "roi", "direction"], how="inner")
+    dfm = df_fit.merge(alpha_summary, on=["brain", "roi", "direction"], how="inner")
     if dfm.empty:
         print("[INFO] No hay intersección entre pseudo-huber fits y summary alpha_macro -> no se hace Block3.")
         return
@@ -758,8 +772,8 @@ def block3_alpha_macro_vs_micro(
             base = region2color.get(region, "#000000")
             rgba = (*mcolors.to_rgb(base), 0.35 + 0.65 * (1 - fade))
 
-            x = float(row["alpha_macro"])
-            y = float(row["alpha_inf"])
+            x = float(row["alpha_macro_summary"])
+            y = float(row["alpha_macro"])
 
             ax.plot(x, y, linestyle="None", marker=markers[v], markersize=9,
                     markerfacecolor=rgba, markeredgecolor=rgba)
@@ -770,9 +784,9 @@ def block3_alpha_macro_vs_micro(
                 bbox=dict(boxstyle="round,pad=0.15", facecolor=rgba, edgecolor="none", alpha=0.25),
             )
 
-        ax.set_xlabel(r"$\alpha_{macro}$", fontsize=16)
+        ax.set_xlabel(r"$\alpha_{macro}$ summary", fontsize=16)
         if i == 0:
-            ax.set_ylabel(r"$\alpha_{micro}\equiv \alpha_\infty$", fontsize=16)
+            ax.set_ylabel(r"$\alpha_{macro}$ pseudo-Huber", fontsize=16)
         ax.set_title(f"dir={dir_actual}", fontsize=14)
         ax.grid(True)
 
@@ -782,9 +796,9 @@ def block3_alpha_macro_vs_micro(
         ]
         ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
 
-    plt.suptitle(f"BLOCK3 alpha_macro vs alpha_micro | {method_tag}", fontsize=16)
+    plt.suptitle(f"BLOCK3 alpha_macro summary vs fit | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"BLOCK3_alpha_macro_vs_alpha_micro_{method_tag}.png", dpi=400)
+    plt.savefig(out_dir / f"BLOCK3_alpha_macro_summary_vs_fit_{method_tag}.png", dpi=400)
     plt.close()
 
 
@@ -795,7 +809,7 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_brain(_ensure_direction(df_params.copy()))
-    df_fit = _ensure_brain(_ensure_direction(df_fit.copy()))
+    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit.copy())))
 
     brains = sorted(df_fit["brain"].unique())
     regiones = sorted(df_fit["roi"].unique())
@@ -827,17 +841,17 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
                 x = sub_data["td_ms"].to_numpy(float)
                 c = float(sub_fit["c"].values[0])
                 delta = float(sub_fit["delta"].values[0])
-                alpha_inf = float(sub_fit["alpha_inf"].values[0])
-                A = A_from_params(delta, alpha_inf)
+                alpha_macro = float(sub_fit["alpha_macro"].values[0])
+                A = A_from_params(delta, alpha_macro)
 
                 xx = np.linspace(np.nanmin(x), np.nanmax(x), 200)
-                alpha_curve = alpha_of_Td(xx, delta, alpha_inf)
+                alpha_curve = alpha_of_Td(xx, delta, alpha_macro)
                 alpha_small = A * xx
-                alpha_asym = np.full_like(xx, alpha_inf)
+                alpha_asym = np.full_like(xx, alpha_macro)
 
                 ax.plot(xx, alpha_curve, "-", linewidth=2, label=f"{brain} alpha(Td)")
                 ax.plot(xx, alpha_small, "--", linewidth=1.5, label=f"{brain} A*Td")
-                ax.plot(xx, alpha_asym, ":", linewidth=1.5, label=f"{brain} alpha_inf")
+                ax.plot(xx, alpha_asym, ":", linewidth=1.5, label=f"{brain} alpha_macro")
                 any_line = True
 
             ax.set_title(region)
@@ -867,7 +881,7 @@ def block1c_smallTd_tc_approx(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_brain(_ensure_direction(df_params.copy()))
-    df_fit = _ensure_brain(_ensure_direction(df_fit.copy()))
+    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit.copy())))
 
     brains = sorted(df_fit["brain"].unique())
     regiones = sorted(df_fit["roi"].unique())
@@ -900,11 +914,11 @@ def block1c_smallTd_tc_approx(
 
                 c = float(sub_fit["c"].values[0])
                 delta = float(sub_fit["delta"].values[0])
-                alpha_inf = float(sub_fit["alpha_inf"].values[0])
+                alpha_macro = float(sub_fit["alpha_macro"].values[0])
 
                 xx = np.linspace(np.nanmin(x), np.nanmax(x), 200)
-                y_full = tc_pseudohuber(xx, c, delta, alpha_inf)
-                y_quad = tc_quadratic_smallTd(xx, c, delta, alpha_inf)
+                y_full = tc_pseudohuber(xx, c, delta, alpha_macro)
+                y_quad = tc_quadratic_smallTd(xx, c, delta, alpha_macro)
 
                 ax.plot(x, y, "o", markersize=6, label=f"{brain} data")
                 ax.plot(xx, y_full, "-", linewidth=2, label=f"{brain} full")
@@ -942,10 +956,16 @@ def block4_qquad_vs_alpha_macro(
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_fit = _ensure_brain(_ensure_direction(df_fit))
+    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit)))
     alpha_macro_df = _ensure_brain(_ensure_direction(alpha_macro_df))
+    alpha_summary = alpha_macro_df.rename(
+        columns={
+            "alpha_macro": "alpha_macro_summary",
+            "alpha_macro_error": "alpha_macro_summary_error",
+        }
+    )
 
-    dfm = df_fit.merge(alpha_macro_df, on=["brain", "roi", "direction"], how="inner")
+    dfm = df_fit.merge(alpha_summary, on=["brain", "roi", "direction"], how="inner")
     if dfm.empty:
         print("[INFO] No hay intersección pseudo-huber vs summary -> no se hace Block4.")
         return
@@ -978,7 +998,7 @@ def block4_qquad_vs_alpha_macro(
             base = region2color.get(region, "#000000")
             rgba = (*mcolors.to_rgb(base), 0.35 + 0.65 * (1 - fade))
 
-            x = float(row["alpha_macro"])
+            x = float(row["alpha_macro_summary"])
             y = float(row["q_quad"])
 
             ax.plot(x, y, linestyle="None", marker=markers[v], markersize=9,
@@ -990,9 +1010,9 @@ def block4_qquad_vs_alpha_macro(
                 bbox=dict(boxstyle="round,pad=0.15", facecolor=rgba, edgecolor="none", alpha=0.25),
             )
 
-        ax.set_xlabel(r"$\alpha_{macro}$", fontsize=16)
+        ax.set_xlabel(r"$\alpha_{macro}$ summary", fontsize=16)
         if i == 0:
-            ax.set_ylabel(r"$q=\alpha_\infty/(2\delta)$", fontsize=16)
+            ax.set_ylabel(r"$q=\alpha_{macro}/(2\delta)$", fontsize=16)
         ax.set_title(f"dir={dir_actual}", fontsize=14)
         ax.grid(True)
 
