@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
-import re
 
 import numpy as np
 import pandas as pd
@@ -11,6 +10,7 @@ from scipy.optimize import curve_fit
 
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
 from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
+from tools.brain_labels import canonical_sheet_name, infer_brain_group
 from tools.fit_params_schema import standardize_fit_params
 
 
@@ -110,33 +110,6 @@ def _analysis_id_from_source_file(source_file: str | None) -> str:
     if stem.endswith(".long"):
         stem = stem[: -len(".long")]
     return stem
-
-
-def _canonical_sheet_name(name: str | None) -> str | None:
-    if name is None:
-        return None
-    s = str(name).strip()
-    if not s:
-        return None
-    m = re.match(r"^(\d{8}_[^_]+)", s)
-    if m:
-        return m.group(1)
-    m = re.match(r"^(.+?)_(?:N\d|td)", s)
-    if m:
-        return m.group(1)
-    return s
-
-
-def _infer_brain_group(sheet: str | None, source_file: str | None = None) -> str:
-    raw = str(sheet or _analysis_id_from_source_file(source_file)).strip()
-    if not raw:
-        return "UNKNOWN"
-    stem = Path(raw).stem
-    match = re.match(r"^\d{8}_(.+)$", stem)
-    tail = match.group(1) if match else stem
-    token = tail.split("_")[0]
-    token = re.sub(r"-\d+$", "", token)
-    return token or stem
 
 
 def _model_yhat(
@@ -738,8 +711,10 @@ def fit_ogse_contrast_long(
             else:
                 td_ms = None
 
-        sheet = _canonical_sheet_name(sheet_1 or sheet_2)
-        brain = _infer_brain_group(sheet, source_file=source_file)
+        sheet = canonical_sheet_name(sheet_1 or sheet_2)
+        brain = _get_str("brain")
+        if brain is None or not str(brain).strip():
+            brain = infer_brain_group(sheet, source_name=source_file)
 
         # arrays
         y = pd.to_numeric(gg[y_eff], errors="coerce").to_numpy(dtype=float)

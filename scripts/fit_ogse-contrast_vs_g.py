@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ogse_fitting.fit_ogse_contrast import fit_ogse_contrast_long, plot_fit_one_group
+from tools.brain_labels import canonical_sheet_name, infer_brain_group
 
 
 def _analysis_id_from_path(p: Path) -> str:
@@ -15,24 +16,6 @@ def _analysis_id_from_path(p: Path) -> str:
     if stem.endswith(".long"):
         stem = stem[: -len(".long")]
     return stem
-
-
-def _canonical_sheet_name(name: str | None) -> str | None:
-    if name is None:
-        return None
-    s = str(name).strip()
-    if not s:
-        return None
-
-    m = re.match(r"^(\d{8}_[^_]+)", s)
-    if m:
-        return m.group(1)
-
-    m = re.match(r"^(.+?)_(?:N\d|td)", s)
-    if m:
-        return m.group(1)
-
-    return s
 
 
 def _unique_float(df: pd.DataFrame, col: str) -> float | None:
@@ -107,7 +90,7 @@ def _read_corr_table(path: Path) -> pd.DataFrame:
     corr["direction"] = corr["direction"].astype(str)
     corr["roi"] = corr["roi"].astype(str).str.strip()
     if "sheet" in corr.columns:
-        corr["sheet"] = corr["sheet"].map(_canonical_sheet_name)
+        corr["sheet"] = corr["sheet"].map(canonical_sheet_name)
 
     corr["td_ms"] = pd.to_numeric(corr["td_ms"], errors="coerce")
     corr["correction_factor"] = pd.to_numeric(corr["correction_factor"], errors="coerce")
@@ -136,7 +119,7 @@ def _build_f_by_direction(
 
     # ✅ si hay columna sheet, filtramos para evitar mezclar datasets
     if sheet is not None and "sheet" in c.columns:
-        sheet_key = _canonical_sheet_name(sheet)
+        sheet_key = canonical_sheet_name(sheet)
         c = c[c["sheet"] == sheet_key].copy()
 
     if n1 is not None:
@@ -148,7 +131,7 @@ def _build_f_by_direction(
     if c.empty:
         extra_parts: list[str] = []
         if sheet is not None and "sheet" in corr.columns:
-            extra_parts.append(f"sheet={_canonical_sheet_name(sheet)}")
+            extra_parts.append(f"sheet={canonical_sheet_name(sheet)}")
         if n1 is not None:
             extra_parts.append(f"N_1={int(n1)}")
         if n2 is not None:
@@ -176,6 +159,7 @@ def main() -> None:
     ap.add_argument("--directions", nargs="*", default=None, help="Filtra por direction (ej: 1 2 3 o long tra).")
     ap.add_argument("--direction", nargs="*", dest="directions", help="Alias de --directions (por compat).")
 
+    ap.add_argument("--brains", nargs="*", default=None, help="Filtra brains. Usa ALL para todos.")
     ap.add_argument("--rois", nargs="*", default=None, help="Filtra ROIs. Usa ALL para todas.")
     ap.add_argument("--stat", default="avg", help="Filtra stat (default avg). Usa ALL para todos.")
 
@@ -206,7 +190,21 @@ def main() -> None:
     df = pd.read_parquet(args.contrast_parquet)
     analysis_id = _analysis_id_from_path(args.contrast_parquet)
 
-    sheet_hint = _canonical_sheet_name(analysis_id)
+    sheet_hint = canonical_sheet_name(analysis_id)
+    if "sheet" not in df.columns:
+        if "sheet_1" in df.columns:
+            df["sheet"] = df["sheet_1"].map(canonical_sheet_name)
+        elif "sheet_2" in df.columns:
+            df["sheet"] = df["sheet_2"].map(canonical_sheet_name)
+        else:
+            df["sheet"] = sheet_hint
+    else:
+        df["sheet"] = df["sheet"].map(canonical_sheet_name)
+
+    if "brain" not in df.columns:
+        df["brain"] = [infer_brain_group(sheet, source_name=analysis_id) for sheet in df["sheet"]]
+    df["brain"] = df["brain"].astype(str)
+
     n1_hint = _unique_int(df, "N_1")
     n2_hint = _unique_int(df, "N_2")
     outdir = Path(args.out_root) / analysis_id
@@ -260,9 +258,18 @@ def main() -> None:
     directions = args.directions
     if directions is not None and len(directions) == 1 and str(directions[0]).upper() == "ALL":
         directions = None
+    brains = args.brains
+    if brains is not None and len(brains) == 1 and str(brains[0]).upper() == "ALL":
+        brains = None
     rois = args.rois
     if rois is not None and len(rois) == 1 and str(rois[0]).upper() == "ALL":
         rois = None
+
+    if brains is not None:
+        df = df[df["brain"].astype(str).isin([str(b) for b in brains])].copy()
+        if df.empty:
+            print(f"Skipped: {analysis_id} (no coincide con brains={brains})")
+            return
 
     stat_keep = args.stat
     if stat_keep is not None and str(stat_keep).upper() == "ALL":

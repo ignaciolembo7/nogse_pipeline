@@ -6,8 +6,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
 
-MAKE_CONTRAST_SCRIPT="${1:-$REPO_ROOT/nogse_pipeline/scripts/make_contrast.py}"
-OUT_ROOT="${2:-$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated}"
+PY="${PY:-python}"
+
+# Configuracion
+MAKE_CONTRAST_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/make_contrast.py"
+OUT_ROOT="$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated"
+BRAINS="ALL"
+# BRAINS="BRAIN,LUDG,MBBL"
 
 if [[ ! -f "$MAKE_CONTRAST_SCRIPT" ]]; then
     echo "ERROR: make_contrast.py not found: $MAKE_CONTRAST_SCRIPT" >&2
@@ -15,6 +20,14 @@ if [[ ! -f "$MAKE_CONTRAST_SCRIPT" ]]; then
 fi
 
 mkdir -p "$OUT_ROOT"
+
+brain_args=()
+if [[ "$BRAINS" != "ALL" ]]; then
+    read -r -a brain_list <<< "${BRAINS//,/ }"
+    if (( ${#brain_list[@]} > 0 )); then
+        brain_args+=(--brains "${brain_list[@]}")
+    fi
+fi
 
 declare -a PAIRS=(
 "$REPO_ROOT/analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz050_b0250_19800122XXXX_20220622170141_7_results.rot_tensor.long.parquet|$REPO_ROOT/analysis/ogse_experiments/data-rotated/20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz025_b1075_19800122XXXX_20220622170141_6_results.rot_tensor.long.parquet"
@@ -62,6 +75,7 @@ for pair in "${PAIRS[@]}"; do
     echo "Job $total"
     echo "  A: $base_a"
     echo "  B: $base_b"
+    echo "  Brains: $BRAINS"
 
     if [[ ! -f "$file_a" ]]; then
         failed=$((failed + 1))
@@ -79,10 +93,11 @@ for pair in "${PAIRS[@]}"; do
         continue
     fi
 
-    if python "$MAKE_CONTRAST_SCRIPT" \
+    if "$PY" "$MAKE_CONTRAST_SCRIPT" \
         "$file_a" \
         "$file_b" \
         --direction long tra \
+        "${brain_args[@]}" \
         --out_root "$OUT_ROOT"; then
         ok=$((ok + 1))
         echo "  OK"

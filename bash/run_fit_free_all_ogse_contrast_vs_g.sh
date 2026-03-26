@@ -8,14 +8,17 @@ export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
 
 PY="${PY:-python}"
 
-TABLES_ROOT="${1:-$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/tables}"
-OUT_ROOT="${2:-$REPO_ROOT/analysis/ogse_experiments/fits/fit-free_ogse-contrast-rotated}"
-FIT_SCRIPT="${3:-$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-contrast_vs_g.py}"
-FILE_PATTERN="${4:-*.long.parquet}"
+# Configuracion
+TABLES_ROOT="$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/tables"
+OUT_ROOT="$REPO_ROOT/analysis/ogse_experiments/fits/fit-free_ogse-contrast-rotated"
+FIT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-contrast_vs_g.py"
+FILE_PATTERN="*.long.parquet"
 
-MODEL="${5:-free}"
-GBASE="${6:-g_thorsten_1}"
-YCOL="${7:-value_norm}"
+MODEL="free"
+GBASE="g_thorsten_1"
+YCOL="value_norm"
+BRAINS="ALL"
+ROIS="Syringe,Right-Lateral-Ventricle,Left-Lateral-Ventricle"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2
@@ -28,6 +31,22 @@ if [[ ! -f "$FIT_SCRIPT" ]]; then
 fi
 
 mkdir -p "$OUT_ROOT"
+
+brain_args=()
+if [[ "$BRAINS" != "ALL" ]]; then
+    read -r -a brain_list <<< "${BRAINS//,/ }"
+    if (( ${#brain_list[@]} > 0 )); then
+        brain_args+=(--brains "${brain_list[@]}")
+    fi
+fi
+
+roi_args=()
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        roi_args+=(--rois "${roi_list[@]}")
+    fi
+fi
 
 total=0
 ok=0
@@ -43,6 +62,8 @@ while read -r file; do
     echo "============================================================"
     echo "Job $total"
     echo "  File: $base_name"
+    echo "  Brains: $BRAINS"
+    echo "  ROIs  : $ROIS"
 
     if "$PY" "$FIT_SCRIPT" \
         "$file" \
@@ -53,7 +74,8 @@ while read -r file; do
         --out_root "$OUT_ROOT" \
         --no_grad_corr \
         --fix_M0 1.0 \
-        --rois Syringe Right-Lateral-Ventricle Left-Lateral-Ventricle; then
+        "${brain_args[@]}" \
+        "${roi_args[@]}"; then
         ok=$((ok + 1))
         echo "  OK"
     else

@@ -17,6 +17,7 @@ def main() -> None:
     )
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo para descubrir fit_params dentro de cada raíz.")
     ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos de contraste (ej: rest tort free).")
+    ap.add_argument("--brains", nargs="+", default=None, help="Filtra brains.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
     ap.add_argument("--include-failed", action="store_true", help="Incluye filas con ok=False.")
@@ -28,6 +29,7 @@ def main() -> None:
         args.fits,
         pattern=args.pattern,
         models=args.models,
+        brains=args.brains,
         directions=args.directions,
         rois=args.rois,
         ok_only=not bool(args.include_failed),

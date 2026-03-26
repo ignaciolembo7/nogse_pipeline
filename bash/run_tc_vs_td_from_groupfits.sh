@@ -17,8 +17,10 @@ YCOL="tc_peak_ms"
 FIT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/run_tc_vs_td.py"
 ALPHA_SUMMARY="$REPO_ROOT/analysis/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 OUT_DIR="$(dirname "$GROUPFITS")/tc_vs_td/${METHOD}/${YCOL}"
-# ROIS="ALL"
-ROIS="Left-Lateral-Ventricle,Right-Lateral-Ventricle"
+BRAINS="ALL"
+ROIS="ALL"
+# BRAINS="BRAIN,LUDG,MBBL"
+# ROIS="Left-Lateral-Ventricle,Right-Lateral-Ventricle"
 
 if [[ ! -f "$GROUPFITS" ]]; then
     echo "ERROR: Groupfits file not found: $GROUPFITS" >&2
@@ -42,9 +44,16 @@ if [[ "$METHOD" == "pseudohuber_fixed_macro" ]]; then
 fi
 
 if [[ "$ROIS" != "ALL" ]]; then
-    IFS=',' read -r -a roi_list <<< "$ROIS"
+    read -r -a roi_list <<< "${ROIS//,/ }"
     if (( ${#roi_list[@]} > 0 )); then
         extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
+
+if [[ "$BRAINS" != "ALL" ]]; then
+    read -r -a brain_list <<< "${BRAINS//,/ }"
+    if (( ${#brain_list[@]} > 0 )); then
+        extra_args+=(--brains "${brain_list[@]}")
     fi
 fi
 
@@ -53,6 +62,7 @@ echo "Running tc_vs_td"
 echo "  Groupfits : $GROUPFITS"
 echo "  Method    : $METHOD"
 echo "  y-col     : $YCOL"
+echo "  Brains    : $BRAINS"
 echo "  ROIs      : $ROIS"
 echo "  Out dir   : $OUT_DIR"
 

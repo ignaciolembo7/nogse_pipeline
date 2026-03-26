@@ -37,10 +37,14 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
             args.fits,
             pattern=args.pattern,
             models=args.models,
+            brains=args.brains,
             directions=args.directions,
             rois=args.rois,
             ok_only=True,
         )
+
+    if args.brains is not None and "brain" in df.columns:
+        df = df[df["brain"].astype(str).isin([str(x) for x in args.brains])].copy()
 
     if args.y_col not in df.columns:
         raise KeyError(f"No existe y_col={args.y_col!r} en la tabla combinada.")
@@ -61,6 +65,7 @@ def main() -> None:
     ap.add_argument("--fits", nargs="*", default=None, help="Raíces o archivos fit_params para cargar directamente.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo si se usa --fits con directorios.")
     ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos de contraste.")
+    ap.add_argument("--brains", nargs="+", default=None, help="Filtra brains.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
     ap.add_argument("--y-col", default="tc_peak_ms", help="Columna a ajustar vs td_ms. Ej: tc_peak_ms o tc_ms.")

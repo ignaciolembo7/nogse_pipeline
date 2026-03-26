@@ -6,6 +6,7 @@ import re
 import pandas as pd
 
 from ogse_fitting.contrast import make_contrast
+from tools.brain_labels import canonical_sheet_name, infer_brain_group
 
 KEY_COLS = ("stat", "roi", "direction", "b_step")
 
@@ -150,7 +151,7 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
     def present(xs):  # filtra por existentes manteniendo orden
         return [x for x in xs if x in cols]
 
-    id_cols = present(["roi", "direction", "b_step", "stat"])
+    id_cols = present(["analysis_id", "brain", "sheet", "roi", "direction", "b_step", "stat"])
     head = id_cols + present(["value", "value_norm"])
 
     def side_block(suf: str) -> list[str]:
@@ -247,11 +248,15 @@ def main():
     ap.add_argument("ref_parquet", help="signal parquet (ref)")
     ap.add_argument("cmp_parquet", help="signal parquet (cmp)")
     ap.add_argument("--direction", nargs="+", default=None, help="Filtra por valores de 'direction' (ej: 1 2 3 o long tra).")
+    ap.add_argument("--brains", nargs="+", default=None, help="Brains a incluir (ej: BRAIN LUDG MBBL).")
     ap.add_argument("--out_root", default="analysis/ogse_experiments/contrast", help="directory root")
     ap.add_argument("--exp", default=None, help="override de sheet (solo naming)")
     args = ap.parse_args()
 
     directions = [str(x) for x in (args.direction or [])]
+    brains = args.brains
+    if brains is not None and len(brains) == 1 and str(brains[0]).upper() == "ALL":
+        brains = None
 
     df_ref = pd.read_parquet(Path(args.ref_parquet))
     df_cmp = pd.read_parquet(Path(args.cmp_parquet))
@@ -265,6 +270,14 @@ def main():
     if directions:
         df_ref = df_ref[df_ref["direction"].isin(directions)]
         df_cmp = df_cmp[df_cmp["direction"].isin(directions)]
+
+    analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp)
+    sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
+    brain = infer_brain_group(sheet, source_name=analysis_id)
+
+    if brains is not None and str(brain) not in {str(x) for x in brains}:
+        print(f"Skipped: {analysis_id} (brain={brain})")
+        return
 
     # Core contrast (devuelve value/value_norm, y value_1/value_2, etc.)
     res = make_contrast(
@@ -289,10 +302,12 @@ def main():
     out = _rename_to_generic(out)
     out = _dedup_aliases(out)
 
+    out["analysis_id"] = str(analysis_id)
+    out["sheet"] = sheet
+    out["brain"] = str(brain)
+
     # Orden final de columnas
     out = _order_columns(out)
-
-    analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp)
 
     tables_dir = Path(args.out_root) / "tables" / analysis_short
     tables_dir.mkdir(parents=True, exist_ok=True)

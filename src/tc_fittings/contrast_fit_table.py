@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
 
+from tools.brain_labels import canonical_sheet_name, infer_brain_group
 
 def _read_table(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
@@ -51,33 +51,6 @@ def discover_fit_param_files(root: str | Path, pattern: str = "**/fit_params.*")
     return sorted(best_by_dir.values())
 
 
-def _canonical_sheet_name(name: str | None) -> str | None:
-    if name is None:
-        return None
-    s = str(name).strip()
-    if not s:
-        return None
-    m = re.match(r"^(\d{8}_[^_]+)", s)
-    if m:
-        return m.group(1)
-    m = re.match(r"^(.+?)_(?:N\d|td)", s)
-    if m:
-        return m.group(1)
-    return s
-
-
-def infer_brain_group(sheet: str | None, source_name: str | None = None) -> str:
-    raw = str(sheet or source_name or "").strip()
-    if not raw:
-        return "UNKNOWN"
-    stem = Path(raw).stem
-    match = re.match(r"^\d{8}_(.+)$", stem)
-    tail = match.group(1) if match else stem
-    token = tail.split("_")[0]
-    token = re.sub(r"-\d+$", "", token)
-    return token or stem
-
-
 def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
@@ -90,7 +63,7 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
             out["sheet"] = out["sheet_2"]
         else:
             out["sheet"] = np.nan
-    out["sheet"] = out["sheet"].map(_canonical_sheet_name)
+    out["sheet"] = out["sheet"].map(canonical_sheet_name)
 
     if "brain" not in out.columns:
         src = out["source_file"] if "source_file" in out.columns else pd.Series([""] * len(out))
@@ -140,6 +113,7 @@ def load_contrast_fit_params(
     *,
     pattern: str = "**/fit_params.*",
     models: Sequence[str] | None = None,
+    brains: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     ok_only: bool = True,
@@ -162,6 +136,8 @@ def load_contrast_fit_params(
         out = out[out["ok"].fillna(False).astype(bool)].copy()
     if models is not None and "model" in out.columns:
         out = out[out["model"].isin([str(x) for x in models])].copy()
+    if brains is not None and "brain" in out.columns:
+        out = out[out["brain"].isin([str(x) for x in brains])].copy()
     if directions is not None and "direction" in out.columns:
         out = out[out["direction"].isin([str(x) for x in directions])].copy()
     if rois is not None and "roi" in out.columns:
