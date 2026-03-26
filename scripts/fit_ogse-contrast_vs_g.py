@@ -169,7 +169,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("contrast_parquet", type=Path, help="Parquet long de contraste (salida de make_contrast.py)")
 
-    ap.add_argument("--model", choices=["free", "tort"])
+    ap.add_argument("--model", choices=["free", "tort", "rest"])
     ap.add_argument("--gbase", default="g_lin_max", help="g, g_lin_max, g_thorsten")
     ap.add_argument("--ycol", default="value_norm", help="value o value_norm")
 
@@ -194,8 +194,13 @@ def main() -> None:
 
     ap.add_argument("--fix_M0", type=float, default=None)
     ap.add_argument("--free_M0", action="store_true")
+    ap.add_argument("--fix_D0", type=float, default=None, help="Fija D0 en m^2/ms. Ej: 3.2e-12 para 0.0032 mm^2/s.")
+    ap.add_argument("--free_D0", action="store_true", help="Deja D0 libre aunque se haya usado un valor fijo en otro contexto.")
 
     ap.add_argument("--n_fit", type=int, default=None, help="Usar solo los primeros n_fit puntos (después de ordenar por x).")
+    ap.add_argument("--peak_grid_n", type=int, default=1000, help="Puntos para buscar el máximo del ajuste.")
+    ap.add_argument("--peak_D0_fix", type=float, default=3.2e-12, help="D0 fijo usado para convertir pico -> tc_peak_ms.")
+    ap.add_argument("--peak_gamma", type=float, default=267.5221900, help="Gamma en rad/(ms*mT) para convertir pico -> tc_peak_ms.")
     args = ap.parse_args()
 
     df = pd.read_parquet(args.contrast_parquet)
@@ -241,8 +246,15 @@ def main() -> None:
         M0_vary = True
         M0_value = 1.0
 
-    D0_vary = True
-    D0_value = 2.3e-12
+    if args.free_D0:
+        D0_vary = True
+        D0_value = 2.3e-12
+    elif args.fix_D0 is not None:
+        D0_vary = False
+        D0_value = float(args.fix_D0)
+    else:
+        D0_vary = True
+        D0_value = 2.3e-12
 
     # normalize filters
     directions = args.directions
@@ -272,6 +284,10 @@ def main() -> None:
         M0_value=M0_value,
         D0_value=D0_value,
         source_file=args.contrast_parquet.name,
+        analysis_id=analysis_id,
+        peak_grid_n=int(args.peak_grid_n),
+        peak_D0_fix=float(args.peak_D0_fix),
+        peak_gamma=float(args.peak_gamma),
     )
 
     out_parquet = tables_dir / "fit_params.parquet"

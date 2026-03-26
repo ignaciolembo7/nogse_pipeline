@@ -6,6 +6,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
 
+PY="${PY:-python}"
+
 TABLES_ROOT="${1:-$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/tables}"
 OUT_ROOT="${2:-$REPO_ROOT/analysis/ogse_experiments/fits/fit-free_ogse-contrast-rotated}"
 FIT_SCRIPT="${3:-$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-contrast_vs_g.py}"
@@ -13,7 +15,7 @@ FILE_PATTERN="${4:-*.long.parquet}"
 
 MODEL="${5:-free}"
 GBASE="${6:-g_thorsten_1}"
-FIX_M0="${7:-1.0}"
+YCOL="${7:-value_norm}"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2
@@ -38,20 +40,22 @@ while read -r file; do
     total=$((total + 1))
     base_name="$(basename "$file")"
 
-    echo "Processing: $base_name"
-    echo "  File: $file"
+    echo "============================================================"
+    echo "Job $total"
+    echo "  File: $base_name"
 
-    if python "$FIT_SCRIPT" \
+    if "$PY" "$FIT_SCRIPT" \
         "$file" \
         --model "$MODEL" \
         --gbase "$GBASE" \
-        --direction long tra \
+        --ycol "$YCOL" \
+        --directions long tra \
         --out_root "$OUT_ROOT" \
         --no_grad_corr \
-        --fix_M0 "$FIX_M0" \
+        --fix_M0 1.0 \
         --rois Syringe Right-Lateral-Ventricle Left-Lateral-Ventricle; then
         ok=$((ok + 1))
-        echo "  OK: $base_name"
+        echo "  OK"
     else
         status=$?
         failed=$((failed + 1))

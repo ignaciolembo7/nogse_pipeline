@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+import re
 
 import numpy as np
 import pandas as pd
@@ -102,53 +103,174 @@ def _chi2(y: np.ndarray, yhat: np.ndarray) -> float:
     return float(np.sum((y - yhat) ** 2))
 
 
-# -----------------------------
-# Fitting backends
-# -----------------------------
-# def _fit_free_numpy_bruteforce(
-#     td: float,
-#     G1: np.ndarray,
-#     G2: np.ndarray,
-#     N1: int,
-#     N2: int,
-#     y: np.ndarray,
-#     *,
-#     M0_vary: bool,
-#     D0_vary: bool,
-#     M0_value: float,
-#     D0_value: float,
-# ) -> tuple[float, float, float, float, str, float | None, float | None]:
-#     if not M0_vary and not D0_vary:
-#         yhat = OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, M0_value, D0_value)
-#         return float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "fixed", None, None
+def _analysis_id_from_source_file(source_file: str | None) -> str:
+    if not source_file:
+        return ""
+    stem = Path(str(source_file)).stem
+    if stem.endswith(".long"):
+        stem = stem[: -len(".long")]
+    return stem
 
-#     D_grid = np.logspace(np.log10(D0_value / 100.0), np.log10(D0_value * 10.0), 240) if D0_vary else np.array([D0_value], float)
-#     M_grid = np.linspace(0.0, 2.0, 240) if M0_vary else np.array([M0_value], float)
 
-#     best = (np.inf, None, None)  # mse, M0, D0
-#     for D0 in D_grid:
-#         v = OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, 1.0, float(D0))
-#         if M0_vary:
-#             denom = float(np.dot(v, v))
-#             if denom <= 0:
-#                 continue
-#             M0_ls = float(np.dot(v, y) / denom)
-#             M0_ls = float(np.clip(M0_ls, 0.0, 2.0))
-#             yhat = M0_ls * v
-#             mse = float(np.mean((y - yhat) ** 2))
-#             if mse < best[0]:
-#                 best = (mse, M0_ls, float(D0))
-#         else:
-#             yhat = float(M0_value) * v
-#             mse = float(np.mean((y - yhat) ** 2))
-#             if mse < best[0]:
-#                 best = (mse, float(M0_value), float(D0))
+def _canonical_sheet_name(name: str | None) -> str | None:
+    if name is None:
+        return None
+    s = str(name).strip()
+    if not s:
+        return None
+    m = re.match(r"^(\d{8}_[^_]+)", s)
+    if m:
+        return m.group(1)
+    m = re.match(r"^(.+?)_(?:N\d|td)", s)
+    if m:
+        return m.group(1)
+    return s
 
-#     if best[1] is None:
-#         raise RuntimeError("No pude encontrar mínimo en la grilla (free).")
 
-#     yhat = OGSE_contrast_vs_g_free(td, G1, G2, N1, N2, best[1], best[2])
-#     return best[1], best[2], _rmse(y, yhat), _chi2(y, yhat), "numpy_bruteforce", None, None
+def _infer_brain_group(sheet: str | None, source_file: str | None = None) -> str:
+    raw = str(sheet or _analysis_id_from_source_file(source_file)).strip()
+    if not raw:
+        return "UNKNOWN"
+    stem = Path(raw).stem
+    match = re.match(r"^\d{8}_(.+)$", stem)
+    tail = match.group(1) if match else stem
+    token = tail.split("_")[0]
+    token = re.sub(r"-\d+$", "", token)
+    return token or stem
+
+
+def _model_yhat(
+    *,
+    model: str,
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    fit_row: dict[str, Any],
+) -> np.ndarray:
+    if model == "free":
+        return OGSE_contrast_vs_g_free(td_ms, G1, G2, n_1, n_2, float(fit_row["M0"]), float(fit_row["D0_m2_ms"]))
+    if model == "tort":
+        return OGSE_contrast_vs_g_tort(
+            td_ms,
+            G1,
+            G2,
+            n_1,
+            n_2,
+            float(fit_row["alpha"]),
+            float(fit_row["M0"]),
+            float(fit_row["D0_m2_ms"]),
+        )
+    if model == "rest":
+        return OGSE_contrast_vs_g_rest(
+            td_ms,
+            G1,
+            G2,
+            n_1,
+            n_2,
+            float(fit_row["tc_ms"]),
+            float(fit_row["M0"]),
+            float(fit_row["D0_m2_ms"]),
+        )
+    raise ValueError(f"Modelo '{model}' no soportado para evaluar curva.")
+
+
+def _tc_peak_from_notebook_formula(
+    *,
+    td_ms: float,
+    g_peak_raw_mTpm: float,
+    D0_fix_m2_ms: float,
+    gamma_rad_ms_mT: float,
+) -> tuple[float, float, float, float]:
+    g_raw = float(g_peak_raw_mTpm)
+    if not np.isfinite(g_raw) or g_raw <= 0:
+        return (np.nan, np.nan, np.nan, np.nan)
+
+    D0 = float(D0_fix_m2_ms)
+    gamma = float(gamma_rad_ms_mT)
+    td = float(td_ms)
+
+    l_G = ((2.0 ** (3.0 / 2.0)) * D0 / (gamma * g_raw)) ** (1.0 / 3.0)
+    l_d = np.sqrt(2.0 * D0 * td)
+    L_d = l_d / l_G
+    L_cf = ((3.0 / 2.0) ** (1.0 / 4.0)) * (L_d ** (-1.0 / 2.0))
+    lcf = L_cf * l_G
+    tc_peak_ms = (lcf**2) / (2.0 * D0)
+    return (float(l_G), float(L_cf), float(lcf), float(tc_peak_ms))
+
+
+def _compute_peak_metrics(
+    *,
+    model: str,
+    td_ms: float,
+    n_1: int,
+    n_2: int,
+    fit_row: dict[str, Any],
+    g1_max_corr: float,
+    g2_max_corr: float,
+    f_corr: float,
+    xplot: str,
+    peak_grid_n: int,
+    peak_D0_fix: float,
+    peak_gamma: float,
+) -> dict[str, float | str]:
+    if not np.isfinite(g1_max_corr) or not np.isfinite(g2_max_corr):
+        return {}
+    if g1_max_corr <= 0 or g2_max_corr <= 0:
+        return {}
+
+    n_grid = max(32, int(peak_grid_n))
+    frac = np.linspace(0.0, 1.0, n_grid)
+    G1 = frac * float(g1_max_corr)
+    G2 = frac * float(g2_max_corr)
+    y = _model_yhat(model=model, td_ms=td_ms, G1=G1, G2=G2, n_1=n_1, n_2=n_2, fit_row=fit_row)
+    if y.size == 0 or not np.isfinite(y).any():
+        return {}
+
+    i_peak = int(np.nanargmax(y))
+    f_peak = float(frac[i_peak])
+    g1_peak_corr = float(G1[i_peak])
+    g2_peak_corr = float(G2[i_peak])
+    y_peak = float(y[i_peak])
+
+    f_val = float(f_corr) if np.isfinite(f_corr) and float(f_corr) != 0.0 else np.nan
+    g1_peak_raw = float(g1_peak_corr / f_val) if np.isfinite(f_val) else np.nan
+    g2_peak_raw = float(g2_peak_corr / f_val) if np.isfinite(f_val) else np.nan
+    g1_max_raw = float(g1_max_corr / f_val) if np.isfinite(f_val) else np.nan
+    g2_max_raw = float(g2_max_corr / f_val) if np.isfinite(f_val) else np.nan
+
+    x_is_1 = str(xplot) == "1"
+    x_peak_corr = g1_peak_corr if x_is_1 else g2_peak_corr
+    x_peak_raw = g1_peak_raw if x_is_1 else g2_peak_raw
+
+    l_G, L_cf, lcf_peak_m, tc_peak_ms = _tc_peak_from_notebook_formula(
+        td_ms=float(td_ms),
+        g_peak_raw_mTpm=float(x_peak_raw),
+        D0_fix_m2_ms=float(peak_D0_fix),
+        gamma_rad_ms_mT=float(peak_gamma),
+    )
+
+    return {
+        "peak_method": "param_grid",
+        "peak_grid_n": int(n_grid),
+        "g1_max_raw_mTm": g1_max_raw,
+        "g2_max_raw_mTm": g2_max_raw,
+        "g1_max_corr_mTm": float(g1_max_corr),
+        "g2_max_corr_mTm": float(g2_max_corr),
+        "peak_fraction": f_peak,
+        "g1_peak_raw_mTm": g1_peak_raw,
+        "g2_peak_raw_mTm": g2_peak_raw,
+        "g1_peak_corr_mTm": g1_peak_corr,
+        "g2_peak_corr_mTm": g2_peak_corr,
+        "x_peak_raw_mTm": float(x_peak_raw),
+        "x_peak_corr_mTm": float(x_peak_corr),
+        "signal_peak": y_peak,
+        "l_G_peak_m": l_G,
+        "L_cf_peak": L_cf,
+        "lcf_peak_m": lcf_peak_m,
+        "tc_peak_ms": tc_peak_ms,
+    }
 
 
 def _fit_free(
@@ -210,46 +332,193 @@ def _fit_free(
     M0_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
     return M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", M0_err, None
 
-def _fit_tort(td: float, G1: np.ndarray, G2: np.ndarray, n_1: int, n_2: int, y: np.ndarray):
+def _fit_tort(
+    td: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    y: np.ndarray,
+    *,
+    M0_vary: bool,
+    D0_vary: bool,
+    M0_value: float,
+    D0_value: float,
+):
+    D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
 
-    def f(_dummy, alpha, M0, D0):
-        return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, D0)
+    if M0_vary and D0_vary:
+        def f(_dummy, alpha, M0, D0):
+            return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, D0)
 
-    p0 = [0.7, 1.0, 1e-12]
-    bounds = ([0.0, 0.0, 1e-14], [2.0, 5.0, 1e-9])
+        p0 = [0.7, float(M0_value), float(D0_value)]
+        bounds = ([0.0, 0.0, D_lo], [2.0, 5.0, D_hi])
+        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
+        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
+        yhat = f(None, *popt)
+        rmse = _rmse(y, yhat)
+        chi2 = _chi2(y, yhat)
+        alpha, M0, D0 = map(float, popt)
+        return alpha, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
 
+    if (not M0_vary) and (not D0_vary):
+        def f(_dummy, alpha):
+            return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, float(M0_value), float(D0_value))
+
+        p0 = [0.7]
+        bounds = ([0.0], [2.0])
+        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
+        yhat = f(None, *popt)
+        alpha = float(popt[0])
+        alpha_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
+        return alpha, float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", alpha_err, None, None
+
+    if (not M0_vary) and D0_vary:
+        def f(_dummy, alpha, D0):
+            return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, float(M0_value), D0)
+
+        p0 = [0.7, float(D0_value)]
+        bounds = ([0.0, D_lo], [2.0, D_hi])
+        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
+        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
+        yhat = f(None, *popt)
+        alpha, D0 = map(float, popt)
+        return alpha, float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), None, float(perr[1])
+
+    def f(_dummy, alpha, M0):
+        return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, float(D0_value))
+
+    p0 = [0.7, float(M0_value)]
+    bounds = ([0.0, 0.0], [2.0, 5.0])
     popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
+    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
     yhat = f(None, *popt)
-    rmse = _rmse(y, yhat)
-    chi2 = _chi2(y, yhat)
-    alpha, M0, D0 = map(float, popt)
-    return alpha, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
+    alpha, M0 = map(float, popt)
+    return alpha, M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1]), None
 
-def _fit_rest(td: float, G1: np.ndarray, G2: np.ndarray, n_1: int, n_2: int, y: np.ndarray):
 
-    def f(_dummy, tc, M0, D0):
-        return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, D0)
+def _best_tc_seed_rest(
+    td: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    y: np.ndarray,
+    *,
+    M0_guess: float,
+    D0_guess: float,
+    tc_default: float,
+) -> float:
+    candidates = np.unique(
+        np.concatenate(
+            [
+                np.array([float(tc_default)], dtype=float),
+                np.logspace(np.log10(0.1), np.log10(1000.0), 96),
+            ]
+        )
+    )
+    best_tc = float(tc_default)
+    best_rmse = np.inf
+    for tc in candidates:
+        yhat = OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, float(tc), float(M0_guess), float(D0_guess))
+        if not np.all(np.isfinite(yhat)):
+            continue
+        err = _rmse(y, yhat)
+        if np.isfinite(err) and err < best_rmse:
+            best_rmse = float(err)
+            best_tc = float(tc)
+    return float(best_tc)
 
-    p0 = [0.7, 1.0, 1e-12]
-    bounds = ([0.0, 0.0, 1e-14], [2.0, 5.0, 1e-9])
 
+def _fit_rest(
+    td: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    y: np.ndarray,
+    *,
+    M0_vary: bool,
+    D0_vary: bool,
+    M0_value: float,
+    D0_value: float,
+    tc_value: float,
+):
+    D_lo, D_hi = float(D0_value / 100.0), float(D0_value * 100.0)
+    tc_lo, tc_hi = 0.1, 1000.0
+    tc_seed = _best_tc_seed_rest(
+        td,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        y,
+        M0_guess=float(M0_value),
+        D0_guess=float(D0_value),
+        tc_default=float(tc_value),
+    )
+
+    if M0_vary and D0_vary:
+        def f(_dummy, tc, M0, D0):
+            return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, D0)
+
+        p0 = [float(tc_seed), float(M0_value), float(D0_value)]
+        bounds = ([tc_lo, 0.0, D_lo], [tc_hi, 5.0, D_hi])
+        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
+        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
+        yhat = f(None, *popt)
+        rmse = _rmse(y, yhat)
+        chi2 = _chi2(y, yhat)
+        tc, M0, D0 = map(float, popt)
+        return tc, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
+
+    if (not M0_vary) and (not D0_vary):
+        def f(_dummy, tc):
+            return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, float(M0_value), float(D0_value))
+
+        p0 = [float(tc_seed)]
+        bounds = ([tc_lo], [tc_hi])
+        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
+        yhat = f(None, *popt)
+        tc = float(popt[0])
+        tc_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
+        return tc, float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", tc_err, None, None
+
+    if (not M0_vary) and D0_vary:
+        def f(_dummy, tc, D0):
+            return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, float(M0_value), D0)
+
+        p0 = [float(tc_seed), float(D0_value)]
+        bounds = ([tc_lo, D_lo], [tc_hi, D_hi])
+        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
+        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
+        yhat = f(None, *popt)
+        tc, D0 = map(float, popt)
+        return tc, float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), None, float(perr[1])
+
+    def f(_dummy, tc, M0):
+        return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, float(D0_value))
+
+    p0 = [float(tc_seed), float(M0_value)]
+    bounds = ([tc_lo, 0.0], [tc_hi, 5.0])
     popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
+    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
     yhat = f(None, *popt)
-    rmse = _rmse(y, yhat)
-    chi2 = _chi2(y, yhat)
-    alpha, M0, D0 = map(float, popt)
-    return alpha, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
+    tc, M0 = map(float, popt)
+    return tc, M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1]), None
 
 # -----------------------------
 # Public API
 # -----------------------------
 @dataclass(frozen=True)
 class FitRow:
+    analysis_id: str
+    brain: str
+    sheet: str | None
     roi: str
     direction: str
     stat: str | None
+    td_ms: float | None
 
     # sequence 1 params
     max_dur_ms_1: float | None
@@ -290,6 +559,26 @@ class FitRow:
     n_fit: int
     f_corr: float
 
+    # peak / maxima
+    peak_method: str | None = None
+    peak_grid_n: int | None = None
+    g1_max_raw_mTm: float | None = None
+    g2_max_raw_mTm: float | None = None
+    g1_max_corr_mTm: float | None = None
+    g2_max_corr_mTm: float | None = None
+    peak_fraction: float | None = None
+    g1_peak_raw_mTm: float | None = None
+    g2_peak_raw_mTm: float | None = None
+    g1_peak_corr_mTm: float | None = None
+    g2_peak_corr_mTm: float | None = None
+    x_peak_raw_mTm: float | None = None
+    x_peak_corr_mTm: float | None = None
+    signal_peak: float | None = None
+    l_G_peak_m: float | None = None
+    L_cf_peak: float | None = None
+    lcf_peak_m: float | None = None
+    tc_peak_ms: float | None = None
+
     # fitted
     M0: float | None = None
     M0_err: float | None = None
@@ -328,8 +617,12 @@ def fit_ogse_contrast_long(
     M0_value: float = 1.0,
     D0_value: float = 1e-12,
     source_file: str | None = None,
+    analysis_id: str | None = None,
     tc_value: float = 5.0,
     tc_vary: bool = True,
+    peak_grid_n: int = 1000,
+    peak_D0_fix: float = 3.2e-12,
+    peak_gamma: float = 267.5221900,
 ) -> pd.DataFrame:
     """
     Fit de una tabla de contraste LONG (tu formato nuevo):
@@ -341,6 +634,7 @@ def fit_ogse_contrast_long(
       N_1, N_2, td_ms_1/td_ms_2 (o max_dur_ms_1 + tm_ms_1), etc.
     """
     df = _normalize_keys(df, label="contrast_long")
+    analysis_id = analysis_id or _analysis_id_from_source_file(source_file)
 
     # aliases backward-compat (solo por si hay tablas viejas)
     y_alias = {"value_norm": "contrast_norm", "value": "contrast"}
@@ -444,6 +738,9 @@ def fit_ogse_contrast_long(
             else:
                 td_ms = None
 
+        sheet = _canonical_sheet_name(sheet_1 or sheet_2)
+        brain = _infer_brain_group(sheet, source_file=source_file)
+
         # arrays
         y = pd.to_numeric(gg[y_eff], errors="coerce").to_numpy(dtype=float)
         G1 = pd.to_numeric(gg[g1c], errors="coerce").to_numpy(dtype=float)
@@ -459,9 +756,13 @@ def fit_ogse_contrast_long(
         if td_ms is None or not np.isfinite(float(td_ms)) or n_points == 0:
             rows.append(
                 FitRow(
+                    analysis_id=str(analysis_id),
+                    brain=str(brain),
+                    sheet=sheet,
                     roi=roi,
                     direction=direction,
                     stat=stat,
+                    td_ms=None if td_ms is None else float(td_ms),
                     max_dur_ms_1=max_dur_ms_1,
                     tm_ms_1=tm_ms_1,
                     td_ms_1=td_ms_1,
@@ -520,9 +821,13 @@ def fit_ogse_contrast_long(
         td = float(td_ms)
 
         base = dict(
+            analysis_id=str(analysis_id),
+            brain=str(brain),
+            sheet=sheet,
             roi=roi,
             direction=direction,
             stat=stat,
+            td_ms=float(td),
             max_dur_ms_1=max_dur_ms_1,
             tm_ms_1=tm_ms_1,
             td_ms_1=td_ms_1,
@@ -564,9 +869,24 @@ def fit_ogse_contrast_long(
                     td, G1, G2, n_1, n_2, y,
                     M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value
                 )
+                peak_metrics = _compute_peak_metrics(
+                    model=model,
+                    td_ms=td,
+                    n_1=n_1,
+                    n_2=n_2,
+                    fit_row={"M0": float(M0), "D0_m2_ms": float(D0)},
+                    g1_max_corr=float(np.nanmax(G1)),
+                    g2_max_corr=float(np.nanmax(G2)),
+                    f_corr=float(f_corr),
+                    xplot=str(xplot),
+                    peak_grid_n=int(peak_grid_n),
+                    peak_D0_fix=float(peak_D0_fix),
+                    peak_gamma=float(peak_gamma),
+                )
                 rows.append(
                     FitRow(
                         **base,
+                        **peak_metrics,
                         M0=float(M0),
                         M0_err=None if M0_err is None else float(M0_err),
                         D0_m2_ms=float(D0),
@@ -578,10 +898,28 @@ def fit_ogse_contrast_long(
                 )
 
             elif model == "tort":
-                alpha, M0, D0, rmse, chi2, method, alpha_err, M0_err, D0_err = _fit_tort(td, G1, G2, n_1, n_2, y)
+                alpha, M0, D0, rmse, chi2, method, alpha_err, M0_err, D0_err = _fit_tort(
+                    td, G1, G2, n_1, n_2, y,
+                    M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value
+                )
+                peak_metrics = _compute_peak_metrics(
+                    model=model,
+                    td_ms=td,
+                    n_1=n_1,
+                    n_2=n_2,
+                    fit_row={"alpha": float(alpha), "M0": float(M0), "D0_m2_ms": float(D0)},
+                    g1_max_corr=float(np.nanmax(G1)),
+                    g2_max_corr=float(np.nanmax(G2)),
+                    f_corr=float(f_corr),
+                    xplot=str(xplot),
+                    peak_grid_n=int(peak_grid_n),
+                    peak_D0_fix=float(peak_D0_fix),
+                    peak_gamma=float(peak_gamma),
+                )
                 rows.append(
                     FitRow(
                         **base,
+                        **peak_metrics,
                         alpha=float(alpha),
                         alpha_err=None if alpha_err is None else float(alpha_err),
                         M0=float(M0),
@@ -595,10 +933,28 @@ def fit_ogse_contrast_long(
                 )
 
             elif model == "rest":
-                tc, M0, D0, rmse, chi2, method, tc_err, M0_err, D0_err = _fit_rest(td, G1, G2, n_1, n_2, y)
+                tc, M0, D0, rmse, chi2, method, tc_err, M0_err, D0_err = _fit_rest(
+                    td, G1, G2, n_1, n_2, y,
+                    M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value, tc_value=tc_value
+                )
+                peak_metrics = _compute_peak_metrics(
+                    model=model,
+                    td_ms=td,
+                    n_1=n_1,
+                    n_2=n_2,
+                    fit_row={"tc_ms": float(tc), "M0": float(M0), "D0_m2_ms": float(D0)},
+                    g1_max_corr=float(np.nanmax(G1)),
+                    g2_max_corr=float(np.nanmax(G2)),
+                    f_corr=float(f_corr),
+                    xplot=str(xplot),
+                    peak_grid_n=int(peak_grid_n),
+                    peak_D0_fix=float(peak_D0_fix),
+                    peak_gamma=float(peak_gamma),
+                )
                 rows.append(
                     FitRow(
                         **base,
+                        **peak_metrics,
                         tc_ms=float(tc),
                         tc_err_ms=None if tc_err is None else float(tc_err),
                         M0=float(M0),
@@ -658,7 +1014,10 @@ def plot_fit_one_group(
     m = np.isfinite(y) & np.isfinite(G1) & np.isfinite(G2)
     y, G1, G2 = y[m], G1[m], G2[m]
 
-    td = float(fit_row.get("td_ms_1") if fit_row.get("td_ms_1") is not None else fit_row.get("td_ms_2") if fit_row.get("td_ms_2") is not None else 0.0)
+    td_val = fit_row.get("td_ms")
+    if td_val is None:
+        td_val = fit_row.get("td_ms_1") if fit_row.get("td_ms_1") is not None else fit_row.get("td_ms_2")
+    td = float(td_val) if td_val is not None else 0.0
     n_1 = int(fit_row.get("N_1"))
     n_2 = int(fit_row.get("N_2"))
     model = str(fit_row.get("model", "free"))

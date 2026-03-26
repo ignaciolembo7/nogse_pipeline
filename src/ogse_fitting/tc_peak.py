@@ -26,14 +26,24 @@ def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
     if not fit_row.get("ok", True):
         raise ValueError("fit_row no OK; no puedo sacar pico paramétrico.")
 
+    if "peak_fraction" in fit_row and "signal_peak" in fit_row and pd.notna(fit_row.get("peak_fraction")):
+        return PeakResult(
+            method=str(fit_row.get("peak_method", "param")),
+            xplot=str(fit_row.get("xplot", "1")),
+            f_peak=float(fit_row["peak_fraction"]),
+            g1_peak=float(fit_row.get("g1_peak_corr_mTm", np.nan)),
+            g2_peak=float(fit_row.get("g2_peak_corr_mTm", np.nan)),
+            y_peak=float(fit_row.get("signal_peak", np.nan)),
+        )
+
     model = str(fit_row["model"])
     td_ms = float(fit_row["td_ms"])
     n_1 = int(fit_row["N_1"])
     n_2 = int(fit_row["N_2"])
     xplot = str(fit_row.get("xplot", "1"))
 
-    g1_max = float(fit_row["g1_max"])
-    g2_max = float(fit_row["g2_max"])
+    g1_max = float(fit_row["g1_max_corr_mTm"])
+    g2_max = float(fit_row["g2_max_corr_mTm"])
 
     f = np.linspace(0.0, 1.0, int(n_grid))
     G1 = f * g1_max

@@ -133,36 +133,62 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
         tra  := mean(y,z)
       (solo si no existen ya en el archivo)
     """
-    df = pd.read_excel(summary_xlsx, decimal=",")
-    rename = {}
-    for c in df.columns:
-        lc = c.lower()
-        if lc == "region" or lc == "roi":
-            rename[c] = "roi"
-        if lc == "brain":
-            rename[c] = "brain"
-        if lc.startswith("direc"):
-            rename[c] = "direction"
-        if lc == "alpha_macro":
-            rename[c] = "alpha_macro"
-        if "error" in lc:
-            rename[c] = "alpha_macro_error"
-    df = df.rename(columns=rename)
+    raw = pd.read_excel(summary_xlsx, decimal=",")
+    lower_to_cols: dict[str, list[str]] = {}
+    for col in raw.columns:
+        lower_to_cols.setdefault(str(col).strip().lower(), []).append(col)
 
-    _ensure_required_cols(df, ["brain", "roi", "direction", "alpha_macro"], "load_alpha_macro_summary")
+    def _pick(*aliases: str) -> pd.Series | None:
+        for alias in aliases:
+            cols = lower_to_cols.get(alias.lower(), [])
+            if cols:
+                return raw[cols[0]]
+        return None
 
-    df = df.copy()
+    brain = _pick("brain")
+    roi = _pick("roi", "region")
+    direction = _pick("direction", "direccion")
+    alpha_macro = _pick("alpha_macro", "alpha")
+    alpha_macro_error = _pick("alpha_macro_error", "alpha_error")
+    sheet = _pick("sheet")
+
+    missing = []
+    if brain is None:
+        missing.append("brain")
+    if roi is None:
+        missing.append("roi/region")
+    if direction is None:
+        missing.append("direction/direccion")
+    if alpha_macro is None:
+        missing.append("alpha_macro")
+    if missing:
+        raise KeyError(f"load_alpha_macro_summary: faltan columnas {missing}. Tengo: {list(raw.columns)}")
+
+    df = pd.DataFrame(
+        {
+            "brain": brain,
+            "roi": roi,
+            "direction": direction,
+            "alpha_macro": alpha_macro,
+            "alpha_macro_error": alpha_macro_error if alpha_macro_error is not None else np.nan,
+        }
+    )
+    if sheet is not None:
+        df["sheet"] = sheet
+
     df["brain"] = _as_str_series(df["brain"])
     df["roi"] = _as_str_series(df["roi"]).str.replace("_norm", "", regex=False)
     df["direction"] = _as_str_series(df["direction"])
     df["alpha_macro"] = pd.to_numeric(df["alpha_macro"], errors="coerce")
-    if "alpha_macro_error" in df.columns:
-        df["alpha_macro_error"] = pd.to_numeric(df["alpha_macro_error"], errors="coerce")
-    else:
-        df["alpha_macro_error"] = np.nan
+    df["alpha_macro_error"] = pd.to_numeric(df["alpha_macro_error"], errors="coerce")
+    if "sheet" in df.columns:
+        df["sheet"] = _as_str_series(df["sheet"])
 
+    base_cols = ["brain", "roi", "direction", "alpha_macro", "alpha_macro_error"]
+    if "sheet" in df.columns:
+        base_cols.insert(1, "sheet")
     base = df.dropna(subset=["alpha_macro"]).copy()
-    base = base[["brain", "roi", "direction", "alpha_macro", "alpha_macro_error"]]
+    base = base[base_cols]
 
     # Derivadas long/tra si hay x/y/z
     dirs = set(base["direction"].unique())
@@ -176,12 +202,18 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     if (("y" in dirs) or ("z" in dirs)) and ("tra" not in dirs):
         dyz = base[base["direction"].isin(["y", "z"])].copy()
         if not dyz.empty:
-            dtra = dyz.groupby(["brain", "roi"], as_index=False).agg(
+            group_cols = ["brain", "roi"]
+            if "sheet" in dyz.columns:
+                group_cols.insert(1, "sheet")
+            dtra = dyz.groupby(group_cols, as_index=False).agg(
                 alpha_macro=("alpha_macro", "mean"),
                 alpha_macro_error=("alpha_macro_error", "mean"),
             )
             dtra["direction"] = "tra"
-            derived.append(dtra[["brain", "roi", "direction", "alpha_macro", "alpha_macro_error"]])
+            keep = ["brain", "roi", "direction", "alpha_macro", "alpha_macro_error"]
+            if "sheet" in dtra.columns:
+                keep.insert(1, "sheet")
+            derived.append(dtra[keep])
 
     out = pd.concat([base] + derived, ignore_index=True) if derived else base
     return out
@@ -216,6 +248,8 @@ def fit_tc_vs_td_pseudohuber(
     k_last: Optional[int],
     mode: str,  # "free_alpha" | "fixed_macro"
     alpha_macro_df: Optional[pd.DataFrame] = None,
+    y_col: str = "tc_peak_ms",
+    y_label: str = "$t_{c,peak}$ [ms]",
 ) -> pd.DataFrame:
     """
     mode:
@@ -229,7 +263,7 @@ def fit_tc_vs_td_pseudohuber(
     df = _ensure_brain(df)
     df = _ensure_direction(df)
 
-    _ensure_required_cols(df, ["td_ms", "tc_at_max"], "fit_tc_vs_td_pseudohuber")
+    _ensure_required_cols(df, ["td_ms", y_col], "fit_tc_vs_td_pseudohuber")
 
     regiones = [r.replace("_norm","") for r in cfg_regions if r.replace("_norm","") in df["roi"].unique()]
     if not regiones:
@@ -262,7 +296,7 @@ def fit_tc_vs_td_pseudohuber(
                     continue
 
                 x = sub["td_ms"].to_numpy(dtype=float)
-                y = sub["tc_at_max"].to_numpy(dtype=float)
+                y = sub[y_col].to_numpy(dtype=float)
 
                 # si hay NaNs, limpiarlos
                 m = np.isfinite(x) & np.isfinite(y)
@@ -361,6 +395,8 @@ def fit_tc_vs_td_pseudohuber(
                     "direction": dir_actual,
                     "k_last": k_last,
                     "mode": mode,
+                    "y_col": y_col,
+                    "y_label": y_label,
                     "c": c, "c_se": c_se,
                     "delta": delta, "delta_se": delta_se,
                     "alpha_inf": alpha_inf, "alpha_inf_se": alpha_inf_se,
@@ -387,7 +423,7 @@ def fit_tc_vs_td_pseudohuber(
                 if sub.empty:
                     continue
                 x = sub["td_ms"].to_numpy(float)
-                y = sub["tc_at_max"].to_numpy(float)
+                y = sub[y_col].to_numpy(float)
 
                 m = np.isfinite(x) & np.isfinite(y)
                 x, y = x[m], y[m]
@@ -412,7 +448,7 @@ def fit_tc_vs_td_pseudohuber(
 
             ax.set_title(region, fontsize=14)
             ax.set_xlabel("Diffusion time $T_d$ [ms]", fontsize=16)
-            ax.set_ylabel("$t_{c,max}$ [ms]", fontsize=16)
+            ax.set_ylabel(y_label, fontsize=16)
             ax.grid(True)
             if any_line:
                 ax.legend(fontsize=9)
@@ -421,9 +457,9 @@ def fit_tc_vs_td_pseudohuber(
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"PseudoHuber model fit | dir={dir_actual} | mode={mode} | k_last={k_last}", fontsize=18)
+        plt.suptitle(f"PseudoHuber model fit | y={y_col} | dir={dir_actual} | mode={mode} | k_last={k_last}", fontsize=18)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1_tc_fit_dir={dir_actual}_mode={mode}_k={k_last}.png", dpi=300)
+        plt.savefig(out_dir / f"BLOCK1_{y_col}_fit_dir={dir_actual}_mode={mode}_k={k_last}.png", dpi=300)
         plt.close()
 
     if not rows:
@@ -435,7 +471,7 @@ def fit_tc_vs_td_pseudohuber(
         )
 
     df_fit = pd.DataFrame(rows)
-    df_fit.to_excel(out_dir / f"params_pseudohuber_mode={mode}_k={k_last}.xlsx", index=False)
+    df_fit.to_excel(out_dir / f"params_pseudohuber_mode={mode}_y={y_col}_k={k_last}.xlsx", index=False)
     return df_fit
 
 
@@ -820,7 +856,14 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
         plt.close()
 
 
-def block1c_smallTd_tc_approx(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: Path) -> None:
+def block1c_smallTd_tc_approx(
+    df_params: pd.DataFrame,
+    df_fit: pd.DataFrame,
+    out_dir: Path,
+    *,
+    y_col: str = "tc_peak_ms",
+    y_label: str = "$t_{c,peak}$ [ms]",
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_brain(_ensure_direction(df_params.copy()))
@@ -853,7 +896,7 @@ def block1c_smallTd_tc_approx(df_params: pd.DataFrame, df_fit: pd.DataFrame, out
                     continue
 
                 x = sub_data["td_ms"].to_numpy(float)
-                y = sub_data["tc_at_max"].to_numpy(float)
+                y = sub_data[y_col].to_numpy(float)
 
                 c = float(sub_fit["c"].values[0])
                 delta = float(sub_fit["delta"].values[0])
@@ -870,7 +913,7 @@ def block1c_smallTd_tc_approx(df_params: pd.DataFrame, df_fit: pd.DataFrame, out
 
             ax.set_title(region)
             ax.set_xlabel("Td [ms]")
-            ax.set_ylabel("tc(Td) [ms]")
+            ax.set_ylabel(y_label)
             ax.grid(True)
             if any_line:
                 ax.legend(fontsize=9)
@@ -878,9 +921,9 @@ def block1c_smallTd_tc_approx(df_params: pd.DataFrame, df_fit: pd.DataFrame, out
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"BLOCK1c tc(Td) vs small-Td quadratic approx | dir={dir_actual}", fontsize=16)
+        plt.suptitle(f"BLOCK1c {y_col}(Td) vs small-Td quadratic approx | dir={dir_actual}", fontsize=16)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1c_tc_smallTd_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"BLOCK1c_{y_col}_smallTd_dir={dir_actual}.png", dpi=300)
         plt.close()
 
 

@@ -5,6 +5,9 @@ from typing import Callable, Optional
 import pandas as pd
 from pathlib import Path
 
+DEFAULT_PALETTE = ["#a65628", "#e41a1c", "#ff7f00", "#984ea3", "#377eb8", "#999999"]
+
+
 @dataclass(frozen=True)
 class FitSpec:
     name: str
@@ -41,16 +44,41 @@ def _ensure_direction_col(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def run_pseudohuber_free(cfg, df_params: pd.DataFrame, out_dir: Path, k_last: Optional[int], alpha_macro_df):
+def _regions_for_fit(df: pd.DataFrame, cfg) -> list[str]:
+    if cfg is not None and getattr(cfg, "regions", None):
+        return [str(r).replace("_norm", "") for r in cfg.regions]
+    return sorted(df["roi"].astype(str).str.replace("_norm", "", regex=False).unique().tolist())
+
+
+def _palette_for_fit(cfg) -> list[str]:
+    if cfg is not None and getattr(cfg, "palette", None):
+        return list(cfg.palette)
+    return list(DEFAULT_PALETTE)
+
+
+def run_pseudohuber_free(
+    cfg,
+    df_params: pd.DataFrame,
+    out_dir: Path,
+    k_last: Optional[int],
+    alpha_macro_df,
+    *,
+    y_col: str = "tc_peak_ms",
+    y_label: str = r"$t_{c,peak}$ [ms]",
+):
+    regions = _regions_for_fit(df_params, cfg)
+    palette = _palette_for_fit(cfg)
     # Fit
     df_fit = fit_tc_vs_td_pseudohuber(
         df_params=df_params,
         out_dir=out_dir,
-        cfg_regions=cfg.regions,
-        palette=cfg.palette,
+        cfg_regions=regions,
+        palette=palette,
         k_last=k_last,
         mode="free_alpha",
         alpha_macro_df=None,
+        y_col=y_col,
+        y_label=y_label,
     )
 
     # Normalizar col de direction (por compatibilidad)
@@ -59,63 +87,76 @@ def run_pseudohuber_free(cfg, df_params: pd.DataFrame, out_dir: Path, k_last: Op
 
     # Blocks que no dependen de nombres específicos de direction
     block1b_alpha_vs_Td(df_params, df_fit, out_dir)
-    block1c_smallTd_tc_approx(df_params, df_fit, out_dir)
-    block2_region_plots(df_fit, out_dir, cfg.regions, cfg.palette, plot_A=True)
+    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
+    block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True)
 
     # ✅ Block2b ahora es genérico: plotea 1×N con TODAS las direcciones presentes
     block2b_cc_vars_long_tra_sameY(
         df_fit=df_fit,
         out_dir=out_dir,
-        cfg_regions=cfg.regions,
-        palette=cfg.palette,
-        tag=f"pseudohuber_free_k={k_last}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'free_alpha'}",
+        cfg_regions=regions,
+        palette=palette,
+        tag=f"pseudohuber_free_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'free_alpha'}",
     )
 
     # Block3/4 solo si hay summary alpha_macro (macro)
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
         block3_alpha_macro_vs_micro(
-            df_fit, out_dir, alpha_macro_df, cfg.palette, method_tag=f"pseudohuber_free_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}"
         )
         block4_qquad_vs_alpha_macro(
-            df_fit, out_dir, alpha_macro_df, cfg.palette, method_tag=f"pseudohuber_free_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}"
         )
 
 
-def run_pseudohuber_fixed_macro(cfg, df_params: pd.DataFrame, out_dir: Path, k_last: Optional[int], alpha_macro_df):
+def run_pseudohuber_fixed_macro(
+    cfg,
+    df_params: pd.DataFrame,
+    out_dir: Path,
+    k_last: Optional[int],
+    alpha_macro_df,
+    *,
+    y_col: str = "tc_peak_ms",
+    y_label: str = r"$t_{c,peak}$ [ms]",
+):
+    regions = _regions_for_fit(df_params, cfg)
+    palette = _palette_for_fit(cfg)
     df_fit = fit_tc_vs_td_pseudohuber(
         df_params=df_params,
         out_dir=out_dir,
-        cfg_regions=cfg.regions,
-        palette=cfg.palette,
+        cfg_regions=regions,
+        palette=palette,
         k_last=k_last,
         mode="fixed_macro",
         alpha_macro_df=alpha_macro_df,
+        y_col=y_col,
+        y_label=y_label,
     )
 
     df_fit = _ensure_direction_col(df_fit)
     df_params = _ensure_direction_col(df_params)
 
     block1b_alpha_vs_Td(df_params, df_fit, out_dir)
-    block1c_smallTd_tc_approx(df_params, df_fit, out_dir)
-    block2_region_plots(df_fit, out_dir, cfg.regions, cfg.palette, plot_A=True)
+    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
+    block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True)
 
     # ✅ Genérico (no depende de long/tra)
     block2b_cc_vars_long_tra_sameY(
         df_fit=df_fit,
         out_dir=out_dir,
-        cfg_regions=cfg.regions,
-        palette=cfg.palette,
-        tag=f"pseudohuber_fixed_macro_k={k_last}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'fixed_macro'}",
+        cfg_regions=regions,
+        palette=palette,
+        tag=f"pseudohuber_fixed_macro_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'fixed_macro'}",
     )
 
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
         block3_alpha_macro_vs_micro(
-            df_fit, out_dir, alpha_macro_df, cfg.palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
         )
         block4_qquad_vs_alpha_macro(
-            df_fit, out_dir, alpha_macro_df, cfg.palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
         )
 
 
