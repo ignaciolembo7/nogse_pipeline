@@ -98,6 +98,7 @@ def load_nifti_3d(path: Path) -> tuple[nib.Nifti1Image, np.ndarray]:
     Load a NIfTI and return (img, data_3d).
 
     Supports:
+      - 2D: (X,Y) -> promoted to (X,Y,1) for single-slice phantom data
       - 3D: (X,Y,Z)
       - 4D singleton: (X,Y,Z,1) -> squeezed to (X,Y,Z)
 
@@ -105,6 +106,10 @@ def load_nifti_3d(path: Path) -> tuple[nib.Nifti1Image, np.ndarray]:
     """
     img = nib.load(str(path))
     data = np.asanyarray(img.dataobj)
+
+    if data.ndim == 2:
+        data = data[..., np.newaxis]
+        img = nib.Nifti1Image(data, img.affine, img.header.copy())
 
     if data.ndim == 4 and data.shape[-1] == 1:
         data = data[..., 0]

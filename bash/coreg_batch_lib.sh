@@ -2,17 +2,37 @@
 
 set -u -o pipefail
 
-SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_HOME/../.." && pwd)"
-REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
-COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
-SUBJECTS_DIR="$PROJECT_ROOT/Data-signals/DATA_PROCESSED/subjects"
-OUT_ROOT="$PROJECT_ROOT/Data-signals"
+# Shared helpers for the signal-extraction batch runners.
+# This file is meant to be sourced by small driver scripts that define their
+# own paths and dataset-specific settings before calling `init_run`.
+#
+# Expected variables from the caller:
+#   PROJECT_ROOT   Project root directory.
+#   REPO_ROOT      Repository root, typically "$PROJECT_ROOT/nogse_pipeline".
+#   COREG_SCRIPT   Python entry point to execute for each case.
+#   OUT_ROOT       Base output directory for extracted signal tables.
+#
+# Optional variables from the caller:
+#   SUBJECTS_DIR         FreeSurfer subjects directory, required only when
+#                        REQUIRE_SUBJECTS_DIR=1.
+#   REQUIRE_SUBJECTS_DIR Set to 1 for brain workflows that need SUBJECTS_DIR.
 
-declare -a FAILURES=()
+COREG_BATCH_LIB_PATH="${BASH_SOURCE[0]}"
+
+declare -ag FAILURES=()
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+require_defined_vars() {
+  local var_name
+  for var_name in "$@"; do
+    if [[ -z "${!var_name:-}" ]]; then
+      echo "ERROR: required variable '$var_name' is not defined before sourcing/running coreg_batch_lib.sh"
+      exit 1
+    fi
+  done
 }
 
 append_version() {
@@ -28,15 +48,21 @@ append_version() {
 
 init_run() {
   local run_name="$1"
+  local require_subjects_dir="${REQUIRE_SUBJECTS_DIR:-0}"
+
+  require_defined_vars PROJECT_ROOT REPO_ROOT COREG_SCRIPT OUT_ROOT
 
   if [[ ! -f "$COREG_SCRIPT" ]]; then
     echo "ERROR: file $COREG_SCRIPT does not exist"
     exit 1
   fi
 
-  if [[ ! -d "$SUBJECTS_DIR" ]]; then
-    echo "ERROR: directory $SUBJECTS_DIR does not exist"
-    exit 1
+  if [[ "$require_subjects_dir" == "1" ]]; then
+    require_defined_vars SUBJECTS_DIR
+    if [[ ! -d "$SUBJECTS_DIR" ]]; then
+      echo "ERROR: directory $SUBJECTS_DIR does not exist"
+      exit 1
+    fi
   fi
 
   cd "$PROJECT_ROOT"
@@ -55,7 +81,7 @@ init_run() {
   exec > >(tee -a "$LOG_FILE") 2>&1
 
   cp "$0" "$LOG_DIR/$(basename "$0")"
-  cp "$SCRIPT_HOME/coreg_batch_lib.sh" "$LOG_DIR/coreg_batch_lib.sh"
+  cp "$COREG_BATCH_LIB_PATH" "$LOG_DIR/coreg_batch_lib.sh"
 
   {
     echo "RUN_ID=$RUN_ID"
@@ -63,7 +89,9 @@ init_run() {
     echo "PROJECT_ROOT=$PROJECT_ROOT"
     echo "REPO_ROOT=$REPO_ROOT"
     echo "COREG_SCRIPT=$COREG_SCRIPT"
-    echo "SUBJECTS_DIR=$SUBJECTS_DIR"
+    if [[ -n "${SUBJECTS_DIR:-}" ]]; then
+      echo "SUBJECTS_DIR=$SUBJECTS_DIR"
+    fi
     echo "OUT_ROOT=$OUT_ROOT"
     echo "PWD_AT_START=$(pwd)"
     echo "USER=${USER:-}"
@@ -183,7 +211,9 @@ init_run() {
   echo "PROJECT_ROOT: $PROJECT_ROOT"
   echo "REPO_ROOT   : $REPO_ROOT"
   echo "SCRIPT      : $COREG_SCRIPT"
-  echo "SUBJECTS_DIR: $SUBJECTS_DIR"
+  if [[ -n "${SUBJECTS_DIR:-}" ]]; then
+    echo "SUBJECTS_DIR: $SUBJECTS_DIR"
+  fi
   echo "OUT_ROOT    : $OUT_ROOT"
   echo "Log file    : $LOG_FILE"
   echo "Logs dir    : $LOG_DIR"

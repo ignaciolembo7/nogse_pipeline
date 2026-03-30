@@ -2,8 +2,20 @@
 
 set -u -o pipefail
 
+# Driver script for the brain DWI signal-extraction batch.
+# All workflow-specific paths are defined here, while logging and case
+# execution helpers come from `coreg_batch_lib.sh`.
+
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_HOME/coreg_batch_lib.sh"
+PROJECT_ROOT="$(cd "$SCRIPT_HOME/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
+COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
+SUBJECTS_DIR="$PROJECT_ROOT/Data-signals/DATA_PROCESSED/subjects"
+OUT_ROOT="$PROJECT_ROOT/Data-signals"
+REQUIRE_SUBJECTS_DIR=1
+
+# Load shared batch helpers after defining all required variables.
+source "$SCRIPT_HOME/../coreg_batch_lib.sh"
 
 init_run "run_BRAINS-denoised_topup_signal_extraction"
 

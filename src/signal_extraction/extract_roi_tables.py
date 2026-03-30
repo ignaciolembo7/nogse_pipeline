@@ -115,9 +115,17 @@ def _load_nii(p: Path) -> nib.Nifti1Image:
 def _as_3d(dataobj, what: str) -> np.ndarray:
     """
     Convert a nibabel dataobj into a strict 3D array.
-    Accepts 3D or (X,Y,Z,1) and converts the latter to 3D.
+    Accepts:
+      - 2D single-slice data stored as (X,Y), promoted to (X,Y,1)
+      - 3D data stored as (X,Y,Z)
+      - 4D singleton data stored as (X,Y,Z,1), squeezed to (X,Y,Z)
     """
     a = np.asanyarray(dataobj)
+
+    # Promote 2D single-slice images to a 3D volume so the rest of the
+    # pipeline can treat single-slice phantoms like standard 3D data.
+    if a.ndim == 2:
+        a = a[..., np.newaxis]
 
     # Only squeeze a singleton 4th dim (common pitfall from some tools)
     if a.ndim == 4 and a.shape[-1] == 1:
@@ -144,9 +152,12 @@ def _ensure_same_grid(
     Minimum requirement: same spatial shape (X,Y,Z).
     Recommended: also require compatible affine (same orientation/voxel-to-world).
     """
-    if dwi_img.shape[:3] != mask_img.shape[:3]:
+    dwi_shape = tuple(dwi_img.shape[:3])
+    mask_shape = tuple(_as_3d(mask_img.dataobj, what).shape)
+
+    if dwi_shape != mask_shape:
         raise ValueError(
-            f"{what}: shape {mask_img.shape[:3]} != DWI spatial {dwi_img.shape[:3]}. "
+            f"{what}: shape {mask_shape} != DWI spatial {dwi_shape}. "
             "The mask must be resampled into the SAME DWI grid."
         )
 
