@@ -355,20 +355,20 @@ def extract_tables(
 
 
 # ---------------------------------------------------------------------
-# Excel writer (MATLAB-like ordering)
+# Excel writer
 # ---------------------------------------------------------------------
 def write_excel_like_matlab(tables: dict[str, pd.DataFrame], out_xlsx: Path) -> None:
     """
-    Write the tables dict to an .xlsx with a fixed sheet order, matching your MATLAB output.
+    Write the tables dict to an .xlsx with a fixed sheet order.
 
     Sheets:
-      Sheet1 -> mean
-      Sheet2 -> std
-      Sheet3 -> median
-      Sheet4 -> mad
-      Sheet5 -> mode
+      avg  -> mean
+      std  -> std
+      med  -> median
+      mad  -> mad
+      mode -> mode
     """
-    order = [("Sheet1", "mean"), ("Sheet2", "std"), ("Sheet3", "median"), ("Sheet4", "mad"), ("Sheet5", "mode")]
+    order = [("avg", "mean"), ("std", "std"), ("med", "median"), ("mad", "mad"), ("mode", "mode")]
     out_xlsx.parent.mkdir(parents=True, exist_ok=True)
 
     with pd.ExcelWriter(out_xlsx, engine="openpyxl") as w:

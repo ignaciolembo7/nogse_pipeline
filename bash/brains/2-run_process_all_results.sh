@@ -2,14 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
-export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
-RESULTS_ROOT="${1:-$REPO_ROOT/Data-signals/Results}"
-PARAMS="${2:-$REPO_ROOT/Data-signals/sequence_parameters.xlsx}"
-OUT_DIR="${3:-$REPO_ROOT/analysis/ogse_experiments/data}"
-PROCESS_SCRIPT="${4:-$REPO_ROOT/nogse_pipeline/scripts/process_one_results.py}"
+RESULTS_ROOT="${1:-$PROJECT_ROOT/Data-signals/Results}"
+PARAMS="${2:-$PROJECT_ROOT/Data-signals/sequence_parameters.xlsx}"
+OUT_DIR="${3:-$PROJECT_ROOT/analysis/ogse_experiments/data}"
+PROCESS_SCRIPT="${4:-$REPO_ROOT/scripts/process_one_results.py}"
 
 if [[ ! -d "$RESULTS_ROOT" ]]; then
     echo "ERROR: Results root not found: $RESULTS_ROOT" >&2

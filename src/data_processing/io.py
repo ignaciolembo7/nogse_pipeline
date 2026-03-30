@@ -28,7 +28,7 @@ class Layout:
 def infer_layout_from_filename(path: str | Path) -> Layout:
     p = Path(path)
     m_bval = re.search(r"(\d+)bval", p.name)
-    m_dir  = re.search(r"(\d+)dir", p.name)
+    m_dir  = re.search(r"(\d+)(?:ortho)?dir", p.name, flags=re.IGNORECASE)
     nbvals = int(m_bval.group(1)) if m_bval else None
     ndirs  = int(m_dir.group(1)) if m_dir else None
     return Layout(nbvals=nbvals, ndirs=ndirs)

@@ -53,7 +53,7 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
         return float(m.group(1).replace("p", "."))
 
     nbvals = _int(r"(\d+)bval")
-    ndirs  = _int(r"(\d+)dir")
+    ndirs  = _int(r"(\d+)(?:ortho)?dir")
 
     # nuevo: _d1.5 y _Delta11.6  (solo interpretamos _d como delta_ms si también hay _Delta)
     delta_ms = _float(r"_d(\d+(?:\.\d+)?)") if re.search(r"_Delta", name, re.IGNORECASE) else None
