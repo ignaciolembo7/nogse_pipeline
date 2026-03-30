@@ -12,6 +12,7 @@ from data_processing.params import read_sequence_params_xlsx
 from data_processing.reshape import to_long
 from data_processing.schema import finalize_clean_signal_long
 from ogse_fitting.b_from_g import b_from_g
+from tools.brain_labels import canonical_sheet_name, infer_subj_label
 
 
 # -------------------------
@@ -152,6 +153,7 @@ def main() -> None:
     ap.add_argument("results_file", type=Path)
     ap.add_argument("params_xlsx", type=Path)
     ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data"))
+    ap.add_argument("--subj", type=str, default=None, help="Override grouped subject/phantom tag written to output tables.")
     ap.add_argument("--gamma", type=float, default=267.5221900, help="1/(ms*mT)")
     args = ap.parse_args()
 
@@ -172,6 +174,8 @@ def main() -> None:
 
     # extraer parámetros (robusto a nombres con mayúsculas/espacios)
     sheet = str(_row_get(row, ["sheet"], meta.sheet))
+    sheet = str(canonical_sheet_name(sheet) or sheet)
+    subj = str(args.subj).strip() if args.subj is not None else infer_subj_label(sheet, source_name=args.results_file.name)
     protocol = _row_get(row, ["protocol", "Protocol*"], None)
     sequence = _row_get(row, ["seq", "sequence"], None)
 
@@ -198,6 +202,7 @@ def main() -> None:
         gthorsten_mTm = None
 
     # --- agregar parámetros LIMPIOS (sin param_/meta_) ---
+    df_long["subj"] = subj
     df_long["sheet"] = sheet
     df_long["protocol"] = protocol
     df_long["sequence"] = sequence
@@ -243,6 +248,7 @@ def main() -> None:
         pd.Series(
             {
                 "sheet": sheet,
+                "subj": subj,
                 "protocol": protocol,
                 "sequence": sequence,
                 "Hz": Hz,

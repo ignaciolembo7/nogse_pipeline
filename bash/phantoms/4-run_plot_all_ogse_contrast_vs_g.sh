@@ -2,22 +2,31 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
-export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
-TABLES_ROOT="${1:-$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/tables}"
-OUT_ROOT="${2:-$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/plots}"
-PLOT_SCRIPT="${3:-$REPO_ROOT/nogse_pipeline/scripts/plot_ogse-contrast_vs_g.py}"
-FILE_PATTERN="${4:-*.long.parquet}"
-XCOL="${5:-gthorsten_1}"
-YCOL="${6:-contrast_norm}"
-
-shift $(( $# >= 6 ? 6 : $# )) || true
-AXES=("$@")
-if [[ ${#AXES[@]} -eq 0 ]]; then
-    AXES=(long tra)
-fi
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+PY="${PY:-python}"
+ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
+TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
+OUT_ROOT="$ANALYSIS_ROOT/contrast-data/plots"
+PLOT_SCRIPT="$REPO_ROOT/scripts/plot_ogse-contrast_vs_g.py"
+FILE_PATTERN="*.long.parquet"
+XCOL="g_lin_max_1"
+YCOL="value_norm"
+STAT="avg"
+DIRECTIONS=(1 2 3)
+ROIS=(
+  fiber1
+  fiber2
+  water2
+  water3
+)
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2
@@ -42,18 +51,24 @@ while read -r file; do
     total=$((total + 1))
     base_name="$(basename "$file")"
 
-    echo "Processing: $base_name"
-    echo "  File: $file"
+    echo "============================================================"
+    echo "Job $total"
+    echo "  File       : $base_name"
+    echo "  X column   : $XCOL"
+    echo "  Y column   : $YCOL"
+    echo "  Stat       : $STAT"
+    echo "  Directions : ${DIRECTIONS[*]}"
 
-    if python "$PLOT_SCRIPT" \
+    if "$PY" "$PLOT_SCRIPT" \
         "$file" \
         --xcol "$XCOL" \
         --y "$YCOL" \
+        --stat "$STAT" \
         --out_root "$OUT_ROOT" \
-	--rois AntCC MidAntCC CentralCC MidPostCC PostCC \
-        --axes "${AXES[@]}"; then
+        --directions "${DIRECTIONS[@]}" \
+        --rois "${ROIS[@]}"; then
         ok=$((ok + 1))
-        echo "  OK: $base_name"
+        echo "  OK"
     else
         status=$?
         failed=$((failed + 1))
@@ -61,7 +76,6 @@ while read -r file; do
         echo "  WARNING: failed file: $base_name (exit code: $status)" >&2
         echo "  Continuing with next file..." >&2
     fi
-
 done < <(find "$TABLES_ROOT" -type f -name "$FILE_PATTERN" | sort)
 
 echo

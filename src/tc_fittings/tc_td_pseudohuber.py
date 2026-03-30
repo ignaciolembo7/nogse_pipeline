@@ -8,6 +8,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 
+from tools.brain_labels import infer_subj_label
+
 
 # ---------------------------
 # Modelo pseudo-huber (reparam)
@@ -57,20 +59,20 @@ def _ensure_required_cols(df: pd.DataFrame, cols: list[str], where: str) -> None
     if miss:
         raise KeyError(f"{where}: faltan columnas {miss}. Tengo: {list(df.columns)}")
 
-def _ensure_brain(df: pd.DataFrame) -> pd.DataFrame:
+def _ensure_subj(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Asegura columna 'brain' siempre presente y no vacía.
+    Asegura columna 'subj' siempre presente y no vacía.
     Si no existe, intenta derivar desde 'Archivo_origen' o 'source_file'.
     """
     df = df.copy()
-    if "brain" not in df.columns:
+    if "subj" not in df.columns:
         if "Archivo_origen" in df.columns:
-            df["brain"] = _as_str_series(df["Archivo_origen"])
+            df["subj"] = _as_str_series(df["Archivo_origen"])
         elif "source_file" in df.columns:
-            df["brain"] = _as_str_series(df["source_file"]).apply(lambda s: Path(s).stem)
+            df["subj"] = _as_str_series(df["source_file"]).apply(lambda s: infer_subj_label(None, source_name=s))
         else:
-            df["brain"] = "UNKNOWN"
-    df["brain"] = _as_str_series(df["brain"]).replace({"nan": "UNKNOWN", "None": "UNKNOWN", "": "UNKNOWN"})
+            df["subj"] = "UNKNOWN"
+    df["subj"] = _as_str_series(df["subj"]).replace({"nan": "UNKNOWN", "None": "UNKNOWN", "": "UNKNOWN"})
     return df
 
 def _ensure_direction(df: pd.DataFrame) -> pd.DataFrame:
@@ -130,10 +132,10 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     Lee summary_alpha_values.xlsx de forma tolerante.
 
     Espera columnas parecidas a:
-      brain, region, direccion, alpha, alpha_error (nombres libres)
+      subj, region, direccion, alpha, alpha_error (nombres libres)
 
     Devuelve SIEMPRE:
-      brain, roi, direction, alpha_macro, alpha_macro_error
+      subj, roi, direction, alpha_macro, alpha_macro_error
 
     - Mantiene TODAS las direcciones presentes (ej: '1','2','3', 'x','y','z', 'long','tra', ...).
     - Si detecta direcciones x/y/z, agrega derivadas:
@@ -153,7 +155,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
                 return raw[cols[0]]
         return None
 
-    brain = _pick("brain")
+    subj = _pick("subj")
     roi = _pick("roi", "region")
     direction = _pick("direction", "direccion")
     alpha_macro = _pick("alpha_macro", "alpha")
@@ -161,8 +163,8 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     sheet = _pick("sheet")
 
     missing = []
-    if brain is None:
-        missing.append("brain")
+    if subj is None:
+        missing.append("subj")
     if roi is None:
         missing.append("roi/region")
     if direction is None:
@@ -174,7 +176,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
 
     df = pd.DataFrame(
         {
-            "brain": brain,
+            "subj": subj,
             "roi": roi,
             "direction": direction,
             "alpha_macro": alpha_macro,
@@ -184,7 +186,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     if sheet is not None:
         df["sheet"] = sheet
 
-    df["brain"] = _as_str_series(df["brain"])
+    df["subj"] = _as_str_series(df["subj"])
     df["roi"] = _as_str_series(df["roi"]).str.replace("_norm", "", regex=False)
     df["direction"] = _as_str_series(df["direction"])
     df["alpha_macro"] = pd.to_numeric(df["alpha_macro"], errors="coerce")
@@ -192,7 +194,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     if "sheet" in df.columns:
         df["sheet"] = _as_str_series(df["sheet"])
 
-    base_cols = ["brain", "roi", "direction", "alpha_macro", "alpha_macro_error"]
+    base_cols = ["subj", "roi", "direction", "alpha_macro", "alpha_macro_error"]
     if "sheet" in df.columns:
         base_cols.insert(1, "sheet")
     base = df.dropna(subset=["alpha_macro"]).copy()
@@ -210,7 +212,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     if (("y" in dirs) or ("z" in dirs)) and ("tra" not in dirs):
         dyz = base[base["direction"].isin(["y", "z"])].copy()
         if not dyz.empty:
-            group_cols = ["brain", "roi"]
+            group_cols = ["subj", "roi"]
             if "sheet" in dyz.columns:
                 group_cols.insert(1, "sheet")
             dtra = dyz.groupby(group_cols, as_index=False).agg(
@@ -218,7 +220,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
                 alpha_macro_error=("alpha_macro_error", "mean"),
             )
             dtra["direction"] = "tra"
-            keep = ["brain", "roi", "direction", "alpha_macro", "alpha_macro_error"]
+            keep = ["subj", "roi", "direction", "alpha_macro", "alpha_macro_error"]
             if "sheet" in dtra.columns:
                 keep.insert(1, "sheet")
             derived.append(dtra[keep])
@@ -239,9 +241,9 @@ def _shade(color: str, factor: float):
     white = (1, 1, 1)
     return tuple(white[i] + factor * (rgb[i] - white[i]) for i in range(3))
 
-def _markers_for_brains(brains: list[str]) -> Dict[str, str]:
+def _markers_for_subjs(subjs: list[str]) -> Dict[str, str]:
     mk = ["o","s","^","D","v","P","X","*","<",">"]
-    return {b: mk[i % len(mk)] for i, b in enumerate(brains)}
+    return {s: mk[i % len(mk)] for i, s in enumerate(subjs)}
 
 
 # ---------------------------
@@ -268,7 +270,7 @@ def fit_tc_vs_td_pseudohuber(
 
     df = df_params.copy()
     df["roi"] = df["roi"].astype(str).str.replace("_norm", "", regex=False)
-    df = _ensure_brain(df)
+    df = _ensure_subj(df)
     df = _ensure_direction(df)
 
     _ensure_required_cols(df, ["td_ms", y_col], "fit_tc_vs_td_pseudohuber")
@@ -277,9 +279,9 @@ def fit_tc_vs_td_pseudohuber(
     if not regiones:
         regiones = sorted(df["roi"].unique())
 
-    brains = sorted(df["brain"].unique())
+    subjs = sorted(df["subj"].unique())
     region2color = _region2color(regiones, palette)
-    markers = _markers_for_brains(brains)
+    markers = _markers_for_subjs(subjs)
 
     rows = []
 
@@ -291,15 +293,15 @@ def fit_tc_vs_td_pseudohuber(
     if alpha_macro_df is not None:
         alpha_macro_df = alpha_macro_df.copy()
         alpha_macro_df["roi"] = alpha_macro_df["roi"].astype(str).str.replace("_norm", "", regex=False)
-        alpha_macro_df = _ensure_brain(alpha_macro_df)
+        alpha_macro_df = _ensure_subj(alpha_macro_df)
         alpha_macro_df = _ensure_direction(alpha_macro_df)
 
     for dir_actual in dirs:
         df_dir = df[df["direction"] == dir_actual]
 
-        for brain in brains:
+        for subj in subjs:
             for region in regiones:
-                sub = df_dir[(df_dir["brain"] == brain) & (df_dir["roi"] == region)].sort_values("td_ms")
+                sub = df_dir[(df_dir["subj"] == subj) & (df_dir["roi"] == region)].sort_values("td_ms")
                 if sub.empty:
                     continue
 
@@ -325,14 +327,14 @@ def fit_tc_vs_td_pseudohuber(
                         if len(uu) == 1:
                             sheet_val = uu[0]
 
-                    # 1) intento por brain
+                    # 1) intento por subj
                     mdf = alpha_macro_df[
-                        (alpha_macro_df["brain"] == brain) &
+                        (alpha_macro_df["subj"] == subj) &
                         (alpha_macro_df["roi"] == region) &
                         (alpha_macro_df["direction"] == dir_actual)
                     ]
 
-                    # 2) fallback por sheet si no matchea por brain
+                    # 2) fallback por sheet si no matchea por subj
                     if mdf.empty and (sheet_val is not None) and ("sheet" in alpha_macro_df.columns):
                         mdf = alpha_macro_df[
                             (alpha_macro_df["sheet"].astype(str) == str(sheet_val)) &
@@ -398,7 +400,7 @@ def fit_tc_vs_td_pseudohuber(
                 q_quad_se = qquad_se(delta, alpha_macro, delta_se, alpha_macro_se)
 
                 rows.append({
-                    "brain": brain,
+                    "subj": subj,
                     "roi": region,
                     "direction": dir_actual,
                     "k_last": k_last,
@@ -426,8 +428,8 @@ def fit_tc_vs_td_pseudohuber(
             base_color = region2color.get(region, "#1f77b4")
             any_line = False
 
-            for i, brain in enumerate(brains):
-                sub = df_dir[(df_dir["brain"] == brain) & (df_dir["roi"] == region)].sort_values("td_ms")
+            for i, subj in enumerate(subjs):
+                sub = df_dir[(df_dir["subj"] == subj) & (df_dir["roi"] == region)].sort_values("td_ms")
                 if sub.empty:
                     continue
                 x = sub["td_ms"].to_numpy(float)
@@ -441,12 +443,12 @@ def fit_tc_vs_td_pseudohuber(
                 # obtener params fit
                 fit_row = None
                 for rr in rows[::-1]:
-                    if rr["brain"] == brain and rr["roi"] == region and rr["direction"] == dir_actual:
+                    if rr["subj"] == subj and rr["roi"] == region and rr["direction"] == dir_actual:
                         fit_row = rr
                         break
 
                 col = _shade(base_color, [0.25, 0.5, 1.0][i % 3])
-                ax.plot(x, y, markers[brain], color=col, label=brain, markersize=7)
+                ax.plot(x, y, markers[subj], color=col, label=subj, markersize=7)
                 any_line = True
 
                 if fit_row is not None and len(x) >= 2:
@@ -473,7 +475,7 @@ def fit_tc_vs_td_pseudohuber(
     if not rows:
         raise ValueError(
             "No se generó ningún ajuste tc_vs_td (df_fit quedó vacío). "
-            "Causas típicas: (i) no hay >=3 puntos Td por (brain, roi, direction) en modo free_macro; "
+            "Causas típicas: (i) no hay >=3 puntos Td por (subj, roi, direction) en modo free_macro; "
             "(ii) en fixed_macro falta alpha_macro para esas claves; "
             "(iii) Direcciones no coinciden entre groupfits y summary."
         )
@@ -496,7 +498,7 @@ def block2_region_plots(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_fit = _ensure_alpha_macro_cols(df_fit.copy())
-    df_fit = _ensure_brain(df_fit)
+    df_fit = _ensure_subj(df_fit)
     df_fit = _ensure_direction(df_fit)
 
     # derivadas: sqrt(q)
@@ -513,7 +515,7 @@ def block2_region_plots(
     if not regiones:
         regiones = sorted(df_fit["roi"].unique())
 
-    brains = sorted(df_fit["brain"].unique())
+    subjs = sorted(df_fit["subj"].unique())
     dirs = _directions_present(df_fit)
 
     def plot_var(var: str, err: str, title: str, fname: str):
@@ -521,8 +523,8 @@ def block2_region_plots(
             fig, ax = plt.subplots(1, 1, figsize=(12, 5))
             any_line = False
 
-            for brain in brains:
-                sub = df_fit[(df_fit["direction"] == dir_actual) & (df_fit["brain"] == brain)]
+            for subj in subjs:
+                sub = df_fit[(df_fit["direction"] == dir_actual) & (df_fit["subj"] == subj)]
                 xs = np.arange(len(regiones))
 
                 ys, es = [], []
@@ -536,7 +538,7 @@ def block2_region_plots(
 
                 ys = np.array(ys, float); es = np.array(es, float)
 
-                ax.plot(xs, ys, "o-", linewidth=2, markersize=7, label=brain)
+                ax.plot(xs, ys, "o-", linewidth=2, markersize=7, label=subj)
                 ax.fill_between(xs, ys-es, ys+es, alpha=0.2)
                 any_line = True
 
@@ -606,7 +608,7 @@ def block2b_cc_vars_long_tra_sameY(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_fit = _ensure_alpha_macro_cols(df_fit.copy())
-    df_fit = _ensure_brain(df_fit)
+    df_fit = _ensure_subj(df_fit)
     df_fit = _ensure_direction(df_fit)
     df_fit = _ensure_A_se(df_fit)
 
@@ -615,8 +617,8 @@ def block2b_cc_vars_long_tra_sameY(
     if not regiones:
         regiones = sorted(df_fit["roi"].unique())
 
-    brains = sorted(df_fit["brain"].unique())
-    markers = _markers_for_brains(brains)
+    subjs = sorted(df_fit["subj"].unique())
+    markers = _markers_for_subjs(subjs)
 
     directions = _directions_present(df_fit)  # dinámico
     if not directions:
@@ -654,8 +656,8 @@ def block2b_cc_vars_long_tra_sameY(
             ax = axes[row, col]
             any_line = False
 
-            for brain in brains:
-                sub = df_dir[df_dir["brain"] == brain].set_index("roi").reindex(regiones)
+            for subj in subjs:
+                sub = df_dir[df_dir["subj"] == subj].set_index("roi").reindex(regiones)
                 y = sub[var].to_numpy(dtype=float) if var in sub.columns else np.full(len(regiones), np.nan)
                 if err in sub.columns:
                     e = sub[err].to_numpy(dtype=float)
@@ -664,10 +666,10 @@ def block2b_cc_vars_long_tra_sameY(
 
                 ax.errorbar(
                     x, y, yerr=e,
-                    marker=markers.get(brain, "o"),
+                    marker=markers.get(subj, "o"),
                     linestyle="-",
                     capsize=3,
-                    label=brain,
+                    label=subj,
                 )
                 any_line = any_line or np.any(np.isfinite(y))
 
@@ -730,8 +732,8 @@ def block3_alpha_macro_summary_vs_fit(
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit)))
-    alpha_macro_df = _ensure_brain(_ensure_direction(alpha_macro_df))
+    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit)))
+    alpha_macro_df = _ensure_subj(_ensure_direction(alpha_macro_df))
     alpha_summary = alpha_macro_df.rename(
         columns={
             "alpha_macro": "alpha_macro_summary",
@@ -739,7 +741,7 @@ def block3_alpha_macro_summary_vs_fit(
         }
     )
 
-    dfm = df_fit.merge(alpha_summary, on=["brain", "roi", "direction"], how="inner")
+    dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
         print("[INFO] No hay intersección entre pseudo-huber fits y summary alpha_macro -> no se hace Block3.")
         return
@@ -747,8 +749,8 @@ def block3_alpha_macro_summary_vs_fit(
     regiones = sorted(dfm["roi"].unique())
     region2color = _region2color(regiones, palette)
 
-    volunteers = sorted(dfm["brain"].unique())
-    markers = _markers_for_brains(volunteers)
+    volunteers = sorted(dfm["subj"].unique())
+    markers = _markers_for_subjs(volunteers)
 
     directions = _directions_present(dfm)
     ncols = len(directions)
@@ -765,7 +767,7 @@ def block3_alpha_macro_summary_vs_fit(
         n = max(1, len(volunteers))
 
         for _, row in sub.iterrows():
-            v = row["brain"]
+            v = row["subj"]
             region = row["roi"]
 
             fade = vpos[v] / (n - 1) if n > 1 else 0.5
@@ -808,10 +810,10 @@ def block3_alpha_macro_summary_vs_fit(
 def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_params = _ensure_brain(_ensure_direction(df_params.copy()))
-    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit.copy())))
+    df_params = _ensure_subj(_ensure_direction(df_params.copy()))
+    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
-    brains = sorted(df_fit["brain"].unique())
+    subjs = sorted(df_fit["subj"].unique())
     regiones = sorted(df_fit["roi"].unique())
     directions = _directions_present(df_fit)
 
@@ -823,16 +825,16 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
 
         for ax, region in zip(axes, regiones):
             any_line = False
-            for brain in brains:
+            for subj in subjs:
                 sub_data = df_params[
                     (df_params["direction"] == dir_actual) &
-                    (df_params["brain"] == brain) &
+                    (df_params["subj"] == subj) &
                     (df_params["roi"] == region)
                 ].sort_values("td_ms")
 
                 sub_fit = df_fit[
                     (df_fit["direction"] == dir_actual) &
-                    (df_fit["brain"] == brain) &
+                    (df_fit["subj"] == subj) &
                     (df_fit["roi"] == region)
                 ]
                 if sub_data.empty or sub_fit.empty:
@@ -849,9 +851,9 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
                 alpha_small = A * xx
                 alpha_asym = np.full_like(xx, alpha_macro)
 
-                ax.plot(xx, alpha_curve, "-", linewidth=2, label=f"{brain} alpha(Td)")
-                ax.plot(xx, alpha_small, "--", linewidth=1.5, label=f"{brain} A*Td")
-                ax.plot(xx, alpha_asym, ":", linewidth=1.5, label=f"{brain} alpha_macro")
+                ax.plot(xx, alpha_curve, "-", linewidth=2, label=f"{subj} alpha(Td)")
+                ax.plot(xx, alpha_small, "--", linewidth=1.5, label=f"{subj} A*Td")
+                ax.plot(xx, alpha_asym, ":", linewidth=1.5, label=f"{subj} alpha_macro")
                 any_line = True
 
             ax.set_title(region)
@@ -880,10 +882,10 @@ def block1c_smallTd_tc_approx(
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_params = _ensure_brain(_ensure_direction(df_params.copy()))
-    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit.copy())))
+    df_params = _ensure_subj(_ensure_direction(df_params.copy()))
+    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
-    brains = sorted(df_fit["brain"].unique())
+    subjs = sorted(df_fit["subj"].unique())
     regiones = sorted(df_fit["roi"].unique())
     directions = _directions_present(df_fit)
 
@@ -894,16 +896,16 @@ def block1c_smallTd_tc_approx(
 
         for ax, region in zip(axes, regiones):
             any_line = False
-            for brain in brains:
+            for subj in subjs:
                 sub_data = df_params[
                     (df_params["direction"] == dir_actual) &
-                    (df_params["brain"] == brain) &
+                    (df_params["subj"] == subj) &
                     (df_params["roi"] == region)
                 ].sort_values("td_ms")
 
                 sub_fit = df_fit[
                     (df_fit["direction"] == dir_actual) &
-                    (df_fit["brain"] == brain) &
+                    (df_fit["subj"] == subj) &
                     (df_fit["roi"] == region)
                 ]
                 if sub_data.empty or sub_fit.empty:
@@ -920,9 +922,9 @@ def block1c_smallTd_tc_approx(
                 y_full = tc_pseudohuber(xx, c, delta, alpha_macro)
                 y_quad = tc_quadratic_smallTd(xx, c, delta, alpha_macro)
 
-                ax.plot(x, y, "o", markersize=6, label=f"{brain} data")
-                ax.plot(xx, y_full, "-", linewidth=2, label=f"{brain} full")
-                ax.plot(xx, y_quad, "--", linewidth=1.5, label=f"{brain} quad small-Td")
+                ax.plot(x, y, "o", markersize=6, label=f"{subj} data")
+                ax.plot(xx, y_full, "-", linewidth=2, label=f"{subj} full")
+                ax.plot(xx, y_quad, "--", linewidth=1.5, label=f"{subj} quad small-Td")
                 any_line = True
 
             ax.set_title(region)
@@ -956,8 +958,8 @@ def block4_qquad_vs_alpha_macro(
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df_fit = _ensure_alpha_macro_cols(_ensure_brain(_ensure_direction(df_fit)))
-    alpha_macro_df = _ensure_brain(_ensure_direction(alpha_macro_df))
+    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit)))
+    alpha_macro_df = _ensure_subj(_ensure_direction(alpha_macro_df))
     alpha_summary = alpha_macro_df.rename(
         columns={
             "alpha_macro": "alpha_macro_summary",
@@ -965,7 +967,7 @@ def block4_qquad_vs_alpha_macro(
         }
     )
 
-    dfm = df_fit.merge(alpha_summary, on=["brain", "roi", "direction"], how="inner")
+    dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
         print("[INFO] No hay intersección pseudo-huber vs summary -> no se hace Block4.")
         return
@@ -973,8 +975,8 @@ def block4_qquad_vs_alpha_macro(
     regiones = sorted(dfm["roi"].unique())
     region2color = _region2color(regiones, palette)
 
-    volunteers = sorted(dfm["brain"].unique())
-    markers = _markers_for_brains(volunteers)
+    volunteers = sorted(dfm["subj"].unique())
+    markers = _markers_for_subjs(volunteers)
 
     directions = _directions_present(dfm)
     ncols = len(directions)
@@ -991,7 +993,7 @@ def block4_qquad_vs_alpha_macro(
         n = max(1, len(volunteers))
 
         for _, row in sub.iterrows():
-            v = row["brain"]
+            v = row["subj"]
             region = row["roi"]
 
             fade = vpos[v] / (n - 1) if n > 1 else 0.5

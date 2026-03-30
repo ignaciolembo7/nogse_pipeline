@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ogse_fitting.fit_ogse_contrast import fit_ogse_contrast_long, plot_fit_one_group
-from tools.brain_labels import canonical_sheet_name, infer_brain_group
+from tools.brain_labels import canonical_sheet_name, infer_subj_label
 
 
 def _analysis_id_from_path(p: Path) -> str:
@@ -159,7 +159,7 @@ def main() -> None:
     ap.add_argument("--directions", nargs="*", default=None, help="Filtra por direction (ej: 1 2 3 o long tra).")
     ap.add_argument("--direction", nargs="*", dest="directions", help="Alias de --directions (por compat).")
 
-    ap.add_argument("--brains", nargs="*", default=None, help="Filtra brains. Usa ALL para todos.")
+    ap.add_argument("--subjs", nargs="*", default=None, help="Filtra subjects/phantoms. Usa ALL para todos.")
     ap.add_argument("--rois", nargs="*", default=None, help="Filtra ROIs. Usa ALL para todas.")
     ap.add_argument("--stat", default="avg", help="Filtra stat (default avg). Usa ALL para todos.")
 
@@ -201,9 +201,9 @@ def main() -> None:
     else:
         df["sheet"] = df["sheet"].map(canonical_sheet_name)
 
-    if "brain" not in df.columns:
-        df["brain"] = [infer_brain_group(sheet, source_name=analysis_id) for sheet in df["sheet"]]
-    df["brain"] = df["brain"].astype(str)
+    if "subj" not in df.columns:
+        df["subj"] = [infer_subj_label(sheet, source_name=analysis_id) for sheet in df["sheet"]]
+    df["subj"] = df["subj"].astype(str)
 
     n1_hint = _unique_int(df, "N_1")
     n2_hint = _unique_int(df, "N_2")
@@ -258,17 +258,17 @@ def main() -> None:
     directions = args.directions
     if directions is not None and len(directions) == 1 and str(directions[0]).upper() == "ALL":
         directions = None
-    brains = args.brains
-    if brains is not None and len(brains) == 1 and str(brains[0]).upper() == "ALL":
-        brains = None
+    subjs = args.subjs
+    if subjs is not None and len(subjs) == 1 and str(subjs[0]).upper() == "ALL":
+        subjs = None
     rois = args.rois
     if rois is not None and len(rois) == 1 and str(rois[0]).upper() == "ALL":
         rois = None
 
-    if brains is not None:
-        df = df[df["brain"].astype(str).isin([str(b) for b in brains])].copy()
+    if subjs is not None:
+        df = df[df["subj"].astype(str).isin([str(x) for x in subjs])].copy()
         if df.empty:
-            print(f"Skipped: {analysis_id} (no coincide con brains={brains})")
+            print(f"Skipped: {analysis_id} (no coincide con subjs={subjs})")
             return
 
     stat_keep = args.stat

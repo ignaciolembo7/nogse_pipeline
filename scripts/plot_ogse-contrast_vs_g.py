@@ -41,6 +41,17 @@ def _require_columns(df: pd.DataFrame, cols: list[str]) -> None:
         raise KeyError(f"Faltan columnas {missing}. Columnas disponibles: {sorted(df.columns)}")
 
 
+def _filter_stat(df: pd.DataFrame, stat: str | None) -> pd.DataFrame:
+    if "stat" not in df.columns or stat is None or str(stat).upper() == "ALL":
+        return df.copy()
+
+    out = df[df["stat"].astype(str) == str(stat)].copy()
+    if out.empty:
+        available = sorted(df["stat"].dropna().astype(str).unique().tolist())
+        raise SystemExit(f"No quedó data para stat={stat!r}. Stats disponibles: {available}")
+    return out
+
+
 def _unique_int_or_none(df: pd.DataFrame, col: str) -> int | None:
     if col not in df.columns:
         return None
@@ -108,7 +119,9 @@ def _plot_rois_together(
             continue
         plt.plot(dr[xcol], dr[ycol], "o-", label=roi, color=color)
 
-    plt.legend(fontsize=14, title=legend_title)
+    handles, labels = plt.gca().get_legend_handles_labels()
+    if handles:
+        plt.legend(fontsize=14, title=legend_title)
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.tick_params(direction="in", top=True, right=True, left=True, bottom=True)
@@ -121,16 +134,20 @@ def _plot_rois_together(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("contrast_parquet")
-    ap.add_argument("--xcol", default="g_lin_max_1", help="ej: g_lin_max_1 | g_max_1 | g_thorsten_1")
-    ap.add_argument("--y", dest="ycol", default="contrast_norm", help="ej: value_norm | contrast_norm")
+    ap.add_argument("--xcol", default="g_thorsten_1", help="ej: g_lin_max_1 | g_max_1 | g_thorsten_1")
+    ap.add_argument("--y", dest="ycol", default="value_norm", help="ej: value_norm | contrast_norm")
     ap.add_argument("--out_root", default="plots")
     ap.add_argument("--exp", default=None, help="nombre carpeta experimento (opcional)")
-    ap.add_argument("--dirs", nargs="+", default=None, help="Directions to plot (e.g. long tra). Required.")
+    ap.add_argument("--directions", nargs="+", default=None, help="Directions to plot (e.g. long tra or 1 2 3).")
+    ap.add_argument("--dirs", nargs="+", dest="directions", help="Alias de --directions.")
+    ap.add_argument("--axes", nargs="+", dest="directions", help="Alias legacy de --directions.")
+    ap.add_argument("--stat", default="avg", help="Statistic to plot. Use ALL to skip filtering.")
     ap.add_argument("--rois", nargs="+", default=None, help="Subset opcional de ROIs para un plot combinado adicional.")
     args = ap.parse_args()
 
     p = Path(args.contrast_parquet)
     df = pd.read_parquet(p)
+    df = _filter_stat(df, args.stat)
 
     if "direction" not in df.columns:
         raise KeyError(f"No encuentro 'direction' en el parquet. Cols={sorted(df.columns)}")
@@ -139,12 +156,14 @@ def main() -> None:
     ycol = _canonical_ycol(args.ycol)
     _require_columns(df, ["roi", "direction", xcol, ycol])
 
-    if args.axes is None:
-        available = sorted(pd.Series(df["direction"]).dropna().astype(str).unique().tolist())
-        raise SystemExit(f"--axes is required. Available directions in file: {available}")
+    directions = [str(x) for x in (args.directions or [])]
+    if not directions:
+        directions = sorted(pd.Series(df["direction"]).dropna().astype(str).unique().tolist())
+    if not directions:
+        raise SystemExit("No encontré directions válidas para plotear.")
 
-    exp_id = args.exp or p.stem.split(".contrast_")[0]
-    outdir = Path(args.out_root) / "contrast" / exp_id
+    exp_id = args.exp or (p.stem[:-len(".long")] if p.stem.endswith(".long") else p.stem)
+    outdir = Path(args.out_root) / exp_id
     outdir.mkdir(parents=True, exist_ok=True)
 
     rois = _selected_rois(df, None)
@@ -154,7 +173,7 @@ def main() -> None:
     title_suffix = f"N{n_1}-N{n_2}" if (n_1 is not None and n_2 is not None) else exp_id
     ylabel = rf"OGSE contrast $\Delta M_{{N{n_1}-N{n_2}}}$" if (n_1 is not None and n_2 is not None) else ycol
 
-    for direction_name in args.axes:
+    for direction_name in directions:
         _plot_rois_together(
             df,
             rois=rois,
@@ -182,7 +201,7 @@ def main() -> None:
             )
 
     for roi in rois:
-        d = df[(df["roi"] == roi) & (df["direction"].astype(str).isin([str(x) for x in args.axes]))].copy()
+        d = df[(df["roi"] == roi) & (df["direction"].astype(str).isin(directions))].copy()
         if d.empty:
             continue
 
@@ -192,7 +211,7 @@ def main() -> None:
         plt.ylabel(rf"OGSE contrast $\Delta M_{{N{n_1}-N{n_2}}}$" if (n_1 is not None and n_2 is not None) else ycol, fontsize=18)
         plt.grid(True, linestyle="--", alpha=0.3)
 
-        for direction_name in args.axes:
+        for direction_name in directions:
             da = d[d["direction"].astype(str) == str(direction_name)].copy()
             if da.empty:
                 continue
@@ -203,7 +222,9 @@ def main() -> None:
                 continue
             plt.plot(da[xcol], da[ycol], "o-", label=str(direction_name))
 
-        plt.legend(fontsize=14, title="direction")
+        handles, labels = plt.gca().get_legend_handles_labels()
+        if handles:
+            plt.legend(fontsize=14, title="direction")
         plt.xticks(fontsize=14)
         plt.yticks(fontsize=14)
         plt.tick_params(direction="in", top=True, right=True, left=True, bottom=True)

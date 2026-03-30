@@ -14,7 +14,6 @@ CONTRAST_ROOT="$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated"
 PLOT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/plot_ogse-contrast_fit_panels.py"
 OUT_DIR="$FITS_ROOT/contrast_fit_panels"
 MODELS="rest"
-BRAINS="BRAIN LUDG MBBL"
 ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC"
 DIRECTIONS="long,tra"
 
@@ -44,13 +43,6 @@ if [[ "$MODELS" != "ALL" ]]; then
     fi
 fi
 
-if [[ "$BRAINS" != "ALL" ]]; then
-    read -r -a brain_list <<< "${BRAINS//,/ }"
-    if (( ${#brain_list[@]} > 0 )); then
-        extra_args+=(--brains "${brain_list[@]}")
-    fi
-fi
-
 if [[ "$ROIS" != "ALL" ]]; then
     read -r -a roi_list <<< "${ROIS//,/ }"
     if (( ${#roi_list[@]} > 0 )); then
@@ -70,7 +62,6 @@ echo "Plotting contrast-fit panels"
 echo "  Fits root    : $FITS_ROOT"
 echo "  Contrast root: $CONTRAST_ROOT"
 echo "  Models       : $MODELS"
-echo "  Brains       : $BRAINS"
 echo "  ROIs         : $ROIS"
 echo "  Directions   : $DIRECTIONS"
 echo "  Out dir      : $OUT_DIR"

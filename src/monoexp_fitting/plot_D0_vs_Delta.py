@@ -17,7 +17,7 @@ def load_all_measurements(
     pattern: str = "**/*.rot_tensor.Dproj.long.parquet",
     dirs: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
-    brains: Sequence[str] | None = None,
+    subjs: Sequence[str] | None = None,
     N: float | None = None,
     Hz: float | None = None,
     bvalue_decimals: int = 1,
@@ -25,7 +25,7 @@ def load_all_measurements(
     return load_dproj_measurements(
         dproj_root,
         pattern=pattern,
-        brains=brains,
+        subjs=subjs,
         rois=rois,
         directions=dirs,
         N=N,

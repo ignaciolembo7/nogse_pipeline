@@ -6,7 +6,7 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from tools.brain_labels import canonical_sheet_name, infer_brain_group
+from tools.brain_labels import canonical_sheet_name, infer_subj_label
 
 def _read_table(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
@@ -65,10 +65,10 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
             out["sheet"] = np.nan
     out["sheet"] = out["sheet"].map(canonical_sheet_name)
 
-    if "brain" not in out.columns:
+    if "subj" not in out.columns:
         src = out["source_file"] if "source_file" in out.columns else pd.Series([""] * len(out))
-        out["brain"] = [infer_brain_group(sheet, source_name=str(source)) for sheet, source in zip(out["sheet"], src)]
-    out["brain"] = out["brain"].astype(str)
+        out["subj"] = [infer_subj_label(sheet, source_name=str(source)) for sheet, source in zip(out["sheet"], src)]
+    out["subj"] = out["subj"].astype(str)
 
     if "td_ms" not in out.columns:
         if "td_ms_1" in out.columns:
@@ -113,7 +113,7 @@ def load_contrast_fit_params(
     *,
     pattern: str = "**/fit_params.*",
     models: Sequence[str] | None = None,
-    brains: Sequence[str] | None = None,
+    subjs: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     ok_only: bool = True,
@@ -136,8 +136,8 @@ def load_contrast_fit_params(
         out = out[out["ok"].fillna(False).astype(bool)].copy()
     if models is not None and "model" in out.columns:
         out = out[out["model"].isin([str(x) for x in models])].copy()
-    if brains is not None and "brain" in out.columns:
-        out = out[out["brain"].isin([str(x) for x in brains])].copy()
+    if subjs is not None and "subj" in out.columns:
+        out = out[out["subj"].isin([str(x) for x in subjs])].copy()
     if directions is not None and "direction" in out.columns:
         out = out[out["direction"].isin([str(x) for x in directions])].copy()
     if rois is not None and "roi" in out.columns:

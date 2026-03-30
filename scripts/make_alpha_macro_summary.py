@@ -30,8 +30,8 @@ def _load_measurements_from_args(args: argparse.Namespace) -> pd.DataFrame:
         else:
             raise ValueError(f"Formato no soportado para combined_table={path}")
 
-        if args.brains is not None and "brain" in df.columns:
-            df = df[df["brain"].astype(str).isin([str(x) for x in args.brains])]
+        if args.subjs is not None and "subj" in df.columns:
+            df = df[df["subj"].astype(str).isin([str(x) for x in args.subjs])]
         if args.rois is not None and "roi" in df.columns:
             df = df[df["roi"].astype(str).isin([str(x) for x in args.rois])]
         if args.dirs is not None and "direction" in df.columns:
@@ -48,7 +48,7 @@ def _load_measurements_from_args(args: argparse.Namespace) -> pd.DataFrame:
     return load_dproj_measurements(
         args.dproj_root,
         pattern=args.pattern,
-        brains=args.brains,
+        subjs=args.subjs,
         rois=args.rois,
         directions=args.dirs,
         N=args.N,
@@ -64,7 +64,7 @@ def main() -> None:
     ap.add_argument("--combined-table", type=Path, default=None, help="Tabla combinada generada por plot_D0_vs_Delta.py.")
     ap.add_argument("--dproj-root", default=None, help="Raíz con *.rot_tensor.Dproj.long.parquet si no se pasa --combined-table.")
     ap.add_argument("--pattern", default="**/*.rot_tensor.Dproj.long.parquet", help="Glob relativo dentro de dproj-root.")
-    ap.add_argument("--brains", nargs="+", default=None, help="Brains a incluir (ej: BRAIN LUDG MBBL).")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms a incluir (ej: BRAIN-3 LUDG-2 PHANTOM3).")
     ap.add_argument("--rois", nargs="+", default=None, help="ROIs a incluir.")
     ap.add_argument("--dirs", nargs="+", default=["x", "y", "z"], help="Direcciones raw a incluir.")
 
@@ -114,7 +114,7 @@ def main() -> None:
         out_png=out_dir / "alpha_macro_vs_region_cc.png",
         roi_order=args.cc_rois,
         directions=args.cc_directions,
-        brains=args.brains,
+        subjs=args.subjs,
         title_prefix=r"$\alpha_{macro}$ vs CC",
     )
     plot_alpha_macro_vs_roi(
@@ -122,7 +122,7 @@ def main() -> None:
         out_png=out_dir / "alpha_macro_vs_lateral_ventricles.png",
         roi_order=args.ventricle_rois,
         directions=args.ventricle_directions,
-        brains=args.brains,
+        subjs=args.subjs,
         title_prefix=r"$\alpha_{macro}$ vs ventrículos",
     )
 

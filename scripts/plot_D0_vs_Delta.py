@@ -16,7 +16,7 @@ def main() -> None:
     ap.add_argument("--dproj-root", required=True, help="Carpeta raíz con *.rot_tensor.Dproj.long.parquet.")
     ap.add_argument("--pattern", default="**/*.rot_tensor.Dproj.long.parquet", help="Glob relativo dentro de dproj-root.")
     ap.add_argument("--out-dir", required=True, help="Carpeta de salida para plots y tabla combinada.")
-    ap.add_argument("--brains", nargs="+", default=None, help="Brains a incluir (ej: BRAIN LUDG MBBL).")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms a incluir (ej: BRAIN-3 LUDG-2 PHANTOM3).")
     ap.add_argument("--rois", nargs="+", default=None, help="ROIs a incluir.")
     ap.add_argument("--dirs", nargs="+", default=["x", "y", "z"], help="Direcciones a incluir.")
 
@@ -36,7 +36,7 @@ def main() -> None:
         pattern=args.pattern,
         dirs=args.dirs,
         rois=args.rois,
-        brains=args.brains,
+        subjs=args.subjs,
         N=N,
         Hz=args.Hz,
         bvalue_decimals=int(args.bvalue_decimals),

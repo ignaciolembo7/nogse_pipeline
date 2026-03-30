@@ -2,42 +2,46 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
-export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 PY="${PY:-python}"
-
-# Configuracion
-TABLES_ROOT="$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/tables"
-OUT_ROOT="$REPO_ROOT/analysis/ogse_experiments/fits/fit-free_ogse-contrast-rotated"
-FIT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-contrast_vs_g.py"
+ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
+TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+OUT_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/plots"
+PLOT_SCRIPT="$REPO_ROOT/scripts/plot_ogse-contrast_vs_g.py"
 FILE_PATTERN="*.long.parquet"
-
-MODEL="free"
-GBASE="g_thorsten_1"
+XCOL="g_thorsten_1"
 YCOL="value_norm"
-ROIS="Syringe,Right-Lateral-Ventricle,Left-Lateral-Ventricle"
+STAT="avg"
+DIRECTIONS=(long tra)
+ROIS=(
+  AntCC
+  MidAntCC
+  CentralCC
+  MidPostCC
+  PostCC
+  Left-Lateral-Ventricle
+  Right-Lateral-Ventricle
+)
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2
     exit 1
 fi
 
-if [[ ! -f "$FIT_SCRIPT" ]]; then
-    echo "ERROR: Fit script not found: $FIT_SCRIPT" >&2
+if [[ ! -f "$PLOT_SCRIPT" ]]; then
+    echo "ERROR: Plot script not found: $PLOT_SCRIPT" >&2
     exit 1
 fi
 
 mkdir -p "$OUT_ROOT"
-
-roi_args=()
-if [[ "$ROIS" != "ALL" ]]; then
-    read -r -a roi_list <<< "${ROIS//,/ }"
-    if (( ${#roi_list[@]} > 0 )); then
-        roi_args+=(--rois "${roi_list[@]}")
-    fi
-fi
 
 total=0
 ok=0
@@ -52,19 +56,20 @@ while read -r file; do
 
     echo "============================================================"
     echo "Job $total"
-    echo "  File: $base_name"
-    echo "  ROIs  : $ROIS"
+    echo "  File       : $base_name"
+    echo "  X column   : $XCOL"
+    echo "  Y column   : $YCOL"
+    echo "  Stat       : $STAT"
+    echo "  Directions : ${DIRECTIONS[*]}"
 
-    if "$PY" "$FIT_SCRIPT" \
+    if "$PY" "$PLOT_SCRIPT" \
         "$file" \
-        --model "$MODEL" \
-        --gbase "$GBASE" \
-        --ycol "$YCOL" \
-        --directions long tra \
+        --xcol "$XCOL" \
+        --y "$YCOL" \
+        --stat "$STAT" \
         --out_root "$OUT_ROOT" \
-        --no_grad_corr \
-        --fix_M0 1.0 \
-        "${roi_args[@]}"; then
+        --directions "${DIRECTIONS[@]}" \
+        --rois "${ROIS[@]}"; then
         ok=$((ok + 1))
         echo "  OK"
     else
@@ -74,7 +79,6 @@ while read -r file; do
         echo "  WARNING: failed file: $base_name (exit code: $status)" >&2
         echo "  Continuing with next file..." >&2
     fi
-
 done < <(find "$TABLES_ROOT" -type f -name "$FILE_PATTERN" | sort)
 
 echo

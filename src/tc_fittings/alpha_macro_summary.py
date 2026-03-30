@@ -8,11 +8,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from tools.brain_labels import infer_subj_label
+
 
 DEFAULT_CC_REGIONS = ["PostCC", "MidPostCC", "CentralCC", "MidAntCC", "AntCC"]
 DEFAULT_LATERAL_VENTRICLES = ["Left-Lateral-Ventricle", "Right-Lateral-Ventricle"]
 DEFAULT_DIRECTION_ALIASES = {"x": "long", "y": "tra", "z": "tra"}
-DEFAULT_BRAIN_COLORS = {"BRAIN": "#377eb8", "LUDG": "#ff7f00", "MBBL": "#4daf4a"}
+DEFAULT_SUBJ_COLORS = {"BRAIN": "#377eb8", "LUDG": "#ff7f00", "MBBL": "#4daf4a"}
 REQUIRED_DPROJ_COLUMNS = {"roi", "direction", "bvalue", "D_proj"}
 
 
@@ -71,23 +73,11 @@ def parse_direction_aliases(items: Sequence[str] | None) -> dict[str, str]:
     return aliases
 
 
-def infer_brain_group(sheet: str | None, source_name: str | None = None) -> str:
-    raw = str(sheet or source_name or "").strip()
-    if not raw:
-        return "UNKNOWN"
-    stem = Path(raw).stem
-    match = re.match(r"^\d{8}_(.+)$", stem)
-    tail = match.group(1) if match else stem
-    token = tail.split("_")[0]
-    token = re.sub(r"-\d+$", "", token)
-    return token or stem
-
-
 def load_dproj_measurements(
     dproj_root: str | Path,
     *,
     pattern: str = "**/*.rot_tensor.Dproj.long.parquet",
-    brains: Sequence[str] | None = None,
+    subjs: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
     N: float | None = None,
@@ -97,7 +87,7 @@ def load_dproj_measurements(
     if N is not None and Hz is not None:
         raise ValueError("Elegí solo uno entre N y Hz para filtrar.")
 
-    brain_set = {str(x) for x in brains} if brains is not None else None
+    subj_set = {str(x) for x in subjs} if subjs is not None else None
     roi_set = {str(x) for x in rois} if rois is not None else None
     direction_set = {str(x) for x in directions} if directions is not None else None
 
@@ -119,11 +109,11 @@ def load_dproj_measurements(
         out["N"] = pd.to_numeric(out.get("N", np.nan), errors="coerce")
         out["Hz"] = pd.to_numeric(out.get("Hz", np.nan), errors="coerce")
         out["sheet"] = _as_str(out["sheet"]) if "sheet" in out.columns else path.stem
-        out["brain"] = out["sheet"].map(lambda x: infer_brain_group(x, source_name=path.name))
+        out["subj"] = out["sheet"].map(lambda x: infer_subj_label(x, source_name=path.name))
         out["source_file"] = path.name
 
-        if brain_set is not None:
-            out = out[out["brain"].isin(brain_set)]
+        if subj_set is not None:
+            out = out[out["subj"].isin(subj_set)]
         if roi_set is not None:
             out = out[out["roi"].isin(roi_set)]
         if direction_set is not None:
@@ -145,7 +135,7 @@ def load_dproj_measurements(
     df_all = pd.concat(frames, ignore_index=True)
     df_all["bvalue"] = df_all["bvalue"].round(int(bvalue_decimals))
 
-    group_cols = ["brain", "roi", "direction", "bvalue", "Delta_app_ms"]
+    group_cols = ["subj", "roi", "direction", "bvalue", "Delta_app_ms"]
     df_avg = (
         df_all.groupby(group_cols, as_index=False)
         .agg(
@@ -162,7 +152,7 @@ def load_dproj_measurements(
         )
     )
     df_avg["D_std_mm2_s"] = df_avg["D_std_mm2_s"].fillna(0.0)
-    return df_avg.sort_values(["brain", "roi", "direction", "bvalue", "Delta_app_ms"], kind="stable").reset_index(drop=True)
+    return df_avg.sort_values(["subj", "roi", "direction", "bvalue", "Delta_app_ms"], kind="stable").reset_index(drop=True)
 
 
 def plot_d_vs_delta_curves(
@@ -176,7 +166,7 @@ def plot_d_vs_delta_curves(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     outputs: list[Path] = []
-    for (brain, roi, direction), sub in df_avg.groupby(["brain", "roi", "direction"], sort=True):
+    for (subj, roi, direction), sub in df_avg.groupby(["subj", "roi", "direction"], sort=True):
         sub = sub.sort_values(["bvalue", "Delta_app_ms"], kind="stable")
         bvalues = sorted(sub["bvalue"].dropna().unique().tolist())
         if not bvalues:
@@ -216,9 +206,9 @@ def plot_d_vs_delta_curves(
             ax.axhline(d0_mean, color="black", linestyle="--", linewidth=1.1, alpha=0.7, label=label)
 
         if reference_D0 is not None and np.isfinite(reference_D0):
-            title = f"{brain} | {roi} | dir={direction} | $D_0$ = {float(reference_D0):.4f} mm$^2$/s"
+            title = f"{subj} | {roi} | dir={direction} | $D_0$ = {float(reference_D0):.4f} mm$^2$/s"
         else:
-            title = f"{brain} | {roi} | dir={direction}"
+            title = f"{subj} | {roi} | dir={direction}"
         ax.set_title(title, fontsize=15)
         ax.set_xlabel(r"$\Delta_{app}$ [ms]", fontsize=13)
         ax.set_ylabel(r"D [mm$^2$/s]", fontsize=13)
@@ -226,7 +216,7 @@ def plot_d_vs_delta_curves(
         ax.legend(fontsize=9, title="b-value")
         plt.tight_layout()
 
-        out_path = out_dir / f"D_vs_delta_app_{_sanitize_token(brain)}_{_sanitize_token(roi)}_dir={_sanitize_token(direction)}.png"
+        out_path = out_dir / f"D_vs_delta_app_{_sanitize_token(subj)}_{_sanitize_token(roi)}_dir={_sanitize_token(direction)}.png"
         fig.savefig(out_path, dpi=300)
         plt.close(fig)
         outputs.append(out_path)
@@ -243,16 +233,16 @@ def _expand_direction_alias_rows(df_summary: pd.DataFrame, aliases: dict[str, st
     raw["direction_components"] = raw["direction"]
 
     derived_rows: list[dict[str, object]] = []
-    for (brain, roi, alias), sub in (
+    for (subj, roi, alias), sub in (
         raw.assign(direction_alias=raw["direction"].map(lambda x: aliases.get(str(x), str(x))))
-        .groupby(["brain", "roi", "direction_alias"], sort=True)
+        .groupby(["subj", "roi", "direction_alias"], sort=True)
     ):
         directions = sorted(sub["direction"].astype(str).unique().tolist())
         if len(directions) == 1 and directions[0] == alias:
             continue
         derived_rows.append(
             {
-                "brain": brain,
+                "subj": subj,
                 "sheet": _merge_pipe_lists(sub["sheet"].dropna()),
                 "roi": roi,
                 "direction": alias,
@@ -291,7 +281,7 @@ def compute_alpha_macro_summary(
         raise ValueError("df_avg está vacío.")
 
     rows: list[dict[str, object]] = []
-    for (brain, roi, direction), sub in df_avg.groupby(["brain", "roi", "direction"], sort=True):
+    for (subj, roi, direction), sub in df_avg.groupby(["subj", "roi", "direction"], sort=True):
         bvalues = sub["bvalue"].dropna().unique()
         if len(bvalues) == 0:
             continue
@@ -311,7 +301,7 @@ def compute_alpha_macro_summary(
 
         rows.append(
             {
-                "brain": str(brain),
+                "subj": str(subj),
                 "sheet": _merge_pipe_lists(chosen["sheets"].astype(str).tolist()),
                 "roi": str(roi),
                 "direction": str(direction),
@@ -337,7 +327,7 @@ def compute_alpha_macro_summary(
     df_summary = _expand_direction_alias_rows(df_summary, aliases)
     df_summary["region"] = df_summary["roi"]
     df_summary["direccion"] = df_summary["direction"]
-    return df_avg.copy(), df_summary.sort_values(["brain", "roi", "direction"], kind="stable").reset_index(drop=True)
+    return df_avg.copy(), df_summary.sort_values(["subj", "roi", "direction"], kind="stable").reset_index(drop=True)
 
 
 def plot_alpha_macro_vs_roi(
@@ -346,7 +336,7 @@ def plot_alpha_macro_vs_roi(
     out_png: str | Path,
     roi_order: Sequence[str],
     directions: Sequence[str],
-    brains: Sequence[str] | None = None,
+    subjs: Sequence[str] | None = None,
     title_prefix: str = r"$\alpha_{macro}$",
 ) -> Path:
     out_png = Path(out_png)
@@ -361,7 +351,7 @@ def plot_alpha_macro_vs_roi(
     if sub.empty:
         raise ValueError(f"No hay datos para plotear {out_png.name}")
 
-    brain_list = list(brains) if brains is not None else sorted(sub["brain"].astype(str).unique().tolist())
+    subj_list = list(subjs) if subjs is not None else sorted(sub["subj"].astype(str).unique().tolist())
     fig, axes = plt.subplots(1, len(directions), figsize=(8 * len(directions), 6), sharey=True)
     if len(directions) == 1:
         axes = [axes]
@@ -369,8 +359,8 @@ def plot_alpha_macro_vs_roi(
     x = np.arange(len(roi_order))
     for ax, direction in zip(axes, directions):
         ddir = sub[sub["direction"] == str(direction)]
-        for brain in brain_list:
-            db = ddir[ddir["brain"] == str(brain)]
+        for subj in subj_list:
+            db = ddir[ddir["subj"] == str(subj)]
             yvals: list[float] = []
             evals: list[float] = []
             for roi in roi_order:
@@ -384,8 +374,8 @@ def plot_alpha_macro_vs_roi(
 
             y = np.asarray(yvals, dtype=float)
             yerr = np.asarray(evals, dtype=float)
-            color = DEFAULT_BRAIN_COLORS.get(str(brain), None)
-            ax.plot(x, y, "o-", linewidth=2, markersize=7, color=color, label=str(brain))
+            color = DEFAULT_SUBJ_COLORS.get(str(subj), None)
+            ax.plot(x, y, "o-", linewidth=2, markersize=7, color=color, label=str(subj))
             if np.isfinite(yerr).any():
                 low = y - np.nan_to_num(yerr, nan=0.0)
                 high = y + np.nan_to_num(yerr, nan=0.0)

@@ -12,6 +12,7 @@ _M2_MS_TO_MM2_S = 1e9
 
 MONOEXP_COLS = [
     'source_file',
+    'subj',
     'roi',
     'direction',
     'max_dur_ms',
@@ -48,7 +49,7 @@ MONOEXP_COLS = [
 NOGSE_CONTRAST_COLS = [
     'source_file',
     'analysis_id',
-    'brain',
+    'subj',
     'sheet',
     'roi',
     'direction',

@@ -15,7 +15,6 @@ FIT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-contrast_vs_g.py"
 GRAD_CORR_XLSX="$REPO_ROOT/analysis/ogse_experiments/fits/grad_correction_rotated/Syringe.grad_correction_rotated.xlsx"
 FIT_ROOT="$REPO_ROOT/analysis/ogse_experiments/fits/fit_${MODEL}_ogse_contrast_rotated_corr"
 FILE_PATTERN="*.long.parquet"
-BRAINS="ALL"
 ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC,Left-Lateral-Ventricle,Right-Lateral-Ventricle"
 
 if [[ ! -d "$CONTRAST_ROOT" ]]; then
@@ -34,14 +33,6 @@ if [[ ! -f "$GRAD_CORR_XLSX" ]]; then
 fi
 
 mkdir -p "$FIT_ROOT"
-
-brain_args=()
-if [[ "$BRAINS" != "ALL" ]]; then
-    read -r -a brain_list <<< "${BRAINS//,/ }"
-    if (( ${#brain_list[@]} > 0 )); then
-        brain_args+=(--brains "${brain_list[@]}")
-    fi
-fi
 
 roi_args=()
 if [[ "$ROIS" != "ALL" ]]; then
@@ -65,7 +56,6 @@ while read -r f; do
     echo "============================================================"
     echo "Job $total"
     echo "  File: $base_name"
-    echo "  Brains: $BRAINS"
     echo "  ROIs  : $ROIS"
 
     if "$PY" "$FIT_SCRIPT" "$f" \
@@ -79,7 +69,6 @@ while read -r f; do
         --apply_grad_corr \
         --corr_xlsx "$GRAD_CORR_XLSX" \
         --corr_roi Syringe \
-        "${brain_args[@]}" \
         "${roi_args[@]}" \
         --out_root "$FIT_ROOT"; then
         ok=$((ok + 1))

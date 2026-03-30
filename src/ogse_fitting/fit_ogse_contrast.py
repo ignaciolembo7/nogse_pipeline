@@ -10,7 +10,7 @@ from scipy.optimize import curve_fit
 
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
 from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
-from tools.brain_labels import canonical_sheet_name, infer_brain_group
+from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
 
 
@@ -486,7 +486,7 @@ def _fit_rest(
 @dataclass(frozen=True)
 class FitRow:
     analysis_id: str
-    brain: str
+    subj: str
     sheet: str | None
     roi: str
     direction: str
@@ -712,9 +712,9 @@ def fit_ogse_contrast_long(
                 td_ms = None
 
         sheet = canonical_sheet_name(sheet_1 or sheet_2)
-        brain = _get_str("brain")
-        if brain is None or not str(brain).strip():
-            brain = infer_brain_group(sheet, source_name=source_file)
+        subj = _get_str("subj")
+        if subj is None or not str(subj).strip():
+            subj = infer_subj_label(sheet, source_name=source_file)
 
         # arrays
         y = pd.to_numeric(gg[y_eff], errors="coerce").to_numpy(dtype=float)
@@ -732,7 +732,7 @@ def fit_ogse_contrast_long(
             rows.append(
                 FitRow(
                     analysis_id=str(analysis_id),
-                    brain=str(brain),
+                    subj=str(subj),
                     sheet=sheet,
                     roi=roi,
                     direction=direction,
@@ -797,7 +797,7 @@ def fit_ogse_contrast_long(
 
         base = dict(
             analysis_id=str(analysis_id),
-            brain=str(brain),
+            subj=str(subj),
             sheet=sheet,
             roi=roi,
             direction=direction,

@@ -17,9 +17,7 @@ YCOL="tc_peak_ms"
 FIT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/run_tc_vs_td.py"
 ALPHA_SUMMARY="$REPO_ROOT/analysis/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 OUT_DIR="$(dirname "$GROUPFITS")/tc_vs_td/${METHOD}/${YCOL}"
-BRAINS="ALL"
 ROIS="ALL"
-# BRAINS="BRAIN,LUDG,MBBL"
 # ROIS="Left-Lateral-Ventricle,Right-Lateral-Ventricle"
 
 if [[ ! -f "$GROUPFITS" ]]; then
@@ -50,19 +48,11 @@ if [[ "$ROIS" != "ALL" ]]; then
     fi
 fi
 
-if [[ "$BRAINS" != "ALL" ]]; then
-    read -r -a brain_list <<< "${BRAINS//,/ }"
-    if (( ${#brain_list[@]} > 0 )); then
-        extra_args+=(--brains "${brain_list[@]}")
-    fi
-fi
-
 echo "============================================================"
 echo "Running tc_vs_td"
 echo "  Groupfits : $GROUPFITS"
 echo "  Method    : $METHOD"
 echo "  y-col     : $YCOL"
-echo "  Brains    : $BRAINS"
 echo "  ROIs      : $ROIS"
 echo "  Out dir   : $OUT_DIR"
 

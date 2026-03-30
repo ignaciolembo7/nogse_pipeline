@@ -9,7 +9,7 @@ from ogse_fitting.contrast_fit_panels import plot_contrast_fit_panels
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Genera figuras de contraste vs g con ajustes, agrupadas por brain. "
+            "Genera figuras de contraste vs g con ajustes, agrupadas por subj. "
             "Cada figura contiene una grilla ROI x direction y superpone todas las curvas td_ms disponibles."
         )
     )
@@ -22,7 +22,7 @@ def main() -> None:
     ap.add_argument("--out-dir", type=Path, default=None, help="Directorio de salida. Si no, usa <fits_root>/contrast_fit_panels.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo para descubrir fit_params.")
     ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos.")
-    ap.add_argument("--brains", nargs="+", default=None, help="Filtra brains.")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
     ap.add_argument("--include-failed", action="store_true", help="Incluye filas con ok=False.")
@@ -37,7 +37,7 @@ def main() -> None:
         out_dir=out_dir,
         pattern=args.pattern,
         models=args.models,
-        brains=args.brains,
+        subjs=args.subjs,
         rois=args.rois,
         directions=args.directions,
         ok_only=not bool(args.include_failed),

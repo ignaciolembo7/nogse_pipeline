@@ -18,7 +18,7 @@ from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 @dataclass(frozen=True)
 class PanelSpec:
-    brain: str
+    subj: str
     model: str
     gbase: str
     ycol: str
@@ -153,13 +153,13 @@ def _build_fit_curve(fit_row: pd.Series, G1: np.ndarray, G2: np.ndarray) -> tupl
 
 def _panel_specs(df: pd.DataFrame) -> list[PanelSpec]:
     specs: list[PanelSpec] = []
-    for key, sub in df.groupby(["brain", "model", "gbase", "ycol", "xplot"], sort=True):
-        brain, model, gbase, ycol, xplot = key
+    for key, sub in df.groupby(["subj", "model", "gbase", "ycol", "xplot"], sort=True):
+        subj, model, gbase, ycol, xplot = key
         if sub.empty:
             continue
         specs.append(
             PanelSpec(
-                brain=str(brain),
+                subj=str(subj),
                 model=str(model),
                 gbase=str(gbase),
                 ycol=str(ycol),
@@ -186,7 +186,7 @@ def plot_contrast_fit_panels(
     out_dir: str | Path,
     pattern: str = "**/fit_params.*",
     models: list[str] | None = None,
-    brains: list[str] | None = None,
+    subjs: list[str] | None = None,
     rois: list[str] | None = None,
     directions: list[str] | None = None,
     ok_only: bool = True,
@@ -195,7 +195,7 @@ def plot_contrast_fit_panels(
         [fits_root],
         pattern=pattern,
         models=models,
-        brains=brains,
+        subjs=subjs,
         directions=directions,
         rois=rois,
         ok_only=ok_only,
@@ -212,7 +212,7 @@ def plot_contrast_fit_panels(
 
     for spec in _panel_specs(df):
         sub = df[
-            (df["brain"].astype(str) == spec.brain)
+            (df["subj"].astype(str) == spec.subj)
             & (df["model"].astype(str) == spec.model)
             & (df["gbase"].astype(str) == spec.gbase)
             & (df["ycol"].astype(str) == spec.ycol)
@@ -303,13 +303,13 @@ def plot_contrast_fit_panels(
         )
 
         fig.suptitle(
-            f"{spec.brain} | model={spec.model} | y={spec.ycol} | g={spec.gbase}_{spec.xplot}",
+            f"{spec.subj} | model={spec.model} | y={spec.ycol} | g={spec.gbase}_{spec.xplot}",
             fontsize=14,
         )
         plt.tight_layout(rect=[0.02, 0.02, 0.9, 0.95])
 
         out_path = out_dir / (
-            f"contrast_fit_panels_brain={_sanitize_token(spec.brain)}"
+            f"contrast_fit_panels_subj={_sanitize_token(spec.subj)}"
             f"_model={_sanitize_token(spec.model)}"
             f"_g={_sanitize_token(spec.gbase)}"
             f"_y={_sanitize_token(spec.ycol)}"

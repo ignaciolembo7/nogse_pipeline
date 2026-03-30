@@ -13,9 +13,7 @@ FITS_ROOT="$REPO_ROOT/analysis/ogse_experiments/fits/fit_rest_ogse_contrast_rota
 MODEL="rest"
 PIPE_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/run_tc_pipeline.py"
 OUT_PREFIX="$FITS_ROOT/groupfits_${MODEL}"
-BRAINS="ALL"
 ROIS="ALL"
-# BRAINS="BRAIN,LUDG,MBBL"
 # ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC"
 
 if [[ ! -d "$FITS_ROOT" ]]; then
@@ -40,19 +38,10 @@ if [[ "$ROIS" != "ALL" ]]; then
     fi
 fi
 
-brain_args=()
-if [[ "$BRAINS" != "ALL" ]]; then
-    read -r -a brain_list <<< "${BRAINS//,/ }"
-    if (( ${#brain_list[@]} > 0 )); then
-        brain_args+=(--brains "${brain_list[@]}")
-    fi
-fi
-
 echo "============================================================"
 echo "Building groupfits"
 echo "  Fits root : $FITS_ROOT"
 echo "  Model     : $MODEL"
-echo "  Brains    : $BRAINS"
 echo "  ROIs      : $ROIS"
 echo "  Out xlsx  : $OUT_XLSX"
 echo "  Out parquet: $OUT_PARQUET"
@@ -60,7 +49,6 @@ echo "  Out parquet: $OUT_PARQUET"
 "$PY" "$PIPE_SCRIPT" \
     "$FITS_ROOT" \
     --models "$MODEL" \
-    "${brain_args[@]}" \
     "${roi_args[@]}" \
     --out-xlsx "$OUT_XLSX" \
     --out-parquet "$OUT_PARQUET"
