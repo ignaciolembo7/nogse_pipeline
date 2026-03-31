@@ -18,17 +18,7 @@ DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 
-# Grouped subject tags written to the output tables.
-# These are the only explicit subj assignments needed in the bash pipeline.
-declare -A SHEET_TO_SUBJ=(
-    ["20220622_BRAIN"]="BRAIN"
-    ["20230619_BRAIN-3"]="BRAIN"
-    ["20230623_BRAIN-4"]="BRAIN"
-    ["20230623_LUDG-2"]="LUDG"
-    ["20230629_MBBL-2"]="MBBL"
-    ["20230630_MBBL-3"]="MBBL"
-    ["20230710_LUDG-3"]="LUDG"
-)
+# The matched row in DEFAULT_PARAMS must include a populated "subj" column.
 
 RESULTS_ROOT="${1:-$DEFAULT_RESULTS_ROOT}"
 PARAMS="${2:-$DEFAULT_PARAMS}"
@@ -57,38 +47,16 @@ ok=0
 failed=0
 declare -a failed_sequences=()
 
-subj_for_file() {
-    local file="$1"
-    local sheet_name
-    sheet_name="$(basename "$(dirname "$file")")"
-
-    if [[ -n "${SHEET_TO_SUBJ[$sheet_name]:-}" ]]; then
-        printf '%s\n' "${SHEET_TO_SUBJ[$sheet_name]}"
-        return 0
-    fi
-
-    echo "ERROR: no subj mapping configured for sheet: $sheet_name" >&2
-    return 1
-}
-
 while read -r file; do
     [[ -z "$file" ]] && continue
 
     total=$((total + 1))
     seq_name="$(basename "$file" "_results.xlsx")"
-    if ! subj="$(subj_for_file "$file")"; then
-        failed=$((failed + 1))
-        failed_sequences+=("$seq_name")
-        echo "  WARNING: failed sequence: $seq_name (missing subj mapping)" >&2
-        echo "  Continuing with next sequence..." >&2
-        continue
-    fi
 
     echo "Processing: $seq_name"
     echo "  File: $file"
-    echo "  Subj: $subj"
 
-    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR" --subj "$subj"; then
+    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR"; then
         ok=$((ok + 1))
         echo "  OK: $seq_name"
     else

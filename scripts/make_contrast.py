@@ -39,6 +39,74 @@ def _sanitize(s: str) -> str:
     return s
 
 
+def _fmt_seq(x) -> str:
+    if x is None:
+        return "NA"
+    try:
+        x = float(x)
+    except Exception:
+        return _sanitize(str(x))
+    if not pd.notna(x):
+        return "NA"
+    if abs(x - round(x)) < 1e-6:
+        return str(int(round(x)))
+    return _sanitize(str(x))
+
+
+def _sequence_number(df: pd.DataFrame):
+    seq = _one(df, "sequence", None)
+    if seq is not None and str(seq).strip():
+        return seq
+
+    source = _one(df, "source_file", None)
+    if source is None:
+        return None
+
+    m = re.search(r"_(\d+)_results(?:\.[A-Za-z0-9._-]+)?$", str(source))
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _build_analysis_core(
+    df_ref: pd.DataFrame,
+    df_cmp: pd.DataFrame,
+    directions: list[str],
+    sheet_override: str | None,
+) -> tuple[str, str]:
+    sheet = str(_one(df_ref, "sheet", _one(df_cmp, "sheet", "EXP")))
+    if sheet_override:
+        sheet = str(sheet_override)
+
+    N1 = _one(df_ref, "N", None)
+    N2 = _one(df_cmp, "N", None)
+    try:
+        N1i = int(round(float(N1))) if N1 is not None else -1
+    except Exception:
+        N1i = -1
+    try:
+        N2i = int(round(float(N2))) if N2 is not None else -1
+    except Exception:
+        N2i = -1
+
+    td1 = _one(df_ref, "td_ms", None)
+    hz1 = _one(df_ref, "Hz", None)
+    hz2 = _one(df_cmp, "Hz", None)
+
+    dir_tag = "-".join([str(d) for d in directions]) if directions else "ALL"
+    td_tag = f"td{_fmt_num(td1)}" if (td1 is not None and pd.notna(td1)) else "tdNA"
+
+    hz_tag = ""
+    if hz1 is not None and pd.notna(hz1):
+        hz_tag = f"_Hz{_fmt_num(hz1)}"
+        if hz2 is not None and pd.notna(hz2) and abs(float(hz2) - float(hz1)) > 1e-6:
+            hz_tag = f"_Hz{_fmt_num(hz1)}-{_fmt_num(hz2)}"
+
+    analysis_core = f"{sheet}_N{N1i}-N{N2i}_{td_tag}{hz_tag}_dir{dir_tag}"
+    analysis_short = f"{sheet}"
+    return _sanitize(analysis_core)[:160], _sanitize(analysis_short)[:160]
+
+
 def _validate_input(df: pd.DataFrame, label: str) -> None:
     if "axis" in df.columns:
         raise ValueError(
@@ -209,38 +277,27 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
     return out[head + block1 + block2 + tail]
 
 
-def build_analysis_id(df_ref: pd.DataFrame, df_cmp: pd.DataFrame, directions: list[str], sheet_override: str | None) -> str:
-    sheet = str(_one(df_ref, "sheet", _one(df_cmp, "sheet", "EXP")))
-    if sheet_override:
-        sheet = str(sheet_override)
+def build_analysis_id(
+    df_ref: pd.DataFrame,
+    df_cmp: pd.DataFrame,
+    directions: list[str],
+    sheet_override: str | None,
+) -> tuple[str, str]:
+    analysis_core, analysis_short = _build_analysis_core(df_ref, df_cmp, directions, sheet_override)
+    seq1 = _sequence_number(df_ref)
+    seq2 = _sequence_number(df_cmp)
+    seq_tag = f"_seq{_fmt_seq(seq1)}-{_fmt_seq(seq2)}"
+    analysis = f"{analysis_core}{seq_tag}"
+    return _sanitize(analysis)[:160], analysis_short
 
-    N1 = _one(df_ref, "N", None)
-    N2 = _one(df_cmp, "N", None)
-    try:
-        N1i = int(round(float(N1))) if N1 is not None else -1
-    except Exception:
-        N1i = -1
-    try:
-        N2i = int(round(float(N2))) if N2 is not None else -1
-    except Exception:
-        N2i = -1
 
-    td1 = _one(df_ref, "td_ms", None)
-    hz1 = _one(df_ref, "Hz", None)
-    hz2 = _one(df_cmp, "Hz", None)
-
-    dir_tag = "-".join([str(d) for d in directions]) if directions else "ALL"
-    td_tag = f"td{_fmt_num(td1)}" if (td1 is not None and pd.notna(td1)) else "tdNA"
-
-    hz_tag = ""
-    if hz1 is not None and pd.notna(hz1):
-        hz_tag = f"_Hz{_fmt_num(hz1)}"
-        if hz2 is not None and pd.notna(hz2) and abs(float(hz2) - float(hz1)) > 1e-6:
-            hz_tag = f"_Hz{_fmt_num(hz1)}-{_fmt_num(hz2)}"
-
-    analysis = f"{sheet}_N{N1i}-N{N2i}_{td_tag}{hz_tag}_dir{dir_tag}"
-    analysis_short = f"{sheet}"
-    return _sanitize(analysis)[:160], _sanitize(analysis_short)[:160]
+def build_legacy_analysis_id(
+    df_ref: pd.DataFrame,
+    df_cmp: pd.DataFrame,
+    directions: list[str],
+    sheet_override: str | None,
+) -> tuple[str, str]:
+    return _build_analysis_core(df_ref, df_cmp, directions, sheet_override)
 
 
 def main():
@@ -272,6 +329,7 @@ def main():
         df_cmp = df_cmp[df_cmp["direction"].isin(directions)]
 
     analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp)
+    legacy_analysis_id, _ = build_legacy_analysis_id(df_ref, df_cmp, directions, args.exp)
     sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
     subj = _one(df_ref, "subj", _one(df_cmp, "subj", infer_subj_label(sheet, source_name=analysis_id)))
 
@@ -315,6 +373,15 @@ def main():
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
     out.to_parquet(out_parquet, index=False)
     out.to_excel(out_parquet.with_suffix(".xlsx"), index=False)
+
+    # Remove obsolete pre-sequence duplicate names from older pipeline runs.
+    if legacy_analysis_id != analysis_id:
+        legacy_parquet = tables_dir / f"{legacy_analysis_id}.long.parquet"
+        legacy_xlsx = legacy_parquet.with_suffix(".xlsx")
+        for old_path in (legacy_parquet, legacy_xlsx):
+            if old_path.exists():
+                old_path.unlink()
+                print("Removed legacy duplicate:", old_path)
 
     print("Saved:", out_parquet)
 

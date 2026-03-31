@@ -94,9 +94,10 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     """
     Strict match policy:
     1) The sheet name must match exactly.
-    2) If the sheet is found, sequence matching is done only inside that sheet.
-    3) If no exact sheet is found, stop immediately.
-    4) Do not silently fall back to another sheet.
+    2) If a sequence number is available, match it only inside that sheet.
+    3) If sheet+seq already identify a single row, return it directly.
+    4) If more than one row still remains, use Hz and timing fields to disambiguate.
+    5) Do not silently fall back to another sheet.
     """
     df = params.copy()
 
@@ -129,7 +130,10 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
                 f"sheet={target_sheet!r}, seq={meta.seq}"
             )
 
-    # 3) Hz / bmax
+        if len(df) == 1:
+            return df.iloc[0]
+
+    # 3) Hz
     Hz = 0 if (meta.Hz is None and meta.encoding == "PGSE") else meta.Hz
     if Hz is not None and "Hz" in df.columns:
         hzcol = pd.to_numeric(df["Hz"], errors="coerce")
@@ -137,9 +141,6 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
             df = df[(hzcol.isna()) | (np.isclose(hzcol.to_numpy(float), 0.0, rtol=0.0, atol=1e-9))]
         else:
             df = _filter_close(df, "Hz", float(Hz), atol=1e-6)
-
-    if meta.bmax is not None and "bmax" in df.columns:
-        df = _filter_close(df, "bmax", float(meta.bmax), atol=1e-6)
 
     # 4) Timing fields
     if meta.delta_ms is not None and "delta_ms" in df.columns:
@@ -157,14 +158,16 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     if df.empty:
         raise ValueError(
             "No parameter row matched after filtering inside the exact sheet. "
-            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, bmax={meta.bmax}"
+            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, d_ms={meta.d_ms}, "
+            f"delta_ms={meta.delta_ms}, Delta_ms={meta.Delta_ms}"
         )
 
     if len(df) > 1:
         raise ValueError(
             "More than one parameter row matched inside the exact sheet. "
             "Refine the metadata or make the Excel table more specific.\n"
-            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, bmax={meta.bmax}"
+            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, d_ms={meta.d_ms}, "
+            f"delta_ms={meta.delta_ms}, Delta_ms={meta.Delta_ms}"
         )
 
     return df.iloc[0]

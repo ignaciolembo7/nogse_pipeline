@@ -13,6 +13,7 @@ def _find_protocol_header_row(df: pd.DataFrame) -> int:
 def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     """
     Lee 'Parámetros secuencias.xlsx' y devuelve una tabla tidy con una fila por (sheet, protocol, seq, Hz).
+    Extra columns such as a manually curated 'subj' tag are preserved.
     """
     xls = pd.ExcelFile(path)
     out = []
@@ -70,7 +71,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     # keep columnas relevantes primero (si existen)
     col_order = [
         c for c in [
-            "sheet","protocol","seq","Hz","bmax","max_dur_ms",
+            "sheet","subj","protocol","seq","Hz","bmax","max_dur_ms",
             "delta_ms","delta_app_ms","N","gthorsten_mTm",
             "seq_type","TE_ms","TR_ms","TM_ms"
         ] if c in params.columns

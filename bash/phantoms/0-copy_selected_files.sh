@@ -7,8 +7,8 @@ FILES=(
   "fiber1_mask.nii.gz"
   "fiber2_mask.nii.gz"
 #  "water1_mask.nii.gz"
-  "water2_mask.nii.gz"
-  "water3_mask.nii.gz"
+  # "water2_mask.nii.gz"
+  # "water3_mask.nii.gz"
 )
 
 find "$BASE" -mindepth 1 -maxdepth 1 -type d ! -path "$SRC" | while read -r d; do
