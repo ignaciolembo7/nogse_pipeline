@@ -133,6 +133,38 @@ def _infer_sheet_from_df_or_id(
     return _canonical_sheet(exp_id) if canonicalize else exp_id
 
 
+def _infer_subj_from_df_or_id(
+    df: pd.DataFrame,
+    exp_id: str,
+    *,
+    source_path: Path | None = None,
+) -> str:
+    for c in ['subj', 'subject', 'brain']:
+        if c in df.columns:
+            u = pd.Series(df[c]).dropna().astype(str).str.strip().unique()
+            if len(u) == 1 and u[0]:
+                return str(u[0])
+
+    candidates: list[str] = []
+    if exp_id:
+        candidates.append(exp_id)
+    if source_path is not None:
+        candidates.append(source_path.parent.name)
+        parent = source_path.parent
+        if parent.parent != parent:
+            candidates.append(parent.parent.name)
+
+    for candidate in candidates:
+        s = str(candidate).strip()
+        if not s:
+            continue
+        m = re.match(r'^\d{8}[-_](.+?)(?:_|$)', s)
+        if m:
+            return m.group(1)
+
+    return ''
+
+
 def _infer_td_ms(df: pd.DataFrame) -> Optional[float]:
     def _uniq(col: str) -> Optional[float]:
         if col not in df.columns:
@@ -239,6 +271,7 @@ def compute_d0_monoexp_reference(
 
         exp_id = _infer_exp_id(f)
         sheet = _infer_sheet_from_df_or_id(df, exp_id, canonicalize=canonicalize_sheet, source_path=f)
+        subj = _infer_subj_from_df_or_id(df, exp_id, source_path=f)
 
         if 'fit_kind' in df.columns:
             df = df[df['fit_kind'].astype(str) == 'monoexp'].copy()
@@ -268,11 +301,12 @@ def compute_d0_monoexp_reference(
         else:
             sub['td_ms'] = _infer_td_ms(sub)
 
+        sub['subj'] = str(subj).strip()
         sub['sheet'] = sheet
         sub['D0_fit_monoexp'] = _convert_d0_to_m2_ms(sub[d0_col], source_col=d0_col, mm2s_scale=exp_scale)
 
-        keep = sub[['sheet', 'roi', 'td_ms', 'D0_fit_monoexp']].copy()
-        keep = keep.dropna(subset=['sheet', 'roi', 'td_ms', 'D0_fit_monoexp'])
+        keep = sub[['subj', 'sheet', 'roi', 'td_ms', 'D0_fit_monoexp']].copy()
+        keep = keep.dropna(subset=['subj', 'sheet', 'roi', 'td_ms', 'D0_fit_monoexp'])
         if not keep.empty:
             blocks.append(keep)
 
@@ -280,7 +314,7 @@ def compute_d0_monoexp_reference(
     if out.empty:
         raise ValueError('No pude construir la referencia monoexp por experimento/td_ms. Revisá ROI, columnas y exp_fits_root.')
 
-    out = out.groupby(['sheet', 'roi', 'td_ms'], as_index=False).agg(
+    out = out.groupby(['subj', 'sheet', 'roi', 'td_ms'], as_index=False).agg(
         D0_fit_monoexp=('D0_fit_monoexp', 'mean'),
         D0_fit_monoexp_std=('D0_fit_monoexp', 'std'),
         n_monoexp=('D0_fit_monoexp', 'size'),
@@ -349,6 +383,7 @@ def load_nogse_fit_d0(
         else:
             sub['td_ms'] = _infer_td_ms(sub)
 
+        sub['subj'] = _infer_subj_from_df_or_id(sub, exp_id, source_path=f)
         sub['sheet'] = _infer_sheet_from_df_or_id(sub, exp_id, canonicalize=canonicalize_sheet, source_path=f)
         sub['roi'] = sub[roi_col].astype(str).str.strip()
         sub['direction'] = sub[dir_col].astype(str)
@@ -356,8 +391,8 @@ def load_nogse_fit_d0(
         sub['N_2'] = pd.to_numeric(sub[n2_col], errors='coerce')
         sub['D0_fit_nogse'] = _convert_d0_to_m2_ms(sub[d0_col], source_col=d0_col, mm2s_scale=1e-9) * float(nogse_scale)
 
-        keep = sub[['sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse']].copy()
-        keep = keep.dropna(subset=['sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse'])
+        keep = sub[['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse']].copy()
+        keep = keep.dropna(subset=['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse'])
         if not keep.empty:
             blocks.append(keep)
 
@@ -365,7 +400,7 @@ def load_nogse_fit_d0(
     if out.empty:
         raise ValueError('No pude construir D0_fit_nogse. Revisá ruta, columnas, ROI y N_1/N_2.')
 
-    out = out.groupby(['sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2'], as_index=False).agg(
+    out = out.groupby(['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2'], as_index=False).agg(
         D0_fit_nogse=('D0_fit_nogse', 'mean'),
         D0_fit_nogse_std=('D0_fit_nogse', 'std'),
         n_nogse=('D0_fit_nogse', 'size'),
@@ -377,8 +412,8 @@ def load_nogse_fit_d0(
 # Matching + correction factor
 # ---------------------------
 def _format_missing_matches(missing: pd.DataFrame, monoexp_ref: pd.DataFrame) -> str:
-    sample_missing = missing[['sheet', 'roi', 'td_ms', 'direction', 'N_1', 'N_2']].drop_duplicates().head(10)
-    sample_exp = monoexp_ref[['sheet', 'roi', 'td_ms']].drop_duplicates().head(20)
+    sample_missing = missing[['subj', 'sheet', 'roi', 'td_ms', 'direction', 'N_1', 'N_2']].drop_duplicates().head(10)
+    sample_exp = monoexp_ref[['subj', 'sheet', 'roi', 'td_ms']].drop_duplicates().head(20)
     return (
         'Faltan referencias monoexp para algunos fits de contraste.\n\n'
         'Ejemplos faltantes:\n'
@@ -448,8 +483,8 @@ def make_grad_correction_table(
     nogse['_td_key'] = _td_key_from_series(nogse['td_ms'], tol_ms)
 
     out = nogse.merge(
-        monoexp_ref[['sheet', 'roi', '_td_key', 'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp']],
-        on=['sheet', 'roi', '_td_key'],
+        monoexp_ref[['subj', 'sheet', 'roi', '_td_key', 'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp']],
+        on=['subj', 'sheet', 'roi', '_td_key'],
         how='left',
     )
 
@@ -462,11 +497,11 @@ def make_grad_correction_table(
     out['correction_factor_std'] = out.apply(_propagate_correction_std, axis=1)
 
     cols = [
-        'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2',
+        'subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2',
         'D0_fit_nogse', 'D0_fit_nogse_std', 'n_nogse',
         'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
         'ratio', 'correction_factor', 'correction_factor_std',
     ]
     cols = [c for c in cols if c in out.columns]
-    out = out[cols].sort_values(['sheet', 'td_ms', 'N_1', 'N_2', 'direction'], kind='stable').reset_index(drop=True)
+    out = out[cols].sort_values(['subj', 'sheet', 'td_ms', 'N_1', 'N_2', 'direction'], kind='stable').reset_index(drop=True)
     return out
