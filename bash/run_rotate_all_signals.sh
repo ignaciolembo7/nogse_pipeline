@@ -2,13 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
-export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+PY="${PY:-python}"
 
-DATA_ROOT="${1:-$REPO_ROOT/analysis/ogse_experiments/data}"
-DIRS_CSV="${2:-$REPO_ROOT/nogse_pipeline/assets/dirs/dirs_6.csv}"
-ROTATE_SCRIPT="${3:-$REPO_ROOT/nogse_pipeline/scripts/rotate_ogse_tensor.py}"
+DATA_ROOT="${1:-$PROJECT_ROOT/analysis/brains/ogse_experiments/data}"
+DIRS_CSV="${2:-$REPO_ROOT/assets/dirs/dirs_6.csv}"
+ROTATE_SCRIPT="${3:-$REPO_ROOT/scripts/rotate_ogse_tensor.py}"
 FILE_PATTERN="${4:-*_results.long.parquet}"
 
 if [[ ! -d "$DATA_ROOT" ]]; then
@@ -40,7 +42,7 @@ while read -r file; do
     echo "Processing: $base_name"
     echo "  File: $file"
 
-    if python "$ROTATE_SCRIPT" "$file" --dirs_csv "$DIRS_CSV"; then
+    if "$PY" "$ROTATE_SCRIPT" "$file" --dirs_csv "$DIRS_CSV" --out_dir "$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated"; then
         ok=$((ok + 1))
         echo "  OK: $base_name"
     else

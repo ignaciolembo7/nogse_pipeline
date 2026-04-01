@@ -14,7 +14,7 @@ from tc_fittings.alpha_macro_summary import (
 def load_all_measurements(
     dproj_root: str | Path,
     *,
-    pattern: str = "**/*.rot_tensor.Dproj.long.parquet",
+    pattern: str = "**/*.Dproj.long.parquet",
     dirs: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     subjs: Sequence[str] | None = None,

@@ -11,12 +11,14 @@ from monoexp_fitting.plot_D0_vs_Delta import (
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Construye curvas D vs Delta_app_ms a b fijo desde tablas rot_tensor.Dproj.long.parquet."
+        description="Construye curvas D vs Delta_app_ms desde tablas *.Dproj.long.parquet."
     )
-    ap.add_argument("--dproj-root", required=True, help="Carpeta raíz con *.rot_tensor.Dproj.long.parquet.")
-    ap.add_argument("--pattern", default="**/*.rot_tensor.Dproj.long.parquet", help="Glob relativo dentro de dproj-root.")
+    ap.add_argument("--dproj-root", required=True, help="Carpeta raíz con tablas *.Dproj.long.parquet.")
+    ap.add_argument("--pattern", default="**/*.Dproj.long.parquet", help="Glob relativo dentro de dproj-root.")
     ap.add_argument("--out-dir", required=True, help="Carpeta de salida para plots y tabla combinada.")
-    ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms a incluir (ej: BRAIN-3 LUDG-2 PHANTOM3).")
+    subj_group = ap.add_mutually_exclusive_group()
+    subj_group.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms a incluir (ej: BRAIN-3 LUDG-2 PHANTOM3).")
+    subj_group.add_argument("--brains", nargs="+", dest="subjs", help="Legacy alias for --subjs.")
     ap.add_argument("--rois", nargs="+", default=None, help="ROIs a incluir.")
     ap.add_argument("--dirs", nargs="+", default=["x", "y", "z"], help="Direcciones a incluir.")
 

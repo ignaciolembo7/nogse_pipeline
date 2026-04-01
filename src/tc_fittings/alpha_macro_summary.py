@@ -47,7 +47,7 @@ def _read_table(path: Path) -> pd.DataFrame:
     raise ValueError(f"Formato no soportado para {path}")
 
 
-def discover_dproj_files(root: str | Path, pattern: str = "**/*.rot_tensor.Dproj.long.parquet") -> list[Path]:
+def discover_dproj_files(root: str | Path, pattern: str = "**/*.Dproj.long.parquet") -> list[Path]:
     base = Path(root)
     if base.is_file():
         return [base]
@@ -76,7 +76,7 @@ def parse_direction_aliases(items: Sequence[str] | None) -> dict[str, str]:
 def load_dproj_measurements(
     dproj_root: str | Path,
     *,
-    pattern: str = "**/*.rot_tensor.Dproj.long.parquet",
+    pattern: str = "**/*.Dproj.long.parquet",
     subjs: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
@@ -109,7 +109,12 @@ def load_dproj_measurements(
         out["N"] = pd.to_numeric(out.get("N", np.nan), errors="coerce")
         out["Hz"] = pd.to_numeric(out.get("Hz", np.nan), errors="coerce")
         out["sheet"] = _as_str(out["sheet"]) if "sheet" in out.columns else path.stem
-        out["subj"] = out["sheet"].map(lambda x: infer_subj_label(x, source_name=path.name))
+        if "subj" in out.columns:
+            subj = _as_str(out["subj"])
+            invalid = subj.str.lower().isin({"", "nan", "none", "<na>"})
+            out["subj"] = subj.mask(invalid, out["sheet"].map(lambda x: infer_subj_label(x, source_name=path.name)))
+        else:
+            out["subj"] = out["sheet"].map(lambda x: infer_subj_label(x, source_name=path.name))
         out["source_file"] = path.name
 
         if subj_set is not None:

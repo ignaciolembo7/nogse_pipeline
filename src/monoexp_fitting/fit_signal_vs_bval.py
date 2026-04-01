@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 
+from data_processing.schema import finalize_clean_dproj_long
 from ogse_fitting.b_from_g import b_from_g
 from plottings.fit_plot_style import finish_fit_figure, highlight_fit_points, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.fit_params_schema import standardize_fit_params
@@ -86,6 +87,94 @@ def _normalize_requested_rois(
     if roi_val.upper() == 'ALL':
         return None
     return [roi_val]
+
+
+def _pick_template_row_for_dproj(d: pd.DataFrame) -> pd.Series:
+    if d.empty:
+        raise ValueError("No puedo elegir fila template para Dproj desde un DataFrame vacío.")
+
+    work = d.copy()
+    b_step = pd.to_numeric(work.get("b_step"), errors="coerce")
+    if b_step.notna().any():
+        pos = work[b_step > 0].copy()
+        if not pos.empty:
+            work = pos
+
+    bvalue = pd.to_numeric(work.get("bvalue"), errors="coerce")
+    if bvalue.notna().any():
+        return work.loc[bvalue.idxmax()].copy()
+
+    b_step = pd.to_numeric(work.get("b_step"), errors="coerce")
+    if b_step.notna().any():
+        return work.loc[b_step.idxmax()].copy()
+
+    return work.iloc[0].copy()
+
+
+def build_monoexp_dproj_long(
+    df_signal: pd.DataFrame,
+    fit_params: pd.DataFrame,
+    *,
+    stat_keep: str = "avg",
+) -> pd.DataFrame:
+    signal = df_signal.copy()
+    if "stat" in signal.columns and stat_keep is not None and str(stat_keep).upper() != "ALL":
+        signal = signal[signal["stat"].astype(str) == str(stat_keep)].copy()
+
+    if signal.empty:
+        return pd.DataFrame(
+            columns=[
+                "roi", "direction", "b_step", "bvalue", "D_proj", "source_file",
+                "subj", "max_dur_ms", "tm_ms", "td_ms", "Hz", "N", "TE", "TR",
+                "bmax", "protocol", "sequence", "sheet", "Delta_app_ms", "delta_ms",
+            ]
+        )
+
+    subj_by_key: dict[tuple[str, str], str] = {}
+    if not fit_params.empty and {"roi", "direction"}.issubset(fit_params.columns):
+        for _, fit_row in fit_params.iterrows():
+            fit_subj = str(fit_row.get("subj", "")).strip()
+            if fit_subj and fit_subj.lower() not in {"nan", "none", "<na>"}:
+                subj_by_key[(str(fit_row["roi"]), str(fit_row["direction"]))] = fit_subj
+
+    rows: list[dict] = []
+    for _, signal_row in signal.iterrows():
+        bvalue = pd.to_numeric(pd.Series([signal_row.get("bvalue")]), errors="coerce").iloc[0]
+        if not np.isfinite(bvalue) or bvalue <= 0:
+            continue
+
+        value_norm = pd.to_numeric(pd.Series([signal_row.get("value_norm")]), errors="coerce").iloc[0]
+        if not np.isfinite(value_norm):
+            value = pd.to_numeric(pd.Series([signal_row.get("value")]), errors="coerce").iloc[0]
+            s0 = pd.to_numeric(pd.Series([signal_row.get("S0")]), errors="coerce").iloc[0]
+            if np.isfinite(value) and np.isfinite(s0) and s0 != 0.0:
+                value_norm = float(value / s0)
+        if not np.isfinite(value_norm):
+            continue
+
+        value_norm = float(np.clip(value_norm, 1e-12, None))
+        dproj = float(-np.log(value_norm) / float(bvalue))
+
+        row = signal_row.to_dict()
+        row["D_proj"] = dproj
+
+        key = (str(row.get("roi")), str(row.get("direction")))
+        fit_subj = subj_by_key.get(key, "").strip()
+        if fit_subj:
+            row["subj"] = fit_subj
+
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "roi", "direction", "b_step", "bvalue", "D_proj", "source_file",
+                "subj", "max_dur_ms", "tm_ms", "td_ms", "Hz", "N", "TE", "TR",
+                "bmax", "protocol", "sequence", "sheet", "Delta_app_ms", "delta_ms",
+            ]
+        )
+
+    return finalize_clean_dproj_long(pd.DataFrame(rows))
 
 
 def _require_no_axis(df: pd.DataFrame) -> None:
@@ -606,6 +695,7 @@ def run_fit_from_parquet(
     td_ms: Optional[float] = None,
     stat_keep: str = 'avg',
     out_root: str | Path = 'ogse_experiments/fits/fit-monoexp_ogse-signal',
+    out_dproj_root: Optional[str | Path] = None,
 ) -> Tuple[FitOutputs, Path]:
     p = Path(parquet_path)
     df = pd.read_parquet(p) if p.suffix.lower() not in ['.xlsx', '.xls'] else pd.read_excel(p, sheet_name=0)
@@ -651,6 +741,7 @@ def run_fit_from_parquet(
 
     fp = outs.fit_params.copy()
     if not fp.empty:
+        fp['subj'] = _unique_str(df, 'subj') if 'subj' in df.columns else np.nan
         fp['max_dur_ms'] = _unique_float_any(df, ['max_dur_ms'], required=False, name='max_dur_ms')
         fp['tm_ms'] = _unique_float_any(df, ['tm_ms'], required=False, name='tm_ms')
         fp['td_ms'] = td_ms if td_ms is not None else _unique_float_any(df, ['td_ms'], required=False, name='td_ms')
@@ -665,5 +756,15 @@ def run_fit_from_parquet(
     fp.to_excel(out_params_xlsx, index=False)
     outs.fit_table.to_parquet(out_points_parquet, index=False)
     outs.fit_table.to_excel(out_points_xlsx, index=False)
+
+    if out_dproj_root is not None and not fp.empty:
+        dproj_dir = Path(out_dproj_root) / sheet
+        dproj_dir.mkdir(parents=True, exist_ok=True)
+        dproj = build_monoexp_dproj_long(df, fp, stat_keep=stat_keep)
+        if not dproj.empty:
+            out_dproj_parquet = dproj_dir / f'{exp_id}.monoexp.Dproj.long.parquet'
+            out_dproj_xlsx = dproj_dir / f'{exp_id}.monoexp.Dproj.long.xlsx'
+            dproj.to_parquet(out_dproj_parquet, index=False)
+            dproj.to_excel(out_dproj_xlsx, index=False)
 
     return outs, exp_dir

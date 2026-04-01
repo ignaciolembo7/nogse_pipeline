@@ -52,6 +52,34 @@ fi
 
 mkdir -p "$OUT_ROOT"
 
+resolve_data_file() {
+    local fname="$1"
+    local direct="$DATA_ROOT/$fname"
+    if [[ -f "$direct" ]]; then
+        printf '%s\n' "$direct"
+        return 0
+    fi
+
+    local -a matches=()
+    while read -r path; do
+        [[ -n "$path" ]] && matches+=("$path")
+    done < <(find "$DATA_ROOT" -mindepth 2 -maxdepth 2 -type f -name "$fname" | sort)
+
+    if (( ${#matches[@]} == 1 )); then
+        printf '%s\n' "${matches[0]}"
+        return 0
+    fi
+
+    if (( ${#matches[@]} > 1 )); then
+        echo "ERROR: multiple matches found for $fname" >&2
+        printf '  %s\n' "${matches[@]}" >&2
+        return 1
+    fi
+
+    echo "ERROR: missing file: $direct" >&2
+    return 1
+}
+
 total=0
 ok=0
 failed=0
@@ -60,29 +88,27 @@ declare -a failed_jobs=()
 for pair in "${PAIRS[@]}"; do
     total=$((total + 1))
 
-    file_a="$DATA_ROOT/${pair%%|*}"
-    file_b="$DATA_ROOT/${pair##*|}"
+    fname_a="${pair%%|*}"
+    fname_b="${pair##*|}"
 
-    base_a="$(basename "$file_a")"
-    base_b="$(basename "$file_b")"
+    base_a="$(basename "$fname_a")"
+    base_b="$(basename "$fname_b")"
 
     echo "============================================================"
     echo "Job $total"
     echo "  A: $base_a"
     echo "  B: $base_b"
 
-    if [[ ! -f "$file_a" ]]; then
+    if ! file_a="$(resolve_data_file "$fname_a")"; then
         failed=$((failed + 1))
-        failed_jobs+=("missing A :: $file_a")
-        echo "  ERROR: missing file A: $file_a" >&2
+        failed_jobs+=("missing A :: $fname_a")
         echo "  Continuing with next job..." >&2
         continue
     fi
 
-    if [[ ! -f "$file_b" ]]; then
+    if ! file_b="$(resolve_data_file "$fname_b")"; then
         failed=$((failed + 1))
-        failed_jobs+=("missing B :: $file_b")
-        echo "  ERROR: missing file B: $file_b" >&2
+        failed_jobs+=("missing B :: $fname_b")
         echo "  Continuing with next job..." >&2
         continue
     fi

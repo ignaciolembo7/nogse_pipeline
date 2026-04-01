@@ -116,6 +116,11 @@ def main():
     ap.add_argument('--fix_M0', type=float, default=1.0)
     ap.add_argument('--free_M0', action='store_true')
     ap.add_argument('--out_root', default='ogse_experiments/fits/fit-monoexp_ogse-signal')
+    ap.add_argument(
+        '--out_dproj_root',
+        default=None,
+        help='Optional root where a synthetic *.Dproj.long.parquet table is written from monoexp D0 fits.',
+    )
     ap.add_argument('--stat', default='avg')
 
     args = ap.parse_args()
@@ -175,6 +180,7 @@ def main():
         Delta_app_ms=Delta_app_ms,
         stat_keep=args.stat,
         out_root=args.out_root,
+        out_dproj_root=args.out_dproj_root,
     )
 
 

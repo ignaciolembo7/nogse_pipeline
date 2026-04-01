@@ -2,13 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
-export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
-FIT_SCRIPT="${1:-$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-signal_vs_bval.py}"
-DATA_ROOT="${2:-$REPO_ROOT/analysis/ogse_experiments/data-rotated}"
-OUT_ROOT="${3:-$REPO_ROOT/analysis/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated}"
+PY="${PY:-python}"
+FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse-signal_vs_bval.py}"
+DATA_ROOT="${2:-$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated}"
+OUT_ROOT="${3:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated}"
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then
     echo "ERROR: fit script not found: $FIT_SCRIPT" >&2
@@ -73,6 +75,34 @@ roi_args_for_file() {
     fi
 }
 
+resolve_data_file() {
+    local fname="$1"
+    local direct="$DATA_ROOT/$fname"
+    if [[ -f "$direct" ]]; then
+        printf '%s\n' "$direct"
+        return 0
+    fi
+
+    local -a matches=()
+    while read -r path; do
+        [[ -n "$path" ]] && matches+=("$path")
+    done < <(find "$DATA_ROOT" -mindepth 2 -maxdepth 2 -type f -name "$fname" | sort)
+
+    if (( ${#matches[@]} == 1 )); then
+        printf '%s\n' "${matches[0]}"
+        return 0
+    fi
+
+    if (( ${#matches[@]} > 1 )); then
+        echo "ERROR: multiple matches found for $fname" >&2
+        printf '  %s\n' "${matches[@]}" >&2
+        return 1
+    fi
+
+    echo "ERROR: missing file: $direct" >&2
+    return 1
+}
+
 total=0
 ok=0
 failed=0
@@ -80,23 +110,21 @@ declare -a failed_jobs=()
 
 for fname in "${FILES[@]}"; do
     total=$((total + 1))
-    file_path="$DATA_ROOT/$fname"
 
     echo "============================================================"
     echo "Job $total"
     echo "  File: $fname"
 
-    if [[ ! -f "$file_path" ]]; then
+    if ! file_path="$(resolve_data_file "$fname")"; then
         failed=$((failed + 1))
-        failed_jobs+=("missing :: $file_path")
-        echo "  ERROR: missing file: $file_path" >&2
+        failed_jobs+=("missing :: $fname")
         echo "  Continuing with next job..." >&2
         continue
     fi
 
     read -r -a ROI_ARGS <<< "$(roi_args_for_file "$fname")"
 
-    if python "$FIT_SCRIPT" \
+    if "$PY" "$FIT_SCRIPT" \
         "$file_path" \
         --out_root "$OUT_ROOT" \
         --directions long tra \

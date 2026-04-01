@@ -2,16 +2,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
-export PYTHONPATH="$REPO_ROOT/nogse_pipeline/src:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 PY="${PY:-python}"
 
 # Configuracion
-TABLES_ROOT="$REPO_ROOT/analysis/ogse_experiments/contrast-data-rotated/tables"
-OUT_ROOT="$REPO_ROOT/analysis/ogse_experiments/fits/fit-free_ogse-contrast-rotated"
-FIT_SCRIPT="$REPO_ROOT/nogse_pipeline/scripts/fit_ogse-contrast_vs_g.py"
+ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
+TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+OUT_ROOT="$ANALYSIS_ROOT/fits/fit-free_ogse-contrast-rotated"
+FIT_SCRIPT="$REPO_ROOT/scripts/fit_ogse-contrast_vs_g.py"
 FILE_PATTERN="*.long.parquet"
 
 MODEL="free"

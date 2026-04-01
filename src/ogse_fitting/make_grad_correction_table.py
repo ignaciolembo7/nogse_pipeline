@@ -84,7 +84,7 @@ def _canonical_sheet(sheet: str) -> str:
             s = s[:idx]
             break
 
-    m = re.match(r'^(\d{8}_[^_]+)', s)
+    m = re.match(r'^(\d{8}[-_][^_]+)', s)
     if m:
         return m.group(1)
 

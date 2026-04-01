@@ -6,7 +6,7 @@ from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, minimize_scalar
 
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
 from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
@@ -285,15 +285,39 @@ def _fit_free(
         return float(popt[0]), float(popt[1]), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1])
 
     if (not M0_vary) and D0_vary:
-        def f(_dummy, D0):
-            return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), D0)
-        p0 = [float(D0_value)]
-        bounds = ([D_lo], [D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
-        yhat = f(None, *popt)
-        D0 = float(popt[0])
-        D0_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-        return float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", None, D0_err
+        def f_log(log_D0: float) -> float:
+            D0 = float(np.exp(log_D0))
+            yhat = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), D0)
+            if yhat.shape != y.shape or not np.all(np.isfinite(yhat)):
+                return np.inf
+            return float(np.sum((y - yhat) ** 2))
+
+        # `curve_fit` cae en mínimos locales malos con phantoms de td corto;
+        # una búsqueda 1D en log(D0) es más estable en este caso.
+        log_lo = float(np.log(D_lo))
+        log_hi = float(np.log(D_hi))
+        log_grid = np.linspace(log_lo, log_hi, 64)
+        losses = np.array([f_log(v) for v in log_grid], dtype=float)
+        i_best = int(np.nanargmin(losses))
+        best_log = float(log_grid[i_best])
+        best_loss = float(losses[i_best])
+
+        ref_lo = log_grid[max(0, i_best - 1)]
+        ref_hi = log_grid[min(len(log_grid) - 1, i_best + 1)]
+        if ref_hi > ref_lo:
+            opt = minimize_scalar(
+                f_log,
+                bounds=(float(ref_lo), float(ref_hi)),
+                method="bounded",
+                options={"xatol": 1e-6},
+            )
+            if bool(opt.success) and np.isfinite(float(opt.fun)) and float(opt.fun) <= best_loss:
+                best_log = float(opt.x)
+                best_loss = float(opt.fun)
+
+        D0 = float(np.exp(best_log))
+        yhat = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), D0)
+        return float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "logD_scalar_search", None, None
 
     def f(_dummy, M0):
         return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, float(D0_value))

@@ -155,12 +155,15 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
                 return raw[cols[0]]
         return None
 
-    subj = _pick("subj")
+    subj = _pick("subj", "brain")
     roi = _pick("roi", "region")
     direction = _pick("direction", "direccion")
     alpha_macro = _pick("alpha_macro", "alpha")
     alpha_macro_error = _pick("alpha_macro_error", "alpha_error")
     sheet = _pick("sheet")
+
+    if subj is None and sheet is not None:
+        subj = _as_str_series(sheet).apply(lambda s: infer_subj_label(str(s), source_name=str(s)))
 
     missing = []
     if subj is None:
@@ -500,16 +503,7 @@ def block2_region_plots(
     df_fit = _ensure_alpha_macro_cols(df_fit.copy())
     df_fit = _ensure_subj(df_fit)
     df_fit = _ensure_direction(df_fit)
-
-    # derivadas: sqrt(q)
-    q = df_fit["q_quad"].to_numpy(float)
-    qse = df_fit["q_quad_se"].to_numpy(float) if "q_quad_se" in df_fit.columns else np.full_like(q, np.nan)
-
-    sqrt_q = np.where(q > 0, np.sqrt(q), np.nan)
-    sqrt_q_se = np.where((q > 0) & np.isfinite(qse) & (sqrt_q > 0), qse / (2.0 * sqrt_q), np.nan)
-
-    df_fit["sqrt_q"] = sqrt_q
-    df_fit["sqrt_q_se"] = sqrt_q_se
+    df_fit = _ensure_sqrt_q_cols(df_fit)
 
     regiones = [r.replace("_norm","") for r in cfg_regions if r.replace("_norm","") in df_fit["roi"].unique()]
     if not regiones:
@@ -590,6 +584,26 @@ def _ensure_A_se(df_fit: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _ensure_sqrt_q_cols(df_fit: pd.DataFrame) -> pd.DataFrame:
+    if "sqrt_q" in df_fit.columns and "sqrt_q_se" in df_fit.columns:
+        return df_fit
+
+    out = df_fit.copy()
+    if "q_quad" not in out.columns:
+        out["sqrt_q"] = np.nan
+        out["sqrt_q_se"] = np.nan
+        return out
+
+    q = out["q_quad"].to_numpy(float)
+    qse = out["q_quad_se"].to_numpy(float) if "q_quad_se" in out.columns else np.full_like(q, np.nan)
+    sqrt_q = np.where(q > 0, np.sqrt(q), np.nan)
+    sqrt_q_se = np.where((q > 0) & np.isfinite(qse) & (sqrt_q > 0), qse / (2.0 * sqrt_q), np.nan)
+
+    out["sqrt_q"] = sqrt_q
+    out["sqrt_q_se"] = sqrt_q_se
+    return out
+
+
 def block2b_cc_vars_long_tra_sameY(
     df_fit: pd.DataFrame,
     out_dir: Path,
@@ -611,6 +625,7 @@ def block2b_cc_vars_long_tra_sameY(
     df_fit = _ensure_subj(df_fit)
     df_fit = _ensure_direction(df_fit)
     df_fit = _ensure_A_se(df_fit)
+    df_fit = _ensure_sqrt_q_cols(df_fit)
 
     regiones = [r.replace("_norm", "") for r in cfg_regions]
     regiones = [r for r in regiones if r in df_fit["roi"].unique()]

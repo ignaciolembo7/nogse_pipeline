@@ -7,6 +7,22 @@ import pandas as pd
 from signal_rotation.rotation_tensor import rotate_signals_tensor
 
 
+def _infer_exp_dir(df: pd.DataFrame, long_parquet: Path) -> str:
+    if "sheet" in df.columns:
+        vals = pd.Series(df["sheet"]).dropna().astype(str).str.strip().unique().tolist()
+        if len(vals) == 1 and vals[0]:
+            return vals[0]
+
+    parent = long_parquet.parent.name
+    if parent and parent != ".":
+        return parent
+
+    stem = long_parquet.stem.replace(".long", "")
+    if "_ep2d" in stem:
+        return stem.split("_ep2d")[0]
+    return stem
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("long_parquet", type=Path)
@@ -27,11 +43,12 @@ def main() -> None:
         dirs_csv=args.dirs_csv, 
     )
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    exp_dir = args.out_dir / _infer_exp_dir(df, args.long_parquet)
+    exp_dir.mkdir(parents=True, exist_ok=True)
     stem = args.long_parquet.stem.replace(".long", "")
 
-    out_rot = args.out_dir / f"{stem}.rot_tensor.long.parquet"
-    out_dpr = args.out_dir / f"{stem}.rot_tensor.Dproj.long.parquet"
+    out_rot = exp_dir / f"{stem}.rot_tensor.long.parquet"
+    out_dpr = exp_dir / f"{stem}.rot_tensor.Dproj.long.parquet"
 
     res.rotated_signal_long.to_parquet(out_rot, index=False)
     res.dproj_long.to_parquet(out_dpr, index=False)
