@@ -65,7 +65,6 @@ while read -r file; do
         --y "$YCOL" \
         --stat "$STAT" \
         --out_root "$OUT_ROOT" \
-        # --rois "${ROIS[@]}" \
         --directions "${DIRECTIONS[@]}"; then
         ok=$((ok + 1))
         echo "  OK"

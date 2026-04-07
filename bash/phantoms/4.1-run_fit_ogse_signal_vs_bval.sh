@@ -7,6 +7,9 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 PY="${PY:-python}"
 FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse-signal_vs_bval.py}"
 DATA_ROOT="${2:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
@@ -58,6 +61,9 @@ declare -a FILES=(
 "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz020_b1245_DMRIPHANTOM_20220609151744_84_results.long.parquet"
 )
 
+# ------------------------------------------------------------------
+# Helper functions
+# ------------------------------------------------------------------
 roi_args_for_file() {
     local fname="$1"
     echo "fiber1 fiber2 water2 water3"
@@ -74,7 +80,7 @@ resolve_data_file() {
     local -a matches=()
     while read -r path; do
         [[ -n "$path" ]] && matches+=("$path")
-    done < <(find "$DATA_ROOT" -mindepth 2 -maxdepth 2 -type f -name "$fname" | sort)
+done < <(find "$DATA_ROOT" -mindepth 2 -maxdepth 2 -type f -name "$fname" | sort)
 
     if (( ${#matches[@]} == 1 )); then
         printf '%s\n' "${matches[0]}"
@@ -116,16 +122,16 @@ for fname in "${FILES[@]}"; do
         "$file_path" \
         --out_root "$OUT_ROOT" \
         --out_dproj_root "$DPROJ_ROOT" \
-        --directions 1 2 3  \
+        --directions 1 2 3 \
         --ycol value_norm \
         --g_type bvalue \
         --fix_M0 1.0 \
         --rois "${ROI_ARGS[@]}" \
         --auto_fit_points \
         --auto_fit_min_points 3 \
-	--auto_fit_max_points 11 \
-	--auto_fit_err_floor 0.05 \
-	--auto_fit_tol 0.15; then 
+        --auto_fit_max_points 11 \
+        --auto_fit_err_floor 0.05 \
+        --auto_fit_tol 0.15; then
         ok=$((ok + 1))
         echo "  OK"
     else

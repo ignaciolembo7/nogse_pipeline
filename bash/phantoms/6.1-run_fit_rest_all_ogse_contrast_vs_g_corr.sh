@@ -9,16 +9,20 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 PY="${PY:-python}"
 
-# Configuracion
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
 TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
-OUT_ROOT="$ANALYSIS_ROOT/fits/fit-free_ogse-contrast"
+OUT_ROOT="$ANALYSIS_ROOT/fits/fit_rest_ogse_contrast_corr"
 FIT_SCRIPT="$REPO_ROOT/scripts/fit_ogse-contrast_vs_g.py"
+GRAD_CORR_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water2.grad_correction.xlsx"
 FILE_PATTERN="*.long.parquet"
 
-MODEL="free"
+MODEL="rest"
 GBASE="g_lin_max_1"
 YCOL="value_norm"
+CORR_ROI="water2"
 ROIS="fiber1,fiber2,water2,water3"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
@@ -28,6 +32,11 @@ fi
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then
     echo "ERROR: Fit script not found: $FIT_SCRIPT" >&2
+    exit 1
+fi
+
+if [[ ! -f "$GRAD_CORR_XLSX" ]]; then
+    echo "ERROR: Gradient correction file not found: $GRAD_CORR_XLSX" >&2
     exit 1
 fi
 
@@ -63,10 +72,14 @@ while read -r file; do
         --gbase "$GBASE" \
         --ycol "$YCOL" \
         --directions 1 2 3 \
-        --out_root "$OUT_ROOT" \
-        --no_grad_corr \
+        --peak_D0_fix 3.2e-12 \
         --fix_M0 1.0 \
-        "${roi_args[@]}"; then
+        --fix_D0 3.2e-12 \
+        --apply_grad_corr \
+        --corr_xlsx "$GRAD_CORR_XLSX" \
+        --corr_roi "$CORR_ROI" \
+        "${roi_args[@]}" \
+        --out_root "$OUT_ROOT"; then
         ok=$((ok + 1))
         echo "  OK"
     else

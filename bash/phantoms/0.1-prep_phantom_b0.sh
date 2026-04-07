@@ -2,6 +2,14 @@
 
 set -euo pipefail
 
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+SUBJ=""
+EXP_PARENT="Data-NIFTI-BRAINS-denoised_topup"
+OUT_ROOT_REL="Data_signals"
+CUT_TOKEN="_hifi_images_den"
+
 usage() {
   echo "Usage:"
   echo "  bash nogse_pipeline/scripts/prep_phantom_b0.sh --subject <SUBJECT> [options]"
@@ -30,11 +38,6 @@ usage() {
   echo "    --out-root Data_signals"
   exit 1
 }
-
-SUBJ=""
-EXP_PARENT="Data-NIFTI-BRAINS-denoised_topup"
-OUT_ROOT_REL="Data_signals"
-CUT_TOKEN="_hifi_images_den"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

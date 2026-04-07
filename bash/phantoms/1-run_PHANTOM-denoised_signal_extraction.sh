@@ -6,6 +6,9 @@ set -u -o pipefail
 # All workflow-specific paths are defined here, while logging and case
 # execution helpers come from `coreg_batch_lib.sh`.
 
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_HOME/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
