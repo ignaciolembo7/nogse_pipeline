@@ -9,7 +9,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("long_parquet", type=Path)
     ap.add_argument("--out_dir", type=Path, default=Path("plots/ogse_vs_g"))
-    ap.add_argument("--y_col", type=str, default="signal_norm")  # o value
+    ap.add_argument("--y_col", type=str, default="value_norm")  # o value
     ap.add_argument("--stat", type=str, default="avg")
     ap.add_argument("--no_sqrt2", action="store_true")
     ap.add_argument("--no_ylim", action="store_true")

@@ -297,7 +297,7 @@ def rotate_signals_tensor(
                             gamma=float(gamma),
                             delta_ms=float(delta_ms),
                             delta_app_ms=float(delta_app_ms),
-                            g_type="gthorsten",
+                            g_type="g_thorsten",
                         )[0]
                     )
 
@@ -305,9 +305,9 @@ def rotate_signals_tensor(
                 if not np.isfinite(bvalue_g):
                     raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g' pero falta bvalue_g.")
                 b_fit = bvalue_g
-            elif g_type == "gthorsten":
+            elif g_type == "g_thorsten":
                 if not np.isfinite(bvalue_thorsten):
-                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='gthorsten' pero falta bvalue_thorsten.")
+                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g_thorsten' pero falta bvalue_thorsten.")
                 b_fit = bvalue_thorsten
             else:
                 if not np.isfinite(bvalue_g_lin_max):

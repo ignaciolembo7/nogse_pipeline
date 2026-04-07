@@ -5,6 +5,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from tools.strict_columns import raise_on_unrecognized_column_names
+
 
 _MM2_S_TO_M2_MS = 1e-9
 _M2_MS_TO_MM2_S = 1e9
@@ -147,10 +149,7 @@ def standardize_fit_params(
     elif source_file is not None:
         out['source_file'] = out['source_file'].fillna(str(source_file)).replace('', str(source_file))
 
-    if 'direction' not in out.columns and 'axis' in out.columns:
-        out['direction'] = out['axis'].astype(str)
-    if 'axis' in out.columns:
-        out = out.drop(columns=['axis'])
+    raise_on_unrecognized_column_names(out.columns, context="standardize_fit_params")
 
     if 'D0_m2_ms' not in out.columns and 'D0' in out.columns:
         out['D0_m2_ms'] = pd.to_numeric(out['D0'], errors='coerce')

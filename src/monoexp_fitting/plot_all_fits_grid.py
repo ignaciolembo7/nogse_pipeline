@@ -61,7 +61,7 @@ def plot_grid_all_deltas(
     dir_col: str = "direction",
     roi_col: str = "roi",
     bcol: str = "bvalue",
-    ycol: str = "signal_norm",
+    ycol: str = "value_norm",
     stat_keep: str = "avg",
     stat_col: str = "stat",
     logy: bool = True,

@@ -2,6 +2,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from tools.strict_columns import raise_on_unrecognized_column_names
+
 def add_ogse_features(
     df: pd.DataFrame,
     *,
@@ -9,10 +11,11 @@ def add_ogse_features(
     N: int,
     delta_ms: float,
     delta_app_ms: float,
-    gthorsten_val: float | None = None,
+    g_thorsten_val: float | None = None,
     norm_stat: str = "avg",
 ) -> pd.DataFrame:
     out = df.copy()
+    raise_on_unrecognized_column_names(out.columns, context="add_ogse_features")
 
     # --- compute g if missing ---
     if "g" not in out.columns:
@@ -34,7 +37,7 @@ def add_ogse_features(
         else:
             norm_stat = next(iter(stats_present))
 
-    # --- g_max / g_lin_max / gthorsten CONSISTENTES ---
+    # --- g_max / g_lin_max / g_thorsten CONSISTENTES ---
     b_step_max = int(pd.to_numeric(out["b_step"], errors="coerce").max())
     if b_step_max <= 0:
         b_step_max = 1
@@ -48,17 +51,17 @@ def add_ogse_features(
 
     out["g_lin_max"] = out["g_max"] * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
 
-    if gthorsten_val is not None:
-        out["gthorsten"] = float(gthorsten_val) * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
+    if g_thorsten_val is not None:
+        out["g_thorsten"] = float(g_thorsten_val) * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
 
     # --- Normalización SOLO para stat==norm_stat ---
-    out["signal_norm"] = np.nan
+    out["value_norm"] = np.nan
     mask = out["stat"] == norm_stat
 
     b0 = out.loc[mask & (out["b_step"] == 0), ["direction", "roi", "value"]].rename(columns={"value": "b0_value"})
     out = out.merge(b0, on=["direction", "roi"], how="left")
 
-    out.loc[mask, "signal_norm"] = out.loc[mask, "value"] / out.loc[mask, "b0_value"]
+    out.loc[mask, "value_norm"] = out.loc[mask, "value"] / out.loc[mask, "b0_value"]
     out = out.drop(columns=["b0_value"])
 
     return out

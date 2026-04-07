@@ -3,6 +3,8 @@ from pathlib import Path
 import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
+
+from tools.strict_columns import raise_on_unrecognized_column_names
 import re
 import numpy as np
 
@@ -34,15 +36,16 @@ def main():
     out_root.mkdir(parents=True, exist_ok=True)
 
     for exp, path, df in iter_parquets(args.glob):
-        dir_col = "direction" if "direction" in df.columns else ("axis" if "axis" in df.columns else None)
+        raise_on_unrecognized_column_names(df.columns, context=f"plot_dproj_vs_bvalue({path})")
+        dir_col = "direction" if "direction" in df.columns else None
         if dir_col is None:
-            raise ValueError(f"En {path}: falta direction (y tampoco hay axis legacy).")
+            raise ValueError(f"plot_dproj_vs_bvalue({path}): missing required column ['direction'].")
 
         # --- sanity checks
         needed = {"roi", "b_step", "bvalue", "D_proj"}
         miss = needed - set(df.columns)
         if miss:
-            raise ValueError(f"En {path}: faltan columnas {sorted(miss)}")
+            raise ValueError(f"plot_dproj_vs_bvalue({path}): missing required columns {sorted(miss)}.")
 
         if "N" in df.columns:
             n_col = "N"

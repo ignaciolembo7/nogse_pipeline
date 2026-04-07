@@ -7,6 +7,7 @@ import pandas as pd
 
 from ogse_fitting.contrast import make_contrast
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
+from tools.strict_columns import find_unrecognized_column_names
 
 KEY_COLS = ("stat", "roi", "direction", "b_step")
 
@@ -108,13 +109,15 @@ def _build_analysis_core(
 
 
 def _validate_input(df: pd.DataFrame, label: str) -> None:
-    if "axis" in df.columns:
+    unrecognized = find_unrecognized_column_names(df.columns)
+    if unrecognized:
         raise ValueError(
-            f"[{label}] Encontré 'axis'. Este pipeline usa SOLO 'direction'. Arreglá upstream."
+            f"{label}: unrecognized column names: {unrecognized}. "
+            "Use canonical names such as 'direction', 'value_norm', and 'g_thorsten'."
         )
     missing = [c for c in KEY_COLS if c not in df.columns]
     if missing:
-        raise ValueError(f"[{label}] Faltan columnas clave {missing}. Necesito {KEY_COLS}.")
+        raise ValueError(f"{label}: missing required key columns {missing}. Expected {KEY_COLS}.")
 
 
 def _normalize_key_dtypes(df: pd.DataFrame, label: str) -> pd.DataFrame:
@@ -125,15 +128,15 @@ def _normalize_key_dtypes(df: pd.DataFrame, label: str) -> pd.DataFrame:
     bs = pd.to_numeric(out["b_step"], errors="coerce")
     if bs.isna().any():
         bad = out.loc[bs.isna(), ["stat", "roi", "direction", "b_step"]].head(10)
-        raise ValueError(f"[{label}] b_step inválido. Ejemplos:\n{bad.to_string(index=False)}")
+        raise ValueError(f"{label}: b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
     out["b_step"] = bs.astype(int)
     return out
 
 
 def _merge_side_columns(out: pd.DataFrame, side_df: pd.DataFrame, *, side: int) -> pd.DataFrame:
     """
-    Arrastra TODAS las columnas de side_df (excepto KEY_COLS) con sufijo _1 o _2.
-    Evita duplicar si ya existe {col}_{side}.
+    Carry all columns from side_df except KEY_COLS, using the _1 or _2 suffix.
+    Skip columns that already exist as {col}_{side}.
     """
     extra_cols = [c for c in side_df.columns if c not in KEY_COLS]
     sub = side_df[list(KEY_COLS) + extra_cols].drop_duplicates(list(KEY_COLS), keep="first")
@@ -154,69 +157,23 @@ def _merge_side_columns(out: pd.DataFrame, side_df: pd.DataFrame, *, side: int) 
     return out.merge(sub, on=list(KEY_COLS), how="left")
 
 
-def _drop_legacy_cols(out: pd.DataFrame) -> pd.DataFrame:
+def _drop_aux_prefixed_cols(out: pd.DataFrame) -> pd.DataFrame:
     drop_cols = [c for c in out.columns if c.startswith("param_") or c.startswith("meta_")]
     return out.drop(columns=drop_cols) if drop_cols else out
 
 
-def _dedup_aliases(out: pd.DataFrame) -> pd.DataFrame:
-    """
-    Si aparecen alias por transición histórica, nos quedamos con el canónico.
-    (Esto evita "parámetros repetidos" con distinto nombre.)
-    """
-    o = out.copy()
-
-    # Delta_app_ms canónico (si aparece delta_app_ms también)
-    for suf in ("_1", "_2"):
-        low = f"delta_app_ms{suf}"
-        can = f"Delta_app_ms{suf}"
-        if can in o.columns and low in o.columns:
-            o = o.drop(columns=[low])
-
-    # g_thorsten canónico (si aparece gthorsten también)
-    for suf in ("_1", "_2"):
-        bad = f"gthorsten{suf}"
-        can = f"g_thorsten{suf}"
-        if can in o.columns and bad in o.columns:
-            o = o.drop(columns=[bad])
-
-        badb = f"bvalue_gthorsten{suf}"
-        canb = f"bvalue_thorsten{suf}"
-        if canb in o.columns and badb in o.columns:
-            o = o.drop(columns=[badb])
-
-    return o
-
-
-def _rename_to_generic(out: pd.DataFrame) -> pd.DataFrame:
-    """
-    - en el resultado del contraste: ya vienen 'value' y 'value_norm' desde la lib
-    - para las secuencias: renombramos signal_norm_{1,2} -> value_norm_{1,2}
-      (para que NO aparezca 'signal' en la tabla final)
-    """
-    o = out.copy()
-    ren = {}
-    if "signal_norm_1" in o.columns and "value_norm_1" not in o.columns:
-        ren["signal_norm_1"] = "value_norm_1"
-    if "signal_norm_2" in o.columns and "value_norm_2" not in o.columns:
-        ren["signal_norm_2"] = "value_norm_2"
-    if ren:
-        o = o.rename(columns=ren)
-    return o
-
-
 def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
     """
-    Orden final pedido:
+    Final column order:
       roi, direction, b_step, stat,
       value, value_norm,
-      [seq1: value_1, value_norm_1, S0_1, bvalues..., gradients..., params..., resto],
+      [seq1: value_1, value_norm_1, S0_1, bvalues..., gradients..., params..., remaining],
       [seq2: ...],
-      resto (no sufijado)
+      remaining unsuffixed columns
     """
     cols = list(out.columns)
 
-    def present(xs):  # filtra por existentes manteniendo orden
+    def present(xs):  # keep only existing columns while preserving order
         return [x for x in xs if x in cols]
 
     id_cols = present(["analysis_id", "subj", "sheet", "roi", "direction", "b_step", "stat"])
@@ -224,10 +181,10 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
 
     def side_block(suf: str) -> list[str]:
         block: list[str] = []
-        # core
+        # Core
         block += present([f"value{suf}", f"value_norm{suf}", f"S0{suf}"])
 
-        # bvalues primero
+        # Put bvalue columns first
         b_pref = [
             f"bvalue{suf}",
             f"bvalue_g{suf}",
@@ -237,11 +194,11 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
         ]
         block += present(b_pref)
 
-        # cualquier otro bvalue_* del lado
+        # Any remaining side-specific bvalue_* columns
         other_b = sorted([c for c in cols if c.endswith(suf) and c.startswith("bvalue") and c not in block])
         block += other_b
 
-        # gradients
+        # Gradients
         g_pref = [
             f"g{suf}",
             f"g_max{suf}",
@@ -253,7 +210,7 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
         other_g = sorted([c for c in cols if c.endswith(suf) and (c.startswith("g_") or c == f"g{suf}") and c not in block])
         block += other_g
 
-        # parámetros típicos (canónicos)
+        # Typical canonical parameters
         p_pref = [
             f"max_dur_ms{suf}", f"tm_ms{suf}", f"td_ms{suf}",
             f"Hz{suf}", f"N{suf}", f"TE{suf}", f"TR{suf}", f"bmax{suf}",
@@ -263,7 +220,7 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
         ]
         block += present(p_pref)
 
-        # resto del lado (cualquier cosa *_1 / *_2 no incluida)
+        # Remaining side-specific columns not yet included
         rest = sorted([c for c in cols if c.endswith(suf) and c not in block and c not in head])
         block += rest
         return block
@@ -291,7 +248,7 @@ def build_analysis_id(
     return _sanitize(analysis)[:160], analysis_short
 
 
-def build_legacy_analysis_id(
+def build_analysis_id_without_sequence(
     df_ref: pd.DataFrame,
     df_cmp: pd.DataFrame,
     directions: list[str],
@@ -304,10 +261,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ref_parquet", help="signal parquet (ref)")
     ap.add_argument("cmp_parquet", help="signal parquet (cmp)")
-    ap.add_argument("--direction", nargs="+", default=None, help="Filtra por valores de 'direction' (ej: 1 2 3 o long tra).")
-    ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms a incluir (ej: BRAIN-3 LUDG-2 PHANTOM3).")
+    ap.add_argument("--direction", nargs="+", default=None, help="Filter by direction values, for example: 1 2 3 or long tra.")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
     ap.add_argument("--out_root", default="analysis/ogse_experiments/contrast", help="directory root")
-    ap.add_argument("--exp", default=None, help="override de sheet (solo naming)")
+    ap.add_argument("--exp", default=None, help="Override the sheet name used for naming only.")
     args = ap.parse_args()
 
     directions = [str(x) for x in (args.direction or [])]
@@ -329,7 +286,7 @@ def main():
         df_cmp = df_cmp[df_cmp["direction"].isin(directions)]
 
     analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp)
-    legacy_analysis_id, _ = build_legacy_analysis_id(df_ref, df_cmp, directions, args.exp)
+    old_analysis_id, _ = build_analysis_id_without_sequence(df_ref, df_cmp, directions, args.exp)
     sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
     subj = _one(df_ref, "subj", _one(df_cmp, "subj", infer_subj_label(sheet, source_name=analysis_id)))
 
@@ -337,13 +294,13 @@ def main():
         print(f"Skipped: {analysis_id} (subj={subj})")
         return
 
-    # Core contrast (devuelve value/value_norm, y value_1/value_2, etc.)
+    # Core contrast table: value/value_norm plus side-specific value_1/value_2 columns.
     res = make_contrast(
         df_ref,
         df_cmp,
         axes=tuple(directions) if directions else None,
         y_col="value",
-        y_norm_col="signal_norm",  # en output se renombra a value_norm_1/_2
+        y_norm_col="value_norm",
         key_cols=KEY_COLS,
     )
     out = res.df.copy()
@@ -351,20 +308,19 @@ def main():
     _validate_input(out, "contrast_out")
     out = _normalize_key_dtypes(out, "contrast_out")
 
-    # Arrastrar TODAS las columnas extra desde ref y cmp
+    # Carry all extra columns from ref and cmp
     out = _merge_side_columns(out, df_ref, side=1)
     out = _merge_side_columns(out, df_cmp, side=2)
 
-    # Limpieza + generic naming + de-dup aliases
-    out = _drop_legacy_cols(out)
-    out = _rename_to_generic(out)
-    out = _dedup_aliases(out)
+    # Strict cleanup
+    out = _drop_aux_prefixed_cols(out)
+    _validate_input(out, "contrast_clean")
 
     out["analysis_id"] = str(analysis_id)
     out["sheet"] = sheet
     out["subj"] = str(subj)
 
-    # Orden final de columnas
+    # Final column order
     out = _order_columns(out)
 
     tables_dir = Path(args.out_root) / "tables" / analysis_short
@@ -374,14 +330,14 @@ def main():
     out.to_parquet(out_parquet, index=False)
     out.to_excel(out_parquet.with_suffix(".xlsx"), index=False)
 
-    # Remove obsolete pre-sequence duplicate names from older pipeline runs.
-    if legacy_analysis_id != analysis_id:
-        legacy_parquet = tables_dir / f"{legacy_analysis_id}.long.parquet"
-        legacy_xlsx = legacy_parquet.with_suffix(".xlsx")
-        for old_path in (legacy_parquet, legacy_xlsx):
+    # Remove older duplicate outputs that used the pre-sequence naming scheme.
+    if old_analysis_id != analysis_id:
+        old_parquet = tables_dir / f"{old_analysis_id}.long.parquet"
+        old_xlsx = old_parquet.with_suffix(".xlsx")
+        for old_path in (old_parquet, old_xlsx):
             if old_path.exists():
                 old_path.unlink()
-                print("Removed legacy duplicate:", old_path)
+                print("Removed duplicate output:", old_path)
 
     print("Saved:", out_parquet)
 

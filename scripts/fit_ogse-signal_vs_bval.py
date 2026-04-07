@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from monoexp_fitting.fit_signal_vs_bval import run_fit_from_parquet
+from tools.strict_columns import raise_on_unrecognized_column_names
 
 
 VALID_YCOLS = {'value', 'value_norm'}
@@ -19,7 +20,7 @@ VALID_G_TYPES = [
     'g_thorsten',
     'bvalue_thorsten',
 ]
-LEGACY_DEFAULT_FIT_POINTS = 6
+DEFAULT_FIT_POINTS = 6
 
 
 def _unique_float_any(df: pd.DataFrame, cols: list[str], *, required: bool, name: str) -> float | None:
@@ -29,18 +30,17 @@ def _unique_float_any(df: pd.DataFrame, cols: list[str], *, required: bool, name
             if len(u) == 1:
                 return float(u[0])
     if required:
-        raise ValueError(f'No pude inferir {name}. Probe columnas: {cols}')
+        raise ValueError(f'Could not infer {name}. Checked columns: {cols}')
     return None
 
 
 def _load_parquet_context(parquet_path: str | Path) -> pd.DataFrame:
     df = pd.read_parquet(parquet_path)
-    if 'axis' in df.columns:
-        raise ValueError("Encontre columna 'axis'. Este pipeline usa SOLO 'direction'.")
+    raise_on_unrecognized_column_names(df.columns, context=f"_load_parquet_context({parquet_path})")
     required = ['direction', 'roi']
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise ValueError(f'Faltan columnas requeridas {missing}. Columns={list(df.columns)}')
+        raise ValueError(f"_load_parquet_context({parquet_path}): missing required columns {missing}. Columns={list(df.columns)}")
     return df
 
 
@@ -66,7 +66,7 @@ def _resolve_requested_rois(requested: list[str], available: list[str]) -> list[
     available_set = {str(x) for x in available}
     missing = [str(x) for x in requested if str(x) not in available_set]
     if missing:
-        raise ValueError(f'ROIs no encontradas: {missing}. ROIs disponibles={available}')
+        raise ValueError(f'ROIs not found: {missing}. Available ROIs={available}')
     return [str(x) for x in requested]
 
 
@@ -78,29 +78,29 @@ def _resolve_requested_directions(requested: list[str] | None, available: list[s
     missing = [str(x) for x in requested if str(x) not in available_set]
     if missing:
         raise ValueError(
-            f'Directions no encontradas: {missing}. Directions disponibles={available}'
+            f'Directions not found: {missing}. Available directions={available}'
         )
     return [str(x) for x in requested]
 
 
 def main():
     ap = argparse.ArgumentParser(allow_abbrev=False)
-    ap.add_argument('parquet', help='Archivo .long.parquet (tabla de senal limpia)')
-    ap.add_argument('--directions', nargs='+', default=None, help='Direcciones de la columna direction a fitear')
-    ap.add_argument('--rois', nargs='+', default=['ALL'], help='ROIs a fitear. Si no existen en la tabla, falla.')
+    ap.add_argument('parquet', help='Input .long.parquet file (clean signal table)')
+    ap.add_argument('--directions', nargs='+', default=None, help='Direction values from the direction column to fit')
+    ap.add_argument('--rois', nargs='+', default=['ALL'], help='ROIs to fit. The command fails if any requested ROI is missing.')
     ap.add_argument('--ycol', default='value_norm', choices=sorted(VALID_YCOLS))
 
     fit_group = ap.add_mutually_exclusive_group()
-    fit_group.add_argument('--fit_points', type=int, default=None, help='Cantidad fija de puntos para el ajuste monoexp.')
+    fit_group.add_argument('--fit_points', type=int, default=None, help='Fixed number of points to use in the monoexponential fit.')
     fit_group.add_argument(
         '--auto_fit_points',
         action='store_true',
-        help='Busca automáticamente cuántos puntos iniciales ajustan mejor al modelo monoexp.',
+        help='Automatically select how many initial points best match the monoexponential model.',
     )
-    ap.add_argument('--auto_fit_tol', type=float, default=0.05, help='Tolerancia relativa del modo automático al agregar un punto nuevo.')
-    ap.add_argument('--auto_fit_err_floor', type=float, default=0.005, help='Piso absoluto para rmse_log antes de compararlo entre k consecutivos.')
-    ap.add_argument('--auto_fit_min_points', type=int, default=3, help='Primer k a probar en el modo automático.')
-    ap.add_argument('--auto_fit_max_points', type=int, default=9, help='Último k a probar en el modo automático.')
+    ap.add_argument('--auto_fit_tol', type=float, default=0.05, help='Relative tolerance used by the automatic mode when adding a new point.')
+    ap.add_argument('--auto_fit_err_floor', type=float, default=0.005, help='Absolute floor for rmse_log before comparing consecutive k values.')
+    ap.add_argument('--auto_fit_min_points', type=int, default=3, help='First k value tested by the automatic mode.')
+    ap.add_argument('--auto_fit_max_points', type=int, default=9, help='Last k value tested by the automatic mode.')
 
     ap.add_argument(
         '--g_type',
@@ -126,15 +126,15 @@ def main():
     args = ap.parse_args()
 
     if args.fit_points is not None and args.fit_points <= 0:
-        raise ValueError('--fit_points debe ser > 0.')
+        raise ValueError('--fit_points must be > 0.')
     if args.auto_fit_tol < 0:
-        raise ValueError('--auto_fit_tol debe ser >= 0.')
+        raise ValueError('--auto_fit_tol must be >= 0.')
     if args.auto_fit_err_floor < 0:
-        raise ValueError('--auto_fit_err_floor debe ser >= 0.')
+        raise ValueError('--auto_fit_err_floor must be >= 0.')
     if args.auto_fit_min_points < 1:
-        raise ValueError('--auto_fit_min_points debe ser >= 1.')
+        raise ValueError('--auto_fit_min_points must be >= 1.')
     if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
-        raise ValueError('--auto_fit_max_points debe ser >= --auto_fit_min_points.')
+        raise ValueError('--auto_fit_max_points must be >= --auto_fit_min_points.')
 
     df = _load_parquet_context(args.parquet)
     inferred = _infer_overrides_from_df(df)
@@ -156,7 +156,7 @@ def main():
     fit_points = args.fit_points
     auto_fit_points = bool(args.auto_fit_points)
     if fit_points is None and not auto_fit_points:
-        fit_points = LEGACY_DEFAULT_FIT_POINTS
+        fit_points = DEFAULT_FIT_POINTS
 
     run_fit_from_parquet(
         args.parquet,

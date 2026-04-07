@@ -14,7 +14,7 @@ def main():
     ap.add_argument("--dir-col", default="direction")
     ap.add_argument("--roi-col", default="roi")
     ap.add_argument("--bcol", default="bvalue")
-    ap.add_argument("--ycol", default="signal_norm")
+    ap.add_argument("--ycol", default="value_norm")
     ap.add_argument("--stat", default="avg")
     ap.add_argument("--title", default="")
     args = ap.parse_args()

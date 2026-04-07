@@ -13,6 +13,7 @@ from data_processing.schema import finalize_clean_dproj_long
 from ogse_fitting.b_from_g import b_from_g
 from plottings.fit_plot_style import finish_fit_figure, highlight_fit_points, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.fit_params_schema import standardize_fit_params
+from tools.strict_columns import raise_on_unrecognized_column_names
 
 
 AUTO_FIT_MIN_POINTS = 3
@@ -31,6 +32,7 @@ GTYPE_ALIASES = {
     'g_thorsten': 'g_thorsten',
     'bvalue_thorsten': 'g_thorsten',
 }
+VALID_G_TYPES = set(GTYPE_ALIASES)
 
 
 def monoexp(b: np.ndarray, M0: float, D0: float) -> np.ndarray:
@@ -56,10 +58,10 @@ def _unique_float_any(df: pd.DataFrame, cols: Sequence[str], *, required: bool, 
             if len(v) == 0:
                 continue
             if len(v) != 1:
-                raise ValueError(f"Esperaba 1 valor único en '{c}' para {name}, encontré: {v[:10]}")
+                raise ValueError(f"Expected one unique value in {c!r} for {name}, found: {v[:10]}")
             return float(v[0])
     if required:
-        raise ValueError(f"No pude inferir {name}. Probé columnas: {list(cols)}")
+        raise ValueError(f"Could not infer {name}. Checked columns: {list(cols)}")
     return None
 
 
@@ -91,7 +93,7 @@ def _normalize_requested_rois(
 
 def _pick_template_row_for_dproj(d: pd.DataFrame) -> pd.Series:
     if d.empty:
-        raise ValueError("No puedo elegir fila template para Dproj desde un DataFrame vacío.")
+        raise ValueError("Cannot choose a template row for Dproj from an empty dataframe.")
 
     work = d.copy()
     b_step = pd.to_numeric(work.get("b_step"), errors="coerce")
@@ -177,9 +179,8 @@ def build_monoexp_dproj_long(
     return finalize_clean_dproj_long(pd.DataFrame(rows))
 
 
-def _require_no_axis(df: pd.DataFrame) -> None:
-    if 'axis' in df.columns:
-        raise ValueError("Encontré columna 'axis'. Este pipeline usa SOLO 'direction'.")
+def _require_strict_columns(df: pd.DataFrame) -> None:
+    raise_on_unrecognized_column_names(df.columns, context="fit_signal_vs_bval")
 
 
 def _ensure_keys_types(df: pd.DataFrame) -> pd.DataFrame:
@@ -189,7 +190,7 @@ def _ensure_keys_types(df: pd.DataFrame) -> pd.DataFrame:
     bs = pd.to_numeric(out['b_step'], errors='coerce')
     if bs.isna().any():
         bad = out.loc[bs.isna(), ['roi', 'direction', 'b_step']].head(10)
-        raise ValueError(f"b_step inválido. Ejemplos:\n{bad.to_string(index=False)}")
+        raise ValueError(f"b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
     out['b_step'] = bs.astype(int)
     if 'stat' in out.columns:
         out['stat'] = out['stat'].astype(str)
@@ -211,7 +212,10 @@ def _rmse_log(y: np.ndarray, yhat: np.ndarray) -> float:
 
 
 def _normalize_g_type(g_type: str) -> str:
-    return GTYPE_ALIASES.get(str(g_type).strip(), str(g_type).strip())
+    raw = str(g_type).strip()
+    if raw not in VALID_G_TYPES:
+        raise ValueError(f"fit_signal_vs_bval: unrecognized g_type {raw!r}. Allowed values: {sorted(VALID_G_TYPES)}.")
+    return GTYPE_ALIASES.get(raw, raw)
 
 
 def _b_from_mode(
@@ -227,7 +231,7 @@ def _b_from_mode(
 
     if g_type == 'bvalue':
         if 'bvalue' not in d.columns:
-            raise ValueError("Falta columna 'bvalue'.")
+            raise ValueError("Missing required column 'bvalue'.")
         return pd.to_numeric(d['bvalue'], errors='coerce').to_numpy(dtype=float)
 
     bcol_map = {'g': 'bvalue_g', 'g_lin_max': 'bvalue_g_lin_max', 'g_thorsten': 'bvalue_thorsten'}
@@ -236,10 +240,10 @@ def _b_from_mode(
         return pd.to_numeric(d[bcol], errors='coerce').to_numpy(dtype=float)
 
     if g_type not in d.columns:
-        raise ValueError(f"Falta columna '{g_type}' (y tampoco existe {bcol}).")
+        raise ValueError(f"Missing required column {g_type!r}; derived column {bcol!r} was also not found.")
 
     if N is None or delta_ms is None or Delta_app_ms is None:
-        raise ValueError('Para g_type!=bvalue necesitás N, delta_ms y Delta_app_ms (args o columnas únicas).')
+        raise ValueError("For g_type != 'bvalue', N, delta_ms, and Delta_app_ms must be provided as arguments or unique columns.")
 
     g = pd.to_numeric(d[g_type], errors='coerce').to_numpy(dtype=float)
     return b_from_g(
@@ -248,7 +252,7 @@ def _b_from_mode(
         gamma=float(gamma),
         delta_ms=float(delta_ms),
         delta_app_ms=float(Delta_app_ms),
-        g_type=('gthorsten' if g_type == 'g_thorsten' else g_type),
+        g_type=g_type,
     )
 
 
@@ -294,7 +298,7 @@ def _fit_prefix_monoexp(
     }
 
     if len(b_fit) < AUTO_FIT_MIN_POINTS:
-        result['msg'] = 'Muy pocos puntos válidos.'
+        result['msg'] = 'Too few valid points.'
         return result
 
     try:
@@ -362,7 +366,7 @@ def _select_fit_result(
                 'fit_strategy': 'auto',
                 'auto_fit_metric': 'rmse_log',
                 'auto_fit_score': np.nan,
-                'msg': f'Rango inválido para auto_fit_points: min_k={k_min}, max_k={k_max}.',
+                'msg': f'Invalid auto_fit_points range: min_k={k_min}, max_k={k_max}.',
                 'fit_mask': np.zeros(len(b), dtype=bool),
             }
 
@@ -434,8 +438,8 @@ def _select_fit_result(
             'auto_fit_metric': 'rmse_log',
             'auto_fit_score': np.nan,
             'msg': (
-                'No hubo ningún candidato válido para auto_fit_points '
-                f'en el rango k={k_min}..{k_max}.'
+                'No valid candidate was found for auto_fit_points '
+                f'in the range k={k_min}..{k_max}.'
             ),
             'fit_mask': np.zeros(len(b), dtype=bool),
         }
@@ -467,7 +471,7 @@ def plot_fit_one_group_monoexp(
     df_group = _ensure_keys_types(df_group.copy())
 
     if ycol not in df_group.columns:
-        raise KeyError(f"No encuentro ycol='{ycol}' en df_group.")
+        raise KeyError(f"plot_fit_one_group_monoexp: missing ycol {ycol!r}. Columns={list(df_group.columns)}")
 
     N = fit_row.get('N')
     delta_ms = fit_row.get('delta_ms')
@@ -488,7 +492,7 @@ def plot_fit_one_group_monoexp(
     y = y[m]
     b = b[m]
     if len(b) == 0:
-        raise ValueError('No hay puntos válidos para plotear.')
+        raise ValueError("No valid points are available for plotting.")
 
     bmax = float(np.nanmax(b)) if np.any(np.isfinite(b)) else 0.0
     b_dense = np.linspace(0.0, bmax, 250)
@@ -549,23 +553,23 @@ def fit_signal_vs_bval_long(
     stat_keep: str = 'avg',
 ) -> FitOutputs:
     dfa = df.copy()
-    _require_no_axis(dfa)
+    _require_strict_columns(dfa)
 
     for c in ['direction', 'roi', 'b_step']:
         if c not in dfa.columns:
-            raise ValueError(f"Falta columna requerida '{c}'. Columns={list(dfa.columns)}")
+            raise ValueError(f"Missing required column {c!r}. Columns={list(dfa.columns)}")
 
     if ycol not in {'value', 'value_norm'}:
-        raise ValueError("ycol debe ser 'value' o 'value_norm'. Este pipeline no admite nombres legacy.")
+        raise ValueError("ycol must be one of ['value', 'value_norm'].")
     if ycol not in dfa.columns:
-        raise ValueError(f"Falta ycol='{ycol}'. Columns={list(dfa.columns)}")
+        raise ValueError(f"Missing ycol {ycol!r}. Columns={list(dfa.columns)}")
 
     dfa = _ensure_keys_types(dfa)
 
     if 'stat' in dfa.columns and stat_keep is not None and str(stat_keep).upper() != 'ALL':
         dfa = dfa[dfa['stat'] == str(stat_keep)].copy()
         if dfa.empty:
-            raise ValueError(f"No quedaron filas con stat == '{stat_keep}'.")
+            raise ValueError(f"No rows remain after filtering stat == {stat_keep!r}.")
 
     if dirs is not None:
         dfa = dfa[dfa['direction'].isin([str(x) for x in dirs])].copy()
@@ -576,8 +580,8 @@ def fit_signal_vs_bval_long(
         dirs_avail = sorted(df['direction'].astype(str).dropna().unique().tolist()) if 'direction' in df.columns else []
         rois_avail = sorted(df['roi'].astype(str).dropna().unique().tolist()) if 'roi' in df.columns else []
         raise ValueError(
-            'No quedaron filas luego de filtrar direction/roi. '
-            f'Direcciones disponibles={dirs_avail}. ROIs disponibles={rois_avail}.'
+            'No rows remain after filtering by direction/roi. '
+            f'Available directions={dirs_avail}. Available ROIs={rois_avail}.'
         )
 
     if outdir_plots is not None:
@@ -621,7 +625,7 @@ def fit_signal_vs_bval_long(
                     auto_fit_score=fit_res.get('auto_fit_score', np.nan),
                     rmse_log=fit_res.get('rmse_log', np.nan),
                     n_points=int(len(b)), n_fit=int(fit_res.get('n_fit', 0)), td_ms=float(td_ms),
-                    ok=False, msg=str(fit_res.get('msg', 'Muy pocos puntos válidos.')),
+                    ok=False, msg=str(fit_res.get('msg', 'Too few valid points.')),
                 )
             )
             continue
@@ -700,7 +704,7 @@ def run_fit_from_parquet(
     p = Path(parquet_path)
     df = pd.read_parquet(p) if p.suffix.lower() not in ['.xlsx', '.xls'] else pd.read_excel(p, sheet_name=0)
 
-    _require_no_axis(df)
+    _require_strict_columns(df)
     df = _ensure_keys_types(df)
 
     exp_id = infer_exp_id(p)

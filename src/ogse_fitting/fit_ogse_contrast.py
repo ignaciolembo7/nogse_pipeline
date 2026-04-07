@@ -12,29 +12,29 @@ from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contr
 from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
+from tools.strict_columns import raise_on_unrecognized_column_names
 
 
 # -----------------------------
 # Helpers: strict schema
 # -----------------------------
 KEY_COLS = ("roi", "direction", "b_step")
+VALID_GBASES = {"g", "g_max", "g_lin_max", "g_thorsten"}
 
 
 def _require_cols(df: pd.DataFrame, cols: Iterable[str], *, label: str) -> None:
     missing = [c for c in cols if c not in df.columns]
     if missing:
-        raise KeyError(f"[{label}] faltan columnas {missing}. Columns={list(df.columns)}")
+        raise KeyError(f"{label}: missing required columns {missing}. Columns={list(df.columns)}")
 
 
 def _normalize_keys(df: pd.DataFrame, *, label: str) -> pd.DataFrame:
     """
-    Regla dura: direction siempre string, b_step int.
-    (No renombra columnas, solo fuerza tipos para agrupar/plotear consistentemente.)
+    Strict schema: keep direction as string and b_step as int.
+    This function does not rename columns; it only enforces stable types for grouping and plotting.
     """
     out = df.copy()
-
-    if "axis" in out.columns:
-        raise KeyError(f"[{label}] encontré columna prohibida 'axis'. Este pipeline usa SOLO 'direction'.")
+    raise_on_unrecognized_column_names(out.columns, context=label)
 
     _require_cols(out, KEY_COLS, label=label)
 
@@ -43,7 +43,7 @@ def _normalize_keys(df: pd.DataFrame, *, label: str) -> pd.DataFrame:
     bs = pd.to_numeric(out["b_step"], errors="coerce")
     if bs.isna().any():
         bad = out.loc[bs.isna(), ["roi", "direction", "b_step"]].head(10)
-        raise ValueError(f"[{label}] b_step tiene NaN/no-numérico. Ejemplos:\n{bad.to_string(index=False)}")
+        raise ValueError(f"{label}: b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
     out["b_step"] = bs.astype(int)
 
     # stat si existe, siempre str
@@ -57,25 +57,24 @@ def _unique_scalar(series: pd.Series, *, name: str, required: bool = False) -> A
     u = series.dropna().unique()
     if len(u) == 0:
         if required:
-            raise ValueError(f"No pude inferir '{name}': columna vacía/NaN.")
+            raise ValueError(f"Could not infer '{name}': column is empty or all-NaN.")
         return None
     if len(u) > 1:
-        raise ValueError(f"'{name}' no es único dentro del grupo. Valores={u.tolist()[:10]}")
+        raise ValueError(f"'{name}' is not unique within the group. Values={u.tolist()[:10]}")
     return u[0]
 
 
 def _normalize_gbase(gbase: str) -> str:
     """
-    Normaliza nombres históricos.
-    - gthorsten -> g_thorsten
+    Validate canonical gradient-base names.
     """
     b = str(gbase).strip()
     if b.endswith("_1"):
         b = b[:-2]
     if b.endswith("_2"):
         b = b[:-2]
-    if b == "gthorsten":
-        b = "g_thorsten"
+    if b not in VALID_GBASES:
+        raise ValueError(f"fit_ogse_contrast: unrecognized gbase {gbase!r}. Allowed values: {sorted(VALID_GBASES)}.")
     return b
 
 
@@ -86,8 +85,7 @@ def _gcols(gbase: str) -> tuple[str, str]:
 
 def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
     """
-    Mantengo el comportamiento histórico: para thorsten escalamos por sqrt(2) y abs.
-    (Si no lo querés, sacamos esta función.)
+    Keep the thorsten scaling convention: sqrt(2) * abs(g_thorsten).
     """
     b = _normalize_gbase(gbase)
     if b == "g_thorsten":
@@ -146,7 +144,7 @@ def _model_yhat(
             float(fit_row["M0"]),
             float(fit_row["D0_m2_ms"]),
         )
-    raise ValueError(f"Modelo '{model}' no soportado para evaluar curva.")
+    raise ValueError(f"Unsupported model {model!r} for curve evaluation.")
 
 
 def _tc_peak_from_notebook_formula(
@@ -292,8 +290,8 @@ def _fit_free(
                 return np.inf
             return float(np.sum((y - yhat) ** 2))
 
-        # `curve_fit` cae en mínimos locales malos con phantoms de td corto;
-        # una búsqueda 1D en log(D0) es más estable en este caso.
+        # `curve_fit` can fall into poor local minima for short-td phantoms;
+        # a 1D search in log(D0) is more stable here.
         log_lo = float(np.log(D_lo))
         log_hi = float(np.log(D_hi))
         log_grid = np.linspace(log_lo, log_hi, 64)
@@ -622,22 +620,20 @@ def fit_ogse_contrast_long(
     peak_gamma: float = 267.5221900,
 ) -> pd.DataFrame:
     """
-    Fit de una tabla de contraste LONG (tu formato nuevo):
-      keys: roi, direction, b_step (y opcional stat)
-      y:    value o value_norm (contraste)
-      x:    gbase_1 y gbase_2
+    Fit a long-form contrast table.
+      keys: roi, direction, b_step (and optional stat)
+      y:    value or value_norm
+      x:    gbase_1 and gbase_2
 
-    Espera parámetros por secuencia en el mismo DF (sufijos _1/_2):
-      N_1, N_2, td_ms_1/td_ms_2 (o max_dur_ms_1 + tm_ms_1), etc.
+    Sequence-specific parameters are expected in the same dataframe with _1/_2 suffixes:
+      N_1, N_2, td_ms_1/td_ms_2 (or max_dur_ms_1 + tm_ms_1), etc.
     """
     df = _normalize_keys(df, label="contrast_long")
     analysis_id = analysis_id or _analysis_id_from_source_file(source_file)
 
-    # aliases backward-compat (solo por si hay tablas viejas)
-    y_alias = {"value_norm": "contrast_norm", "value": "contrast"}
-    y_eff = ycol if ycol in df.columns else (y_alias.get(ycol) if y_alias.get(ycol) in df.columns else None)
-    if y_eff is None:
-        raise KeyError(f"No encuentro ycol='{ycol}' (ni alias). Columns={list(df.columns)}")
+    if ycol not in df.columns:
+        raise KeyError(f"contrast_long: missing ycol {ycol!r}. Columns={list(df.columns)}")
+    y_eff = ycol
 
     if directions is not None and not (len(directions) == 1 and directions[0].upper() == "ALL"):
         directions = [str(x) for x in directions]
@@ -796,7 +792,7 @@ def fit_ogse_contrast_long(
                     n_fit=n_points,
                     f_corr=1.0,
                     ok=False,
-                    msg="Grupo vacío o no pude inferir td_ms.",
+                    msg="Empty group or td_ms could not be inferred.",
                 )
             )
             continue
@@ -967,13 +963,13 @@ def fit_ogse_contrast_long(
                 )
             
             else:
-                rows.append(FitRow(**base, ok=False, msg=f"Modelo '{model}' no implementado."))
+                rows.append(FitRow(**base, ok=False, msg=f"Model {model!r} is not implemented."))
         except Exception as e:
             rows.append(FitRow(**base, ok=False, msg=str(e)))
 
     out = pd.DataFrame([r.__dict__ for r in rows])
 
-    # Mantengo esto porque tu pipeline ya lo usa downstream.
+    # Keep the standardized downstream fit-parameter schema.
     out = standardize_fit_params(out, fit_kind="nogse_contrast", source_file=source_file)
     return out
 
@@ -987,15 +983,13 @@ def plot_fit_one_group(
     ycol: str,
 ) -> None:
     """
-    Plot simple: y vs gbase_1, curva del modelo usando parámetros del fit_row.
+    Simple plot: y vs gbase_1, with the model curve computed from fit_row.
     """
     df_group = _normalize_keys(df_group, label="plot_group")
 
-    # y alias for legacy
-    y_alias = {"value_norm": "contrast_norm", "value": "contrast"}
-    y_eff = ycol if ycol in df_group.columns else (y_alias.get(ycol) if y_alias.get(ycol) in df_group.columns else None)
-    if y_eff is None:
-        raise KeyError(f"No encuentro ycol='{ycol}' en df_group.")
+    if ycol not in df_group.columns:
+        raise KeyError(f"plot_group: missing ycol {ycol!r}. Columns={list(df_group.columns)}")
+    y_eff = ycol
 
     g1c, g2c = _gcols(gbase)
     _require_cols(df_group, [g1c, g2c], label="plot_group")
@@ -1021,7 +1015,7 @@ def plot_fit_one_group(
     n_2 = int(fit_row.get("N_2"))
     model = str(fit_row.get("model", "free"))
 
-    # curva suave
+    # Smooth curve
     G1max = float(np.nanmax(G1)) if len(G1) else 0.0
     G2max = float(np.nanmax(G2)) if len(G2) else 0.0
     f = np.linspace(0, 1, 250)

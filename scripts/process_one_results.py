@@ -54,7 +54,7 @@ def _ensure_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return out
 
 
-def _add_S0_and_signal_norm(df: pd.DataFrame) -> pd.DataFrame:
+def _add_S0_and_value_norm(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out = _ensure_numeric(out, ["b_step", "value"])
 
@@ -83,7 +83,7 @@ def _add_g_and_b_derivatives(
     N: int,
     delta_ms: float,
     Delta_app_ms: float,
-    gthorsten_mTm: float | None,
+    g_thorsten: float | None,
 ) -> pd.DataFrame:
     out = df.copy()
     out = _ensure_numeric(out, ["bvalue", "b_step"])
@@ -113,10 +113,10 @@ def _add_g_and_b_derivatives(
     out["g_lin_max"] = out["g_max"] * (out["b_step"] / float(b_step_max))
 
     # g_thorsten (si existe el escalar)
-    if gthorsten_mTm is None or not np.isfinite(gthorsten_mTm):
+    if g_thorsten is None or not np.isfinite(g_thorsten):
         out["g_thorsten"] = np.nan
     else:
-        out["g_thorsten"] = float(gthorsten_mTm) * (out["b_step"] / float(b_step_max))
+        out["g_thorsten"] = float(g_thorsten) * (out["b_step"] / float(b_step_max))
 
     # bvalue derivados desde g*
     out["bvalue_g"] = b_from_g(
@@ -142,7 +142,7 @@ def _add_g_and_b_derivatives(
         gamma=gamma,
         delta_ms=delta_ms,
         delta_app_ms=Delta_app_ms,
-        g_type="gthorsten",
+        g_type="g_thorsten",
     )
 
     return out
@@ -202,9 +202,9 @@ def main() -> None:
     TE = _to_float(_row_get(row, ["TE", "TE_ms", "Echo time TE  [ms]"], np.nan))
     TR = _to_float(_row_get(row, ["TR", "TR_ms", "Repetition time TR  [ms]"], np.nan))
 
-    gthorsten_mTm = _to_float(_row_get(row, ["gthorsten_mTm", "G thorsten [mT/m]"], np.nan))
-    if not np.isfinite(gthorsten_mTm):
-        gthorsten_mTm = None
+    g_thorsten = _to_float(_row_get(row, ["g_thorsten", "G thorsten [mT/m]"], np.nan))
+    if not np.isfinite(g_thorsten):
+        g_thorsten = None
 
     # --- agregar parámetros LIMPIOS (sin param_/meta_) ---
     df_long["subj"] = subj
@@ -232,9 +232,9 @@ def main() -> None:
         N=int(N),
         delta_ms=float(delta_ms),
         Delta_app_ms=float(Delta_app_ms),
-        gthorsten_mTm=gthorsten_mTm,
+        g_thorsten=g_thorsten,
     )
-    df_long = _add_S0_and_signal_norm(df_long)
+    df_long = _add_S0_and_value_norm(df_long)
 
     df_long = finalize_clean_signal_long(df_long)
     df_long = df_long.sort_values(["stat", "roi", "direction", "b_step"], kind="stable").reset_index(drop=True)

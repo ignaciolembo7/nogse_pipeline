@@ -9,23 +9,17 @@ import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 
-YCOL_ALIASES = {
-    "contrast": "value",
-    "contrast_norm": "value_norm",
-    "value": "value",
-    "value_norm": "value_norm",
-}
+VALID_YCOLS = {"value", "value_norm"}
 
 
 def _canonical_xcol(xcol: str) -> str:
-    return xcol.replace("gthorsten_", "g_thorsten_")
+    return xcol
 
 
 def _canonical_ycol(ycol: str) -> str:
-    try:
-        return YCOL_ALIASES[ycol]
-    except KeyError as exc:
-        raise ValueError(f"y inválido: {ycol}. Usá one of {sorted(YCOL_ALIASES)}.") from exc
+    if ycol not in VALID_YCOLS:
+        raise ValueError(f"plot_ogse_contrast_vs_g: unrecognized y value {ycol!r}. Allowed values: {sorted(VALID_YCOLS)}.")
+    return ycol
 
 
 def _plot_x_series(df: pd.DataFrame, xcol: str) -> pd.Series:
@@ -38,7 +32,7 @@ def _plot_x_series(df: pd.DataFrame, xcol: str) -> pd.Series:
 def _require_columns(df: pd.DataFrame, cols: list[str]) -> None:
     missing = [c for c in cols if c not in df.columns]
     if missing:
-        raise KeyError(f"Faltan columnas {missing}. Columnas disponibles: {sorted(df.columns)}")
+        raise KeyError(f"plot_ogse_contrast_vs_g: missing required columns {missing}. Columns={sorted(df.columns)}")
 
 
 def _filter_stat(df: pd.DataFrame, stat: str | None) -> pd.DataFrame:
@@ -48,7 +42,7 @@ def _filter_stat(df: pd.DataFrame, stat: str | None) -> pd.DataFrame:
     out = df[df["stat"].astype(str) == str(stat)].copy()
     if out.empty:
         available = sorted(df["stat"].dropna().astype(str).unique().tolist())
-        raise SystemExit(f"No quedó data para stat={stat!r}. Stats disponibles: {available}")
+        raise SystemExit(f"No data remains after filtering stat={stat!r}. Available stats: {available}")
     return out
 
 
@@ -81,7 +75,7 @@ def _selected_rois(df: pd.DataFrame, requested: list[str] | None) -> list[str]:
     chosen = [roi for roi in requested if roi in available]
     missing = [roi for roi in requested if roi not in available]
     if missing:
-        raise SystemExit(f"ROIs no encontradas: {missing}. Disponibles: {available}")
+        raise SystemExit(f"ROIs not found: {missing}. Available ROIs: {available}")
     return chosen
 
 
@@ -134,15 +128,15 @@ def _plot_rois_together(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("contrast_parquet")
-    ap.add_argument("--xcol", default="g_thorsten_1", help="ej: g_lin_max_1 | g_max_1 | g_thorsten_1")
-    ap.add_argument("--y", dest="ycol", default="value_norm", help="ej: value_norm | contrast_norm")
+    ap.add_argument("--xcol", default="g_thorsten_1", help="Example: g_lin_max_1 | g_max_1 | g_thorsten_1")
+    ap.add_argument("--y", dest="ycol", default="value_norm", help="Example: value | value_norm")
     ap.add_argument("--out_root", default="plots")
-    ap.add_argument("--exp", default=None, help="nombre carpeta experimento (opcional)")
+    ap.add_argument("--exp", default=None, help="Optional experiment folder name")
     ap.add_argument("--directions", nargs="+", default=None, help="Directions to plot (e.g. long tra or 1 2 3).")
-    ap.add_argument("--dirs", nargs="+", dest="directions", help="Alias de --directions.")
-    ap.add_argument("--axes", nargs="+", dest="directions", help="Alias legacy de --directions.")
+    ap.add_argument("--dirs", nargs="+", dest="directions", help="Alias for --directions.")
+    ap.add_argument("--axes", nargs="+", dest="directions", help="Alias for --directions.")
     ap.add_argument("--stat", default="avg", help="Statistic to plot. Use ALL to skip filtering.")
-    ap.add_argument("--rois", nargs="+", default=None, help="Subset opcional de ROIs para un plot combinado adicional.")
+    ap.add_argument("--rois", nargs="+", default=None, help="Optional ROI subset for an additional combined plot.")
     args = ap.parse_args()
 
     p = Path(args.contrast_parquet)
@@ -150,7 +144,7 @@ def main() -> None:
     df = _filter_stat(df, args.stat)
 
     if "direction" not in df.columns:
-        raise KeyError(f"No encuentro 'direction' en el parquet. Cols={sorted(df.columns)}")
+        raise KeyError(f"plot_ogse_contrast_vs_g: missing required column 'direction'. Columns={sorted(df.columns)}")
 
     xcol = _canonical_xcol(args.xcol)
     ycol = _canonical_ycol(args.ycol)
@@ -160,7 +154,7 @@ def main() -> None:
     if not directions:
         directions = sorted(pd.Series(df["direction"]).dropna().astype(str).unique().tolist())
     if not directions:
-        raise SystemExit("No encontré directions válidas para plotear.")
+        raise SystemExit("No valid directions were found for plotting.")
 
     exp_id = args.exp or (p.stem[:-len(".long")] if p.stem.endswith(".long") else p.stem)
     outdir = Path(args.out_root) / exp_id

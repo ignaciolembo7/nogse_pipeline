@@ -39,7 +39,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
             "delta [ms]": "delta_ms",
             "Delta_app [ms]": "delta_app_ms",
             "N": "N",
-            "G thorsten [mT/m]": "gthorsten_mTm",
+            "G thorsten [mT/m]": "g_thorsten",
             "type of seq": "seq_type",
             # CANÓNICO: max_dur_ms (antes d_ms)
             "max duration d  [ms]": "max_dur_ms",
@@ -54,7 +54,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
         # limpiar tipos (muchas celdas vienen como '-' o strings)
         for c in [
             "seq", "Hz", "bmax", "delta_ms", "delta_app_ms", "N",
-            "gthorsten_mTm", "max_dur_ms", "TE_ms", "TR_ms", "TM_ms"
+            "g_thorsten", "max_dur_ms", "TE_ms", "TR_ms", "TM_ms"
         ]:
             if c in sub.columns:
                 sub[c] = pd.to_numeric(sub[c], errors="coerce")
@@ -72,7 +72,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     col_order = [
         c for c in [
             "sheet","subj","protocol","seq","Hz","bmax","max_dur_ms",
-            "delta_ms","delta_app_ms","N","gthorsten_mTm",
+            "delta_ms","delta_app_ms","N","g_thorsten",
             "seq_type","TE_ms","TR_ms","TM_ms"
         ] if c in params.columns
     ]

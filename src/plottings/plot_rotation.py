@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
+from tools.strict_columns import raise_on_unrecognized_column_names
+
 
 DEFAULT_AXES6 = ["x", "y", "z", "longitudinal", "transversal_1", "transversal_2"]
 
@@ -13,10 +15,9 @@ def load_dproj_parquet(paths: list[str | Path]) -> pd.DataFrame:
     dfs = []
     for p in paths:
         df = pd.read_parquet(p)
-        if "direction" not in df.columns and "axis" in df.columns:
-            df["direction"] = df["axis"]
-        if "axis" in df.columns:
-            df = df.drop(columns=["axis"])
+        raise_on_unrecognized_column_names(df.columns, context=f"load_dproj_parquet({p})")
+        if "direction" not in df.columns:
+            raise ValueError(f"load_dproj_parquet({p}): missing required column ['direction'].")
         df["source"] = Path(p).name
         dfs.append(df)
     out = pd.concat(dfs, ignore_index=True)

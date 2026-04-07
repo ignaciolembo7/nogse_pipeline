@@ -276,13 +276,13 @@ def simulate_contrast_long(spec: SimSpec) -> pd.DataFrame:
                 # side 1 gradient
                 ref["g"] = float(gval)
                 ref["g_lin_max"] = float(gval)
-                ref["gthorsten"] = float(gval)
+                ref["g_thorsten"] = float(gval)
 
                 # side 2 gradient (if there is a second grid name, use that)
                 g2val = float(grid2[i]) if (grid2 is not None) else float(gval)
                 cmp["g"] = g2val
                 cmp["g_lin_max"] = g2val
-                cmp["gthorsten"] = g2val
+                cmp["g_thorsten"] = g2val
 
                 # Param columns (carried through by make_contrast if they start with "param_")
                 # shared -> both sides
@@ -301,11 +301,11 @@ def simulate_contrast_long(spec: SimSpec) -> pd.DataFrame:
 
                 # "signal" columns
                 ref["value"] = float(contrast[i])
-                ref["signal_norm"] = float(contrast[i])
+                ref["value_norm"] = float(contrast[i])
                 ref["S0"] = 1.0
 
                 cmp["value"] = 0.0
-                cmp["signal_norm"] = 0.0
+                cmp["value_norm"] = 0.0
                 cmp["S0"] = 1.0
 
                 rows_ref.append(ref)
@@ -320,7 +320,7 @@ def simulate_contrast_long(spec: SimSpec) -> pd.DataFrame:
         df_cmp,
         axes=spec.axes,
         y_col="value",
-        y_norm_col="signal_norm",
+        y_norm_col="value_norm",
         key_cols=spec.key_cols,
     ).df
 

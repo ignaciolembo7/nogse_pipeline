@@ -61,7 +61,6 @@ def _relevant_cols(df: pd.DataFrame) -> list[str]:
         "max_dur_ms",
         "roi",
         "direction",
-        "axis",
         "g_type",
         "fit_points",
         "N",
