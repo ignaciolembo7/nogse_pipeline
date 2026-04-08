@@ -60,6 +60,7 @@ Thumbs.db
 # =========================
 logs/
 *.log
+nohup.out
 
 # =========================
 # Neuroimaging / scientific data
