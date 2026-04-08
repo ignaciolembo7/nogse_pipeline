@@ -38,12 +38,14 @@ def plot_all_groups(
     df_avg: pd.DataFrame,
     *,
     out_dir: str | Path,
+    selected_bstep: int | None = None,
     reference_D0: float | None = None,
     reference_D0_error: float | None = None,
 ) -> list[Path]:
     return plot_d_vs_delta_curves(
         df_avg,
         out_dir=out_dir,
+        selected_bstep=selected_bstep,
         reference_D0=reference_D0,
         reference_D0_error=reference_D0_error,
     )

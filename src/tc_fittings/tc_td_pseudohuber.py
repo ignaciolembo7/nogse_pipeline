@@ -497,6 +497,7 @@ def block2_region_plots(
     cfg_regions: list[str],
     palette: list[str],
     plot_A: bool = True,
+    show_errorbars: bool = True,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -533,7 +534,8 @@ def block2_region_plots(
                 ys = np.array(ys, float); es = np.array(es, float)
 
                 ax.plot(xs, ys, "o-", linewidth=2, markersize=7, label=subj)
-                ax.fill_between(xs, ys-es, ys+es, alpha=0.2)
+                if show_errorbars:
+                    ax.fill_between(xs, ys-es, ys+es, alpha=0.2)
                 any_line = True
 
             ax.set_xticks(np.arange(len(regiones)))
@@ -610,6 +612,7 @@ def block2b_cc_vars_long_tra_sameY(
     cfg_regions: list[str],
     palette: list[str],  # mantenemos API
     *,
+    show_errorbars: bool = True,
     tag: str | None = None,
     fname: str | None = None,
 ) -> None:
@@ -679,13 +682,21 @@ def block2b_cc_vars_long_tra_sameY(
                 else:
                     e = np.zeros_like(y)
 
-                ax.errorbar(
-                    x, y, yerr=e,
-                    marker=markers.get(subj, "o"),
-                    linestyle="-",
-                    capsize=3,
-                    label=subj,
-                )
+                if show_errorbars:
+                    ax.errorbar(
+                        x, y, yerr=e,
+                        marker=markers.get(subj, "o"),
+                        linestyle="-",
+                        capsize=3,
+                        label=subj,
+                    )
+                else:
+                    ax.plot(
+                        x, y,
+                        marker=markers.get(subj, "o"),
+                        linestyle="-",
+                        label=subj,
+                    )
                 any_line = any_line or np.any(np.isfinite(y))
 
             ax.grid(True, alpha=0.3)
@@ -708,8 +719,12 @@ def block2b_cc_vars_long_tra_sameY(
         m = np.isfinite(yy) & np.isfinite(ee)
         if yy.size == 0 or not np.any(m):
             return
-        lo = np.min(yy[m] - ee[m])
-        hi = np.max(yy[m] + ee[m])
+        if show_errorbars:
+            lo = np.min(yy[m] - ee[m])
+            hi = np.max(yy[m] + ee[m])
+        else:
+            lo = np.min(yy[m])
+            hi = np.max(yy[m])
         pad = 0.05 * (hi - lo) if hi > lo else 1.0
         for ax in axes[row_idx, :]:
             ax.set_ylim(lo - pad, hi + pad)

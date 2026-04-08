@@ -257,19 +257,24 @@ def plot_compare_N_within_sheet(df_avg: pd.DataFrame, *, xcol: str, out_dir: str
     out_dir = Path(out_dir)
     xlabel = "td_ms [ms]" if xcol == "td_ms" else r"$\Delta_{app}$ [ms]"
     outputs: list[Path] = []
-    for (sheet, roi, direction), sub in df_avg.groupby(["sheet", "roi", "direction"], sort=True):
+    for (subj, sheet, roi, direction), sub in df_avg.groupby(["subj", "sheet", "roi", "direction"], sort=True):
         n_unique = pd.to_numeric(sub["N"], errors="coerce").dropna().unique()
         if len(n_unique) < 2:
             continue
-        out_path = out_dir / f"{xcol}" / "compare_N" / f"{_sanitize_token(sheet)}__{_sanitize_token(roi)}__dir={_sanitize_token(direction)}.png"
+        out_path = (
+            out_dir
+            / f"{xcol}"
+            / "compare_N"
+            / f"{_sanitize_token(subj)}__{_sanitize_token(sheet)}__{_sanitize_token(roi)}__dir={_sanitize_token(direction)}.png"
+        )
         outputs.append(
             _plot_group_curves(
                 sub,
-                group_key=(sheet, direction),
+                group_key=(subj, direction),
                 curve_col="N",
                 xcol=xcol,
                 out_path=out_path,
-                title=f"{sheet} | {roi} | dir={direction} | compare N",
+                title=f"{subj} | {sheet} | {roi} | dir={direction} | compare N",
                 xlabel=xlabel,
             )
         )

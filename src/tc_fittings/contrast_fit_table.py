@@ -78,6 +78,8 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
 
     if "tc_peak_ms" not in out.columns and "tc_at_max" in out.columns:
         out["tc_peak_ms"] = pd.to_numeric(out["tc_at_max"], errors="coerce")
+    if "tc_fit_ms" not in out.columns and "tc_ms" in out.columns:
+        out["tc_fit_ms"] = pd.to_numeric(out["tc_ms"], errors="coerce")
     if "signal_peak" not in out.columns and "signal_max" in out.columns:
         out["signal_peak"] = pd.to_numeric(out["signal_max"], errors="coerce")
     if "lcf_peak_m" not in out.columns and "lcf_at_max" in out.columns:
@@ -88,6 +90,7 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
     numeric_cols = [
         "td_ms",
         "tc_ms",
+        "tc_fit_ms",
         "tc_err_ms",
         "tc_peak_ms",
         "signal_peak",

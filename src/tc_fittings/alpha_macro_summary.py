@@ -36,6 +36,29 @@ def _merge_pipe_lists(values: Iterable[object]) -> str:
     return "|".join(sorted(items))
 
 
+def _select_bvalue_and_bstep(
+    bvalues: Sequence[float],
+    *,
+    selected_bstep: int | None,
+    group_label: str,
+) -> tuple[float, int]:
+    if len(bvalues) == 0:
+        raise ValueError(f"No hay bvalues disponibles para {group_label}.")
+    if selected_bstep is not None and selected_bstep < 1:
+        raise ValueError("selected_bstep debe ser >= 1.")
+
+    ordered = np.sort(np.asarray(bvalues, dtype=float))
+    if selected_bstep is None:
+        return float(ordered[-1]), int(len(ordered))
+    if selected_bstep > len(ordered):
+        raise ValueError(
+            "selected_bstep="
+            f"{selected_bstep} fuera de rango para {group_label}. "
+            f"Solo hay {len(ordered)} bsteps disponibles: {list(map(float, ordered))}"
+        )
+    return float(ordered[selected_bstep - 1]), int(selected_bstep)
+
+
 def _read_table(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
     if suffix == ".parquet":
@@ -164,6 +187,7 @@ def plot_d_vs_delta_curves(
     df_avg: pd.DataFrame,
     *,
     out_dir: str | Path,
+    selected_bstep: int | None = None,
     reference_D0: float | None = None,
     reference_D0_error: float | None = None,
 ) -> list[Path]:
@@ -179,7 +203,12 @@ def plot_d_vs_delta_curves(
 
         fig, ax = plt.subplots(figsize=(8, 6))
         cmap = plt.get_cmap("viridis")
-        selected = sub[np.isclose(sub["bvalue"], max(bvalues), atol=1e-9)].sort_values("Delta_app_ms")
+        selected_bvalue, chosen_bstep = _select_bvalue_and_bstep(
+            bvalues,
+            selected_bstep=selected_bstep,
+            group_label=f"subj={subj}, roi={roi}, direction={direction}",
+        )
+        selected = sub[np.isclose(sub["bvalue"], selected_bvalue, atol=1e-9)].sort_values("Delta_app_ms")
 
         for idx, bvalue in enumerate(bvalues):
             curve = sub[np.isclose(sub["bvalue"], bvalue, atol=1e-9)].sort_values("Delta_app_ms")
@@ -198,7 +227,7 @@ def plot_d_vs_delta_curves(
         if not selected.empty:
             d0_mean = float(np.nanmean(selected["D_mean_mm2_s"].to_numpy(float)))
             d0_std = float(np.nanstd(selected["D_mean_mm2_s"].to_numpy(float)))
-            label = f"D (b={max(bvalues):g}) = {d0_mean:.6f}"
+            label = f"D (bstep={chosen_bstep}, b={selected_bvalue:g}) = {d0_mean:.6f}"
             if reference_D0 is not None and np.isfinite(reference_D0) and reference_D0 > 0:
                 alpha = d0_mean / float(reference_D0)
                 if reference_D0_error is not None and np.isfinite(reference_D0_error):
@@ -257,6 +286,7 @@ def _expand_direction_alias_rows(df_summary: pd.DataFrame, aliases: dict[str, st
                 "alpha_macro_error": float(sub["alpha_macro_error"].mean()),
                 "D0_mean_mm2_s": float(sub["D0_mean_mm2_s"].mean()),
                 "D0_std_mm2_s": float(sub["D0_std_mm2_s"].mean()),
+                "selected_bstep": int(round(sub["selected_bstep"].mean())) if "selected_bstep" in sub.columns else np.nan,
                 "selected_bvalue": float(sub["selected_bvalue"].mean()),
                 "n_delta_app": int(round(sub["n_delta_app"].mean())),
                 "delta_app_min_ms": float(sub["delta_app_min_ms"].min()),
@@ -278,6 +308,7 @@ def compute_alpha_macro_summary(
     *,
     reference_D0: float = 0.0032,
     reference_D0_error: float = 0.0000283512,
+    selected_bstep: int | None = None,
     direction_aliases: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     if reference_D0 <= 0:
@@ -287,10 +318,14 @@ def compute_alpha_macro_summary(
 
     rows: list[dict[str, object]] = []
     for (subj, roi, direction), sub in df_avg.groupby(["subj", "roi", "direction"], sort=True):
-        bvalues = sub["bvalue"].dropna().unique()
+        bvalues = np.sort(sub["bvalue"].dropna().unique())
         if len(bvalues) == 0:
             continue
-        selected_bvalue = float(np.max(bvalues))
+        selected_bvalue, chosen_bstep = _select_bvalue_and_bstep(
+            bvalues,
+            selected_bstep=selected_bstep,
+            group_label=f"subj={subj}, roi={roi}, direction={direction}",
+        )
         chosen = sub[np.isclose(sub["bvalue"], selected_bvalue, atol=1e-9)].sort_values("Delta_app_ms")
         if chosen.empty:
             continue
@@ -314,6 +349,7 @@ def compute_alpha_macro_summary(
                 "alpha_macro_error": alpha_error,
                 "D0_mean_mm2_s": d0_mean,
                 "D0_std_mm2_s": d0_std,
+                "selected_bstep": chosen_bstep,
                 "selected_bvalue": selected_bvalue,
                 "n_delta_app": int(chosen["Delta_app_ms"].nunique()),
                 "delta_app_min_ms": float(chosen["Delta_app_ms"].min()),

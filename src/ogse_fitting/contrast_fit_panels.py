@@ -189,6 +189,7 @@ def plot_contrast_fit_panels(
     subjs: list[str] | None = None,
     rois: list[str] | None = None,
     directions: list[str] | None = None,
+    exclude_td_ms: list[float] | None = None,
     ok_only: bool = True,
 ) -> list[Path]:
     df = load_contrast_fit_params(
@@ -203,6 +204,15 @@ def plot_contrast_fit_panels(
 
     if df.empty:
         raise ValueError("No quedó ningún fit válido después de filtrar.")
+
+    if exclude_td_ms:
+        td_vals = pd.to_numeric(df["td_ms"], errors="coerce")
+        keep = np.ones(len(df), dtype=bool)
+        for td_excl in exclude_td_ms:
+            keep &= ~np.isclose(td_vals.to_numpy(dtype=float), float(td_excl), atol=1e-3, equal_nan=False)
+        df = df.loc[keep].copy()
+        if df.empty:
+            raise ValueError("No quedó ningún fit válido después de excluir td_ms.")
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

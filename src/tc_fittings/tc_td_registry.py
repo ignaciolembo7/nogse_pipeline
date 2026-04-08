@@ -65,6 +65,7 @@ def run_pseudohuber_free(
     *,
     y_col: str = "tc_peak_ms",
     y_label: str = r"$t_{c,peak}$ [ms]",
+    show_errorbars: bool = True,
 ):
     regions = _regions_for_fit(df_params, cfg)
     palette = _palette_for_fit(cfg)
@@ -88,7 +89,7 @@ def run_pseudohuber_free(
     # Blocks que no dependen de nombres específicos de direction
     block1b_alpha_vs_Td(df_params, df_fit, out_dir)
     block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
-    block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True)
+    block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Block2b ahora es genérico: plotea 1×N con TODAS las direcciones presentes
     block2b_cc_vars_long_tra_sameY(
@@ -96,6 +97,7 @@ def run_pseudohuber_free(
         out_dir=out_dir,
         cfg_regions=regions,
         palette=palette,
+        show_errorbars=show_errorbars,
         tag=f"pseudohuber_free_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'free_macro'}",
     )
 
@@ -119,6 +121,7 @@ def run_pseudohuber_fixed_macro(
     *,
     y_col: str = "tc_peak_ms",
     y_label: str = r"$t_{c,peak}$ [ms]",
+    show_errorbars: bool = True,
 ):
     regions = _regions_for_fit(df_params, cfg)
     palette = _palette_for_fit(cfg)
@@ -139,7 +142,7 @@ def run_pseudohuber_fixed_macro(
 
     block1b_alpha_vs_Td(df_params, df_fit, out_dir)
     block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
-    block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True)
+    block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Genérico (no depende de long/tra)
     block2b_cc_vars_long_tra_sameY(
@@ -147,6 +150,7 @@ def run_pseudohuber_fixed_macro(
         out_dir=out_dir,
         cfg_regions=regions,
         palette=palette,
+        show_errorbars=show_errorbars,
         tag=f"pseudohuber_fixed_macro_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'fixed_macro'}",
     )
 

@@ -44,21 +44,21 @@ declare -a FILES=(
 "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d100_Hz000_b2000_DMRIPHANTOM_20220609151744_68_results.long.parquet"
 "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d100_Hz010_b2000_DMRIPHANTOM_20220609151744_69_results.long.parquet"
 "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d100_Hz020_b2000_DMRIPHANTOM_20220609151744_70_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz000_b2000_DMRIPHANTOM_20220609151744_120_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz035_b0190_DMRIPHANTOM_20220609151744_121_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz070_b0040_DMRIPHANTOM_20220609151744_122_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz000_b2000_DMRIPHANTOM_20220609151744_112_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz025_b0535_DMRIPHANTOM_20220609151744_113_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz050_b0125_DMRIPHANTOM_20220609151744_114_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz000_b2000_DMRIPHANTOM_20220609151744_103_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz020_b0885_DMRIPHANTOM_20220609151744_104_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz040_b0250_DMRIPHANTOM_20220609151744_105_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz000_b2000_DMRIPHANTOM_20220609151744_93_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz015_b1605_DMRIPHANTOM_20220609151744_94_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz030_b0530_DMRIPHANTOM_20220609151744_95_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz000_b2000_DMRIPHANTOM_20220609151744_82_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz010_b2000_DMRIPHANTOM_20220609151744_83_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz020_b1245_DMRIPHANTOM_20220609151744_84_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz000_b2000_DMRIPHANTOM_20220609151744_120_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz035_b0190_DMRIPHANTOM_20220609151744_121_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz070_b0040_DMRIPHANTOM_20220609151744_122_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz000_b2000_DMRIPHANTOM_20220609151744_112_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz025_b0535_DMRIPHANTOM_20220609151744_113_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz050_b0125_DMRIPHANTOM_20220609151744_114_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz000_b2000_DMRIPHANTOM_20220609151744_103_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz020_b0885_DMRIPHANTOM_20220609151744_104_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz040_b0250_DMRIPHANTOM_20220609151744_105_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz000_b2000_DMRIPHANTOM_20220609151744_93_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz015_b1605_DMRIPHANTOM_20220609151744_94_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz030_b0530_DMRIPHANTOM_20220609151744_95_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz000_b2000_DMRIPHANTOM_20220609151744_82_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz010_b2000_DMRIPHANTOM_20220609151744_83_results.long.parquet"
+# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz020_b1245_DMRIPHANTOM_20220609151744_84_results.long.parquet"
 )
 
 # ------------------------------------------------------------------
@@ -66,7 +66,7 @@ declare -a FILES=(
 # ------------------------------------------------------------------
 roi_args_for_file() {
     local fname="$1"
-    echo "fiber1 fiber2 water2 water3"
+    echo "fiber1 fiber2 water water1 water2"
 }
 
 resolve_data_file() {

@@ -89,11 +89,26 @@ def main() -> None:
     selector.add_argument("--Hz", type=float, default=None, help="Filtra por Hz.")
 
     ap.add_argument("--bvalue-decimals", type=int, default=1, help="Decimales para redondear bvalue antes de agrupar.")
+    ap.add_argument(
+        "--bvalmax",
+        type=int,
+        default=None,
+        help=(
+            "Bstep (1-based) a usar para calcular alpha_macro. "
+            "Ej: --bvalmax 7 usa el septimo bvalue ordenado de menor a mayor. "
+            "Si se omite, usa el bvalue más alto."
+        ),
+    )
     ap.add_argument("--reference-D0", type=float, default=0.0032, help="Valor de referencia usado para alpha_macro.")
     ap.add_argument("--reference-D0-error", type=float, default=0.0000283512, help="Error del valor de referencia.")
     ap.add_argument("--direction-alias", action="append", default=None, help="Alias raw=agrupado. Repetible. Default: x=long, y=tra, z=tra.")
     ap.add_argument("--out-summary", type=Path, default=Path("plots/summary_alpha_values.xlsx"), help="Salida summary_alpha_values.xlsx")
-    ap.add_argument("--out-avg", type=Path, default=Path("plots/alpha_macro_D0_avg.xlsx"), help="Salida tabla agregada D vs Delta_app.")
+    ap.add_argument(
+        "--out-avg",
+        type=Path,
+        default=None,
+        help="Salida opcional de la tabla agregada D vs Delta_app. Si se omite, no se reescribe porque coincide con D_vs_delta_app.combined.",
+    )
     ap.add_argument("--plot-rois", nargs="+", default=None, help="ROIs a mostrar en el plot alpha_macro vs ROI. Default: usa --rois o todas.")
     ap.add_argument("--plot-directions", nargs="+", default=None, help="Direcciones a mostrar en el plot. Default: usa --dirs o todas.")
     ap.add_argument("--out-plot", type=Path, default=None, help="PNG de salida para alpha_macro vs ROI. Default: <out-summary-dir>/alpha_macro_vs_roi.png")
@@ -108,6 +123,7 @@ def main() -> None:
         df_avg,
         reference_D0=float(args.reference_D0),
         reference_D0_error=float(args.reference_D0_error),
+        selected_bstep=args.bvalmax,
         direction_aliases=aliases,
     )
 
@@ -132,7 +148,8 @@ def main() -> None:
     )
 
     print(f"[OK] summary: {args.out_summary}")
-    print(f"[OK] avg:     {args.out_avg}")
+    if args.out_avg is not None:
+        print(f"[OK] avg:     {args.out_avg}")
     print(f"[OK] plot:    {out_plot}")
 
 

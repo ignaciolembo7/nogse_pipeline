@@ -16,14 +16,17 @@ ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
 TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
 OUT_ROOT="$ANALYSIS_ROOT/fits/fit_rest_ogse_contrast_corr"
 FIT_SCRIPT="$REPO_ROOT/scripts/fit_ogse-contrast_vs_g.py"
-GRAD_CORR_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water2.grad_correction.xlsx"
+GRAD_CORR_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water1.grad_correction.xlsx"
 FILE_PATTERN="*.long.parquet"
 
 MODEL="rest"
 GBASE="g_lin_max_1"
 YCOL="value_norm"
-CORR_ROI="water2"
-ROIS="fiber1,fiber2,water2,water3"
+CORR_ROI="water1"
+ROIS="fiber1,fiber2"
+PEAK_D0_FIX="2.3e-12"
+FREE_M0="1"
+FREE_D0="0"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2
@@ -66,20 +69,34 @@ while read -r file; do
     echo "  File: $base_name"
     echo "  ROIs  : $ROIS"
 
-    if "$PY" "$FIT_SCRIPT" \
-        "$file" \
-        --model "$MODEL" \
-        --gbase "$GBASE" \
-        --ycol "$YCOL" \
-        --directions 1 2 3 \
-        --peak_D0_fix 3.2e-12 \
-        --fix_M0 1.0 \
-        --fix_D0 3.2e-12 \
-        --apply_grad_corr \
-        --corr_xlsx "$GRAD_CORR_XLSX" \
-        --corr_roi "$CORR_ROI" \
-        "${roi_args[@]}" \
-        --out_root "$OUT_ROOT"; then
+    cmd=(
+        "$PY" "$FIT_SCRIPT"
+        "$file"
+        --model "$MODEL"
+        --gbase "$GBASE"
+        --ycol "$YCOL"
+        --directions 1 2 3
+        --peak_D0_fix "$PEAK_D0_FIX"
+        --apply_grad_corr
+        --corr_xlsx "$GRAD_CORR_XLSX"
+        --corr_roi "$CORR_ROI"
+        "${roi_args[@]}"
+        --out_root "$OUT_ROOT"
+    )
+
+    if [[ "$FREE_M0" == "1" || "${FREE_M0,,}" == "true" || "${FREE_M0,,}" == "yes" ]]; then
+        cmd+=(--free_M0)
+    else
+        cmd+=(--fix_M0 1.0)
+    fi
+
+    if [[ "$FREE_D0" == "1" || "${FREE_D0,,}" == "true" || "${FREE_D0,,}" == "yes" ]]; then
+        cmd+=(--free_D0)
+    else
+        cmd+=(--fix_D0 "$PEAK_D0_FIX")
+    fi
+
+    if "${cmd[@]}"; then
         ok=$((ok + 1))
         echo "  OK"
     else

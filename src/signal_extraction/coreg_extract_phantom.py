@@ -311,14 +311,19 @@ def build_multilabel_from_binary_masks(
     if csv_exists and fail_on_existing:
         raise SystemExit(f"[STOP] Found existing {out_csv_path} and --fail-on-existing was set.")
 
+    # In phantom mode we always regenerate ALL_ROIS so the multilabel stays
+    # synchronized with the binary masks currently present in the sequence folder.
     if nii_exists and csv_exists:
-        print(f"[INFO] Reusing existing ALL_ROIS multilabel: {out_img_path}")
-        print(f"[INFO] Reusing existing mapping CSV:        {out_csv_path}")
-        return
-
-    if nii_exists and not csv_exists:
+        print(f"[INFO] Rebuilding existing ALL_ROIS multilabel: {out_img_path}")
+        print(f"[INFO] Rebuilding existing mapping CSV:        {out_csv_path}")
+        out_img_path.unlink()
+        out_csv_path.unlink()
+    elif nii_exists and not csv_exists:
         print("[INFO] ALL_ROIS NIfTI exists but mapping CSV is missing; rebuilding both for consistency.")
         out_img_path.unlink()
+    elif csv_exists and not nii_exists:
+        print("[INFO] ALL_ROIS mapping CSV exists but NIfTI is missing; rebuilding both for consistency.")
+        out_csv_path.unlink()
 
     ref_img, _ = load_nifti_3d(ref_img_path)
     ref_shape = ref_img.shape[:3]

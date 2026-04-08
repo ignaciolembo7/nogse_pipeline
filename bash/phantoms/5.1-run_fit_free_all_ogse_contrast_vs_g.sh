@@ -21,7 +21,7 @@ FILE_PATTERN="*.long.parquet"
 MODEL="free"
 GBASE="g_lin_max_1"
 YCOL="value_norm"
-ROIS="fiber1,fiber2,water2,water3"
+ROIS="fiber1,fiber2,water,water1,water2"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2

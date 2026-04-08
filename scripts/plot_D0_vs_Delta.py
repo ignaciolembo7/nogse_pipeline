@@ -27,6 +27,15 @@ def main() -> None:
     selector.add_argument("--Hz", type=float, default=None, help="Filtra por Hz.")
 
     ap.add_argument("--bvalue-decimals", type=int, default=1, help="Decimales para redondear bvalue antes de agrupar.")
+    ap.add_argument(
+        "--bvalmax",
+        type=int,
+        default=None,
+        help=(
+            "Bstep (1-based) a usar para la línea horizontal y alpha del plot. "
+            "Si se omite, usa el bvalue más alto."
+        ),
+    )
     ap.add_argument("--reference-D0", type=float, default=0.0032, help="Valor de referencia para anotar alpha en el plot.")
     ap.add_argument("--reference-D0-error", type=float, default=0.0000283512, help="Error del valor de referencia.")
     args = ap.parse_args()
@@ -50,6 +59,7 @@ def main() -> None:
     plot_all_groups(
         df,
         out_dir=out_dir,
+        selected_bstep=args.bvalmax,
         reference_D0=float(args.reference_D0),
         reference_D0_error=float(args.reference_D0_error),
     )

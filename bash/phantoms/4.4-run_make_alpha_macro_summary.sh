@@ -14,11 +14,11 @@ PY="${PY:-python}"
 SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
 
 COMBINED_TABLE="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/D_vs_delta_app.combined.xlsx"
-SUBJS="PHANTOM3 PHANTOM3DDE"
-PLOT_ROIS="fiber1 fiber2 water2 water3"
+SUBJS="PHANTOM3"
+PLOT_ROIS="fiber1 fiber2 water water1 water2"
 PLOT_DIRECTIONS="1 2 3"
+BVALMAX="7"
 OUT_SUMMARY="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
-OUT_AVG="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/alpha_macro_D0_avg.xlsx"
 
 if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
     echo "ERROR: Script not found: $SUMMARY_SCRIPT" >&2
@@ -31,7 +31,6 @@ if [[ ! -f "$COMBINED_TABLE" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUT_SUMMARY")"
-mkdir -p "$(dirname "$OUT_AVG")"
 
 echo "============================================================"
 echo "Dataset       : phantoms"
@@ -39,16 +38,17 @@ echo "Combined table: $COMBINED_TABLE"
 echo "Subjs         : $SUBJS"
 echo "Plot ROIs     : $PLOT_ROIS"
 echo "Plot dirs     : $PLOT_DIRECTIONS"
+echo "Bstep alpha   : $BVALMAX"
 echo "Out summary   : $OUT_SUMMARY"
-echo "Out avg       : $OUT_AVG"
 
 "$PY" "$SUMMARY_SCRIPT" \
     --combined-table "$COMBINED_TABLE" \
     --subj $SUBJS \
     --plot-rois $PLOT_ROIS \
     --plot-directions $PLOT_DIRECTIONS \
+    --bvalmax "$BVALMAX" \
     --out-summary "$OUT_SUMMARY" \
-    --out-avg "$OUT_AVG"
+    --reference-D0 0.0023 
 
 echo
 echo "Finished."

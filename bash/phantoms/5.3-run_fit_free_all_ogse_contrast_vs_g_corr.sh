@@ -16,14 +16,14 @@ ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
 TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
 OUT_ROOT="$ANALYSIS_ROOT/fits/fit-free_ogse-contrast-corr"
 FIT_SCRIPT="$REPO_ROOT/scripts/fit_ogse-contrast_vs_g.py"
-GRAD_CORR_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water2.grad_correction.xlsx"
+GRAD_CORR_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water1.grad_correction.xlsx"
 FILE_PATTERN="*.long.parquet"
 
 MODEL="free"
 GBASE="g_lin_max_1"
 YCOL="value_norm"
-CORR_ROI="water2"
-ROIS="fiber1,fiber2,water2,water3"
+CORR_ROI="water1"
+ROIS="fiber1,fiber2,water,water1,water2"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
     echo "ERROR: Tables root not found: $TABLES_ROOT" >&2

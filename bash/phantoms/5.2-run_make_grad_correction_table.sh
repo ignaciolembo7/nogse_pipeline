@@ -13,11 +13,11 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 PY="${PY:-python}"
 MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
-ROI="water2"
+ROI="water1"
 EXP_FITS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal"
 NOGSE_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit-free_ogse-contrast"
-OUT_XLSX="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water2.grad_correction.xlsx"
-OUT_CSV="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water2.grad_correction.csv"
+OUT_XLSX="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water1.grad_correction.xlsx"
+OUT_CSV="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water1.grad_correction.csv"
 
 if [[ ! -f "$MAKE_SCRIPT" ]]; then
     echo "ERROR: Script not found: $MAKE_SCRIPT" >&2

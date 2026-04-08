@@ -15,12 +15,7 @@ PY="${PY:-python}"
 FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal}"
 OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
 PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
-ROIS=(
-  fiber1
-  fiber2
-  water2
-  water3
-)
+ROIS=(fiber1 fiber2 water water1 water2)
 DIRECTIONS=(1 2 3)
 
 if [[ ! -d "$FITS_ROOT" ]]; then

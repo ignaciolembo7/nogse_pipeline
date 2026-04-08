@@ -15,7 +15,6 @@ SUBJS="BRAIN LUDG MBBL"
 PLOT_ROIS="AntCC MidAntCC CentralCC MidPostCC PostCC Left-Lateral-Ventricle Right-Lateral-Ventricle"
 PLOT_DIRECTIONS="x y z"
 OUT_SUMMARY="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
-OUT_AVG="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/alpha_macro_D0_avg.xlsx"
 
 if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
     echo "ERROR: Script not found: $SUMMARY_SCRIPT" >&2
@@ -28,7 +27,6 @@ if [[ ! -f "$COMBINED_TABLE" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUT_SUMMARY")"
-mkdir -p "$(dirname "$OUT_AVG")"
 
 echo "============================================================"
 echo "Dataset       : brains"
@@ -37,15 +35,13 @@ echo "Subjs         : $SUBJS"
 echo "Plot ROIs     : $PLOT_ROIS"
 echo "Plot dirs     : $PLOT_DIRECTIONS"
 echo "Out summary   : $OUT_SUMMARY"
-echo "Out avg       : $OUT_AVG"
 
 "$PY" "$SUMMARY_SCRIPT" \
     --combined-table "$COMBINED_TABLE" \
     --subj $SUBJS \
     --plot-rois $PLOT_ROIS \
     --plot-directions $PLOT_DIRECTIONS \
-    --out-summary "$OUT_SUMMARY" \
-    --out-avg "$OUT_AVG"
+    --out-summary "$OUT_SUMMARY"
 
 echo
 echo "Finished."

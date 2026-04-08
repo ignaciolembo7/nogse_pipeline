@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from tc_fittings.contrast_fit_table import canonicalize_contrast_fit_params, load_contrast_fit_params
@@ -12,9 +13,65 @@ from tc_fittings.tc_td_pseudohuber import load_alpha_macro_summary
 
 YCOL_LABELS = {
     "tc_ms": r"$t_c$ [ms]",
+    "tc_fit_ms": r"$t_{c,fit}$ [ms]",
     "tc_peak_ms": r"$t_{c,peak}$ [ms]",
     "signal_peak": "Peak amplitude",
 }
+
+
+def _tc_vs_td_dirname(y_col: str) -> str:
+    if y_col == "tc_peak_ms":
+        return "tcpeak_vs_td"
+    if y_col in {"tc_ms", "tc_fit_ms"}:
+        return "tcfit_vs_td"
+    return f"{y_col}_vs_td"
+
+
+def _parse_exclude_match(spec: str) -> dict[str, object]:
+    parts = [p.strip() for p in str(spec).split("|")]
+    if len(parts) == 2:
+        roi, direction = parts
+        return {
+            "roi": roi,
+            "direction": direction,
+            "td_ms": None,
+        }
+    if len(parts) == 3:
+        if _looks_like_float(parts[2]):
+            roi, direction, td_ms = parts
+            return {
+                "roi": roi,
+                "direction": direction,
+                "td_ms": float(td_ms),
+            }
+        subj, roi, direction = parts
+        return {
+            "subj": subj,
+            "roi": roi,
+            "direction": direction,
+            "td_ms": None,
+        }
+    if len(parts) == 4:
+        subj, roi, direction, td_ms = parts
+        return {
+            "subj": subj,
+            "roi": roi,
+            "direction": direction,
+            "td_ms": float(td_ms),
+        }
+    raise ValueError(
+        "Formato inválido en --exclude-match. Usa 'roi|direction', "
+        "'subj|roi|direction', 'roi|direction|td_ms' "
+        "o 'subj|roi|direction|td_ms'."
+    )
+
+
+def _looks_like_float(text: str) -> bool:
+    try:
+        float(text)
+        return True
+    except Exception:
+        return False
 
 
 def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
@@ -46,6 +103,32 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
     if args.subjs is not None and "subj" in df.columns:
         df = df[df["subj"].astype(str).isin([str(x) for x in args.subjs])].copy()
 
+    if args.exclude_td_ms:
+        td_vals = pd.to_numeric(df.get("td_ms"), errors="coerce")
+        keep = np.ones(len(df), dtype=bool)
+        for td_excl in args.exclude_td_ms:
+            keep &= ~np.isclose(td_vals.to_numpy(dtype=float), float(td_excl), atol=1e-3, equal_nan=False)
+        df = df.loc[keep].copy()
+
+    if args.exclude_match:
+        keep = np.ones(len(df), dtype=bool)
+        td_vals = pd.to_numeric(df.get("td_ms"), errors="coerce")
+        subj_vals = df["subj"].astype(str).str.strip() if "subj" in df.columns else pd.Series([""] * len(df), index=df.index)
+        roi_vals = df["roi"].astype(str).str.strip() if "roi" in df.columns else pd.Series([""] * len(df), index=df.index)
+        dir_vals = df["direction"].astype(str).str.strip() if "direction" in df.columns else pd.Series([""] * len(df), index=df.index)
+
+        for spec in args.exclude_match:
+            rule = _parse_exclude_match(spec)
+            mask = np.ones(len(df), dtype=bool)
+            mask &= roi_vals.to_numpy(dtype=str) == str(rule["roi"])
+            mask &= dir_vals.to_numpy(dtype=str) == str(rule["direction"])
+            if rule.get("td_ms") is not None:
+                mask &= np.isclose(td_vals.to_numpy(dtype=float), float(rule["td_ms"]), atol=1e-3, equal_nan=False)
+            if "subj" in rule:
+                mask &= subj_vals.to_numpy(dtype=str) == str(rule["subj"])
+            keep &= ~mask
+        df = df.loc[keep].copy()
+
     if args.y_col not in df.columns:
         raise KeyError(f"No existe y_col={args.y_col!r} en la tabla combinada.")
 
@@ -68,7 +151,15 @@ def main() -> None:
     ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
-    ap.add_argument("--y-col", default="tc_peak_ms", help="Columna a ajustar vs td_ms. Ej: tc_peak_ms o tc_ms.")
+    ap.add_argument("--y-col", default="tc_peak_ms", help="Columna a ajustar vs td_ms. Ej: tc_peak_ms o tc_fit_ms.")
+    ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="Lista de td_ms a excluir del ajuste. Ej: --exclude-td-ms 209.1")
+    ap.add_argument(
+        "--exclude-match",
+        nargs="*",
+        default=None,
+        help="Excluye filas específicas. Formato: roi|direction, subj|roi|direction, roi|direction|td_ms o subj|roi|direction|td_ms.",
+    )
+    ap.add_argument("--no-errorbars", action="store_true", help="Si se pasa, los plots de pseudohuber se generan sin barras/bandas de error.")
     ap.add_argument("--summary-alpha", default=None, help="Ruta a summary_alpha_values.xlsx. Si no, no se usa salvo que el método lo requiera.")
     ap.add_argument("--out-dir", default=None, help="Directorio de salida. Si no, se arma a partir del input.")
     args = ap.parse_args()
@@ -89,12 +180,13 @@ def main() -> None:
     if args.out_dir is not None:
         out_dir = Path(args.out_dir)
     else:
+        tc_dirname = _tc_vs_td_dirname(args.y_col)
         groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
         if groupfits_path is not None:
-            out_dir = Path(groupfits_path).resolve().parent / "tc_vs_td" / args.method / args.y_col
+            out_dir = Path(groupfits_path).resolve().parent / tc_dirname / args.method / args.y_col
         else:
             first = Path(args.fits[0]).resolve()
-            out_dir = (first if first.is_dir() else first.parent) / "tc_vs_td" / args.method / args.y_col
+            out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method / args.y_col
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -107,6 +199,7 @@ def main() -> None:
         alpha_macro_df=alpha_macro_df,
         y_col=args.y_col,
         y_label=y_label,
+        show_errorbars=not args.no_errorbars,
     )
 
 
