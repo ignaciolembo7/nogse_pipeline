@@ -21,6 +21,7 @@ from .tc_td_pseudohuber import (
     fit_tc_vs_td_pseudohuber,
     block1b_alpha_vs_Td,
     block1c_smallTd_tc_approx,
+    block1d_fullrange_tc_with_approximations,
     block2_region_plots,
     block3_alpha_macro_summary_vs_fit,
     block4_qquad_vs_alpha_macro,
@@ -89,6 +90,7 @@ def run_pseudohuber_free(
     # Blocks que no dependen de nombres específicos de direction
     block1b_alpha_vs_Td(df_params, df_fit, out_dir)
     block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
+    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Block2b ahora es genérico: plotea 1×N con TODAS las direcciones presentes
@@ -142,6 +144,7 @@ def run_pseudohuber_fixed_macro(
 
     block1b_alpha_vs_Td(df_params, df_fit, out_dir)
     block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
+    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Genérico (no depende de long/tra)

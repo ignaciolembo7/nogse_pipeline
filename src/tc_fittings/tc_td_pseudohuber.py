@@ -28,6 +28,10 @@ def tc_quadratic_smallTd(Td: np.ndarray, c: float, delta: float, alpha_macro: fl
     q = alpha_macro / (2.0 * delta)
     return c + q * Td**2
 
+def tc_linear_largeTd(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
+    Td = np.asarray(Td, float)
+    return c - alpha_macro * delta + alpha_macro * Td
+
 def A_from_params(delta: float, alpha_macro: float) -> float:
     return float(alpha_macro / delta) if delta > 0 else float("nan")
 
@@ -122,6 +126,16 @@ def _make_grid(n: int, ncols: int = 3) -> tuple[int, int]:
     ncols = max(1, int(ncols))
     nrows = int(np.ceil(n / ncols))
     return nrows, ncols
+
+def _safe_tag(text: object) -> str:
+    return (
+        str(text)
+        .strip()
+        .replace(" ", "_")
+        .replace("/", "-")
+        .replace("\\", "-")
+        .replace(":", "-")
+    )
 
 
 # ---------------------------
@@ -971,6 +985,146 @@ def block1c_smallTd_tc_approx(
         plt.tight_layout(rect=[0,0.03,1,0.95])
         plt.savefig(out_dir / f"BLOCK1c_{y_col}_smallTd_dir={dir_actual}.png", dpi=300)
         plt.close()
+
+
+def block1d_fullrange_tc_with_approximations(
+    df_params: pd.DataFrame,
+    df_fit: pd.DataFrame,
+    out_dir: Path,
+    *,
+    y_col: str = "tc_peak_ms",
+    y_label: str = "$t_{c,peak}$ [ms]",
+    td_min_ms: float = 0.0,
+    td_max_ms: float = 2000.0,
+    n_points: int = 1000,
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    per_fit_dir = out_dir / "BLOCK1d_fullrange_per_fit"
+    per_fit_dir.mkdir(parents=True, exist_ok=True)
+
+    df_params = _ensure_subj(_ensure_direction(df_params.copy()))
+    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
+
+    subjs = sorted(df_fit["subj"].unique())
+    regiones = sorted(df_fit["roi"].unique())
+    directions = _directions_present(df_fit)
+    xx = np.linspace(float(td_min_ms), float(td_max_ms), int(n_points))
+
+    curve_rows = []
+
+    for dir_actual in directions:
+        nrows, ncols = _make_grid(len(regiones), ncols=3)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 4.8*nrows), sharex=True)
+        axes = np.array(axes).reshape(-1)
+
+        for ax, region in zip(axes, regiones):
+            any_line = False
+            for subj in subjs:
+                sub_data = df_params[
+                    (df_params["direction"] == dir_actual) &
+                    (df_params["subj"] == subj) &
+                    (df_params["roi"] == region)
+                ].sort_values("td_ms")
+
+                sub_fit = df_fit[
+                    (df_fit["direction"] == dir_actual) &
+                    (df_fit["subj"] == subj) &
+                    (df_fit["roi"] == region)
+                ]
+                if sub_fit.empty:
+                    continue
+
+                c = float(sub_fit["c"].values[0])
+                delta = float(sub_fit["delta"].values[0])
+                alpha_macro = float(sub_fit["alpha_macro"].values[0])
+                y_full = tc_pseudohuber(xx, c, delta, alpha_macro)
+                y_quad = tc_quadratic_smallTd(xx, c, delta, alpha_macro)
+                y_linear = tc_linear_largeTd(xx, c, delta, alpha_macro)
+
+                curve_rows.extend(
+                    {
+                        "subj": subj,
+                        "roi": region,
+                        "direction": dir_actual,
+                        "y_col": y_col,
+                        "td_ms": float(xv),
+                        "tc_full": float(yf),
+                        "tc_quad_smallTd": float(yq),
+                        "tc_linear_largeTd": float(yl),
+                        "c": c,
+                        "delta": delta,
+                        "alpha_macro": alpha_macro,
+                    }
+                    for xv, yf, yq, yl in zip(xx, y_full, y_quad, y_linear)
+                )
+
+                label_base = f"{subj}"
+                ax.plot(xx, y_full, "-", linewidth=2, label=f"{label_base} full")
+                ax.plot(xx, y_quad, "--", linewidth=1.2, label=f"{label_base} quad")
+                ax.plot(xx, y_linear, ":", linewidth=1.2, label=f"{label_base} linear")
+
+                if not sub_data.empty:
+                    x = sub_data["td_ms"].to_numpy(float)
+                    y = sub_data[y_col].to_numpy(float)
+                    m = np.isfinite(x) & np.isfinite(y)
+                    if np.any(m):
+                        ax.plot(x[m], y[m], "o", markersize=5, label=f"{label_base} data")
+
+                any_line = True
+
+                fig_one, ax_one = plt.subplots(1, 1, figsize=(8, 5))
+                ax_one.plot(xx, y_full, "-", linewidth=2.5, label="full")
+                ax_one.plot(xx, y_quad, "--", linewidth=1.8, label="quad small-Td")
+                ax_one.plot(xx, y_linear, ":", linewidth=1.8, label="linear large-Td")
+                if not sub_data.empty:
+                    x = sub_data["td_ms"].to_numpy(float)
+                    y = sub_data[y_col].to_numpy(float)
+                    m = np.isfinite(x) & np.isfinite(y)
+                    if np.any(m):
+                        ax_one.plot(x[m], y[m], "o", markersize=6, label="data")
+                ax_one.set_xlim(float(td_min_ms), float(td_max_ms))
+                ax_one.set_xlabel("Td [ms]")
+                ax_one.set_ylabel(y_label)
+                ax_one.set_title(
+                    f"{subj} | {region} | dir={dir_actual}\n"
+                    f"c={c:.4g}, delta={delta:.4g} ms, alpha_macro={alpha_macro:.4g}"
+                )
+                ax_one.grid(True)
+                ax_one.legend(fontsize=9)
+                plt.tight_layout()
+                plt.savefig(
+                    per_fit_dir / (
+                        f"BLOCK1d_{y_col}_subj={_safe_tag(subj)}"
+                        f"_roi={_safe_tag(region)}_dir={_safe_tag(dir_actual)}.png"
+                    ),
+                    dpi=300,
+                )
+                plt.close(fig_one)
+
+            ax.set_title(region)
+            ax.set_xlim(float(td_min_ms), float(td_max_ms))
+            ax.set_xlabel("Td [ms]")
+            ax.set_ylabel(y_label)
+            ax.grid(True)
+            if any_line:
+                ax.legend(fontsize=8)
+
+        for ax in axes[len(regiones):]:
+            ax.axis("off")
+
+        plt.suptitle(
+            f"BLOCK1d {y_col}(Td) full range + approximations | dir={dir_actual} | "
+            f"{td_min_ms:.0f}-{td_max_ms:.0f} ms",
+            fontsize=16,
+        )
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.savefig(out_dir / f"BLOCK1d_{y_col}_fullrange_dir={dir_actual}.png", dpi=300)
+        plt.close()
+
+    if curve_rows:
+        df_curves = pd.DataFrame(curve_rows)
+        df_curves.to_csv(out_dir / f"BLOCK1d_{y_col}_fullrange_curves.csv", index=False)
+        df_curves.to_excel(out_dir / f"BLOCK1d_{y_col}_fullrange_curves.xlsx", index=False)
 
 
 # ---------------------------

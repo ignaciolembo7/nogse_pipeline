@@ -94,3 +94,6 @@ ogse_experiments/
 # Misc
 *.tmp
 *.bak
+
+# Bash 
+bash/

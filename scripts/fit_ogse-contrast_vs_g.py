@@ -176,10 +176,26 @@ def main() -> None:
     ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
     ap.add_argument("--corr_sheet", default=None, help="Optional sheet name to use inside the correction table. Defaults to the analysis_id prefix.")
 
-    ap.add_argument("--fix_M0", type=float, default=None)
-    ap.add_argument("--free_M0", action="store_true")
-    ap.add_argument("--fix_D0", type=float, default=None, help="Fix D0 in m^2/ms. Example: 3.2e-12 for 0.0032 mm^2/s.")
-    ap.add_argument("--free_D0", action="store_true", help="Keep D0 free even if a fixed value was used elsewhere.")
+    grp_m0 = ap.add_mutually_exclusive_group()
+    grp_m0.add_argument("--fix_M0", type=float, default=None, help="Fix M0 to a specific value.")
+    grp_m0.add_argument(
+        "--free_M0",
+        nargs="?",
+        const=1.0,
+        type=float,
+        default=None,
+        help="Keep M0 free. Optional value is the initial seed. Default seed: 1.0.",
+    )
+    grp_d0 = ap.add_mutually_exclusive_group()
+    grp_d0.add_argument("--fix_D0", type=float, default=None, help="Fix D0 in m^2/ms. Example: 3.2e-12 for 0.0032 mm^2/s.")
+    grp_d0.add_argument(
+        "--free_D0",
+        nargs="?",
+        const=2.3e-12,
+        type=float,
+        default=None,
+        help="Keep D0 free. Optional value is the initial seed. Default seed: 2.3e-12.",
+    )
 
     ap.add_argument("--n_fit", type=int, default=None, help="Use only the first n_fit points after sorting by x.")
     ap.add_argument("--peak_grid_n", type=int, default=1000, help="Number of points used to search for the fitted peak.")
@@ -234,22 +250,22 @@ def main() -> None:
         )
 
     # M0 flags
-    if args.free_M0:
-        M0_vary = True
-        M0_value = 1.0
-    elif args.fix_M0 is not None:
+    if args.fix_M0 is not None:
         M0_vary = False
         M0_value = float(args.fix_M0)
+    elif args.free_M0 is not None:
+        M0_vary = True
+        M0_value = float(args.free_M0)
     else:
         M0_vary = True
         M0_value = 1.0
 
-    if args.free_D0:
-        D0_vary = True
-        D0_value = 2.3e-12
-    elif args.fix_D0 is not None:
+    if args.fix_D0 is not None:
         D0_vary = False
         D0_value = float(args.fix_D0)
+    elif args.free_D0 is not None:
+        D0_vary = True
+        D0_value = float(args.free_D0)
     else:
         D0_vary = True
         D0_value = 2.3e-12
