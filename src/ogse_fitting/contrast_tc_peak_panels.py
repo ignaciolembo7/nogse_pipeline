@@ -227,6 +227,7 @@ def plot_contrast_tc_peak_panels(
                     ax = axes[i, j]
                     sub_panel = sub[(sub["roi"].astype(str) == roi) & (sub["direction"].astype(str) == direction)].copy()
                     sub_panel = sub_panel.sort_values("td_ms", kind="stable")
+                    x_bounds: list[np.ndarray] = []
 
                     if sub_panel.empty:
                         ax.set_title(f"{roi} | {direction}")
@@ -265,7 +266,10 @@ def plot_contrast_tc_peak_panels(
                             if not np.any(m_plot):
                                 missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} sin puntos válidos")
                                 continue
-                            ax.plot(x_plot[m_plot], y[m_plot], "o", color=color, markersize=4, alpha=0.95)
+                            x_data = x_plot[m_plot]
+                            y_data = y[m_plot]
+                            x_bounds.append(x_data)
+                            ax.plot(x_data, y_data, "o", color=color, markersize=4, alpha=0.95)
 
                             xs_corr, ys = _build_fit_curve(row, G1, G2)
                             xs_plot = _transform_x(
@@ -277,7 +281,11 @@ def plot_contrast_tc_peak_panels(
                             )
                             m_fit = np.isfinite(xs_plot) & np.isfinite(ys)
                             if np.any(m_fit):
-                                ax.plot(xs_plot[m_fit], ys[m_fit], "-", color=color, linewidth=1.8, alpha=0.95)
+                                x_fit = xs_plot[m_fit]
+                                y_fit = ys[m_fit]
+                                order = np.argsort(x_fit)
+                                x_bounds.append(x_fit)
+                                ax.plot(x_fit[order], y_fit[order], "-", color=color, linewidth=1.8, alpha=0.95)
 
                             x_peak, y_peak = _peak_point_for_xvar(
                                 row,
@@ -309,6 +317,15 @@ def plot_contrast_tc_peak_panels(
                                     )
                         except Exception as exc:
                             missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> {exc}")
+
+                    if x_bounds:
+                        x_all = np.concatenate([arr[np.isfinite(arr)] for arr in x_bounds if arr.size > 0])
+                        if x_all.size > 0:
+                            xmin = float(np.nanmin(x_all))
+                            xmax = float(np.nanmax(x_all))
+                            if np.isfinite(xmin) and np.isfinite(xmax):
+                                pad = 0.05 * (xmax - xmin) if xmax > xmin else max(1.0, 0.05 * abs(xmax) if xmax != 0.0 else 1.0)
+                                ax.set_xlim(xmin - pad, xmax + pad)
 
                     ax.set_title(f"{roi} | {direction}", fontsize=11)
                     ax.grid(True, alpha=0.25)

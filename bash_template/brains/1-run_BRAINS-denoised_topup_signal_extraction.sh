@@ -15,7 +15,7 @@ OUT_ROOT="$PROJECT_ROOT/Data-signals"
 REQUIRE_SUBJECTS_DIR=1
 
 # Load shared batch helpers after defining all required variables.
-source "$SCRIPT_HOME/../coreg_batch_lib.sh"
+source "$SCRIPT_HOME/../helpers/coreg_batch_lib.sh"
 
 init_run "run_BRAINS-denoised_topup_signal_extraction"
 

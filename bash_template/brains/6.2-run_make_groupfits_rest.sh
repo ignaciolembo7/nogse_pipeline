@@ -9,8 +9,8 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 PY="${PY:-python}"
 PIPELINE_SCRIPT="$REPO_ROOT/scripts/run_tc_pipeline.py"
-PLOT_FIT_PANELS_SCRIPT="$REPO_ROOT/bash/run_plot_ogse_contrast_fit_panels.sh"
-PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/bash/run_plot_ogse_tc_peak_panels.sh"
+PLOT_FIT_PANELS_SCRIPT="$REPO_ROOT/bash/helpers/run_plot_ogse_contrast_fit_panels.sh"
+PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/bash/helpers/run_plot_ogse_tc_peak_panels.sh"
 
 FIT_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr"
 CONTRAST_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/contrast-data-rotated"
@@ -23,6 +23,9 @@ DIRECTIONS="long,tra"
 EXCLUDE_TD_MS="209.1"
 FIT_PANELS_OUT_DIR="$FIT_ROOT/contrast_fit_panels"
 TC_PEAK_PANELS_OUT_DIR="$FIT_ROOT/tc_peak_panels"
+
+# Allow EXCLUDE_TD_MS to remain commented out or empty without breaking `set -u`.
+EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
 
 if [[ ! -f "$PIPELINE_SCRIPT" ]]; then
     echo "ERROR: Script not found: $PIPELINE_SCRIPT" >&2

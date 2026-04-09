@@ -16,7 +16,7 @@ COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 OUT_ROOT="$PROJECT_ROOT/Data-signals"
 
 # Load shared batch helpers after defining all required variables.
-source "$SCRIPT_HOME/../coreg_batch_lib.sh"
+source "$SCRIPT_HOME/../helpers/coreg_batch_lib.sh"
 
 init_run "run_PHANTOM-denoised_signal_extraction"
 
