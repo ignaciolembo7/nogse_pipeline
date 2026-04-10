@@ -14,6 +14,8 @@ RUN_SCRIPTS=(
   "0.3-copy_selected_files.sh"
   "1-run_PHANTOM-denoised_signal_extraction.sh"
   "2-run_process_all_results.sh"
+  "2.1-run_plot_selected_nogse_signals.sh"
+  "2.2-run_fit_selected_nogse_signals.sh"
   "3.1-run_make_contrast_selected.sh"
   "3.2-run_plot_all_ogse_contrast_vs_g.sh"
   "4.1-run_fit_ogse_signal_vs_bval.sh"

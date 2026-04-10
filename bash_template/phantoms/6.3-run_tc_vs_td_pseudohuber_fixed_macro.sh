@@ -10,7 +10,15 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
 TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 
 METHOD="pseudohuber_fixed_macro"
@@ -35,13 +43,13 @@ if [[ ! -f "$TC_SCRIPT" ]]; then
 fi
 
 if [[ ! -f "$GROUPFITS" ]]; then
-    echo "ERROR: Groupfits file not found: $GROUPFITS" >&2
-    exit 1
+    echo "Groupfits file not found: $GROUPFITS. Skipping tc vs td."
+    exit 0
 fi
 
 if [[ ! -f "$SUMMARY_ALPHA" ]]; then
-    echo "ERROR: Summary alpha file not found: $SUMMARY_ALPHA" >&2
-    exit 1
+    echo "Summary alpha file not found: $SUMMARY_ALPHA. Skipping tc vs td."
+    exit 0
 fi
 
 mkdir -p "$OUT_DIR"

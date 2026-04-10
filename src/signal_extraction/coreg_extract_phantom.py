@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable, Tuple
@@ -163,14 +164,14 @@ def find_dwis(
     grad_root: Path,
     dwi_glob: str,
     cut_tokens: list[str],
-) -> list[tuple[Path, Path, Path, str, str]]:
+) -> list[tuple[Path, Path, Path, str, str, str]]:
     """
-    Find DWI NIfTIs and matching .bval/.bvec.
+    Find DWI NIfTIs and matching gradient sidecars.
 
     Returns:
-      (dwi_nii, bval, bvec, seq_name_full, seq_no_ext)
+      (dwi_nii, grad_values, grad_vectors, grad_kind, seq_name_full, seq_no_ext)
     """
-    dwis: list[tuple[Path, Path, Path, str, str]] = []
+    dwis: list[tuple[Path, Path, Path, str, str, str]] = []
     for nii in sorted(exp_root.glob(dwi_glob)):
         seq_name_full = strip_nii_ext(nii)
         seq_no_ext, _tok = cut_before_any(seq_name_full, cut_tokens)
@@ -178,12 +179,18 @@ def find_dwis(
         bval = grad_root / f"{seq_no_ext}.bval"
         bvec = grad_root / f"{seq_no_ext}.bvec"
         if bval.exists() and bvec.exists():
-            dwis.append((nii, bval, bvec, seq_name_full, seq_no_ext))
+            dwis.append((nii, bval, bvec, "b", seq_name_full, seq_no_ext))
+            continue
+
+        gval = grad_root / f"{seq_no_ext}.gval"
+        gvec = grad_root / f"{seq_no_ext}.gvec"
+        if gval.exists() and gvec.exists():
+            dwis.append((nii, gval, gvec, "g", seq_name_full, seq_no_ext))
 
     if not dwis:
         raise SystemExit(
             f"[STOP] No DWIs found with glob '{dwi_glob}' in {exp_root} "
-            f"with gradients in {grad_root}."
+            f"with gradients in {grad_root}. Expected .bval/.bvec or .gval/.gvec files."
         )
 
     return dwis
@@ -220,6 +227,74 @@ def make_b0_mean_with_mrtrix_fsl(
     return b0_mean
 
 
+def make_full_mean_with_fsl(
+    dwi_nii: Path,
+    out_seq: Path,
+    dry_run: bool = False,
+    fail_on_existing: bool = False,
+) -> Path:
+    """
+    Compute the mean across all DWI volumes:
+      - copy full 4D DWI -> NII_mean.nii.gz
+      - fslmaths -Tmean  -> mean.nii.gz
+    """
+    out_seq.mkdir(parents=True, exist_ok=True)
+    nii_mean = out_seq / "NII_mean.nii.gz"
+    mean_img = out_seq / "mean.nii.gz"
+
+    if maybe_reuse_existing(mean_img, "mean.nii.gz", fail_on_existing):
+        return mean_img
+
+    if dry_run:
+        print(f"cp {dwi_nii} {nii_mean}")
+    else:
+        shutil.copyfile(dwi_nii, nii_mean)
+
+    run(["fslmaths", str(nii_mean), "-Tmean", str(out_seq / "mean")], dry_run=dry_run)
+    return mean_img
+
+
+def make_zero_gradient_mean_from_values(
+    dwi_nii: Path,
+    grad_values_path: Path,
+    out_seq: Path,
+    dry_run: bool = False,
+    fail_on_existing: bool = False,
+) -> Path:
+    """
+    Compute a mean reference from all zero-gradient volumes using a .bval or .gval file.
+    """
+    out_seq.mkdir(parents=True, exist_ok=True)
+    nii_b0 = out_seq / "NII_b0.nii.gz"
+    b0_mean = out_seq / "b0_mean.nii.gz"
+
+    if maybe_reuse_existing(b0_mean, "b0_mean.nii.gz", fail_on_existing):
+        return b0_mean
+
+    values = np.loadtxt(grad_values_path, dtype=float)
+    values = np.asarray(values, dtype=float).reshape(-1)
+    zero_idx = np.flatnonzero(np.isclose(values, 0.0, rtol=0.0, atol=1e-9))
+    if zero_idx.size == 0:
+        raise SystemExit(
+            f"[STOP] Could not find zero-gradient volumes in {grad_values_path}. "
+            "Use --mean if this sequence should be collapsed across all volumes."
+        )
+
+    if dry_run:
+        print(
+            f"[DRY] Would extract {zero_idx.size} zero-gradient volumes from "
+            f"{dwi_nii} using {grad_values_path} -> {nii_b0}"
+        )
+    else:
+        dwi_img = nib.load(str(dwi_nii))
+        data = np.asanyarray(dwi_img.dataobj)[..., zero_idx]
+        out_img = nib.Nifti1Image(data, dwi_img.affine, dwi_img.header.copy())
+        nib.save(out_img, str(nii_b0))
+
+    run(["fslmaths", str(nii_b0), "-Tmean", str(out_seq / "b0_mean")], dry_run=dry_run)
+    return b0_mean
+
+
 # ---------------------------------------------------------------------
 # Mask discovery / exports
 # ---------------------------------------------------------------------
@@ -246,7 +321,9 @@ def discover_sequence_masks(
     """
     reserved_substrings = (
         "NII_b0",
+        "NII_mean",
         "b0_mean",
+        "mean.nii.gz",
         "_b0_brain",
         "b0_2_T1",
         "T1_2_",
@@ -373,11 +450,12 @@ def main() -> None:
 
     ap.add_argument("--exp-root", type=Path, required=True, help="Folder containing DWI NIfTIs.")
     ap.add_argument("--out-root", type=Path, required=True, help="Base output folder.")
-    ap.add_argument("--grad-root", type=Path, default=None, help="Folder with .bval/.bvec. Defaults to --exp-root if omitted.")
+    ap.add_argument("--grad-root", type=Path, default=None, help="Folder with .bval/.bvec or .gval/.gvec. Defaults to --exp-root if omitted.")
 
     ap.add_argument("--dwi-glob", default="*.nii.gz", help="Glob pattern to find DWI NIfTIs within --exp-root.")
     ap.add_argument("--cut-token", action="append", default=[""], help="Token(s) used to derive seq_no_ext from seq_name_full.")
     ap.add_argument("--mask-glob", default="*mask*.nii*", help="Glob used inside each per-sequence output folder to discover manually drawn binary masks.")
+    ap.add_argument("--mean", action="store_true", help="Collapse all volumes into one mean image and write one signal row per sequence.")
 
     ap.add_argument("--write-fslmeants", action="store_true", help="Write fslmeants .txt files in addition to the Excel table.")
     ap.add_argument("--dry-run", action="store_true", help="Print commands but do not execute external commands.")
@@ -395,17 +473,36 @@ def main() -> None:
 
     dwis = find_dwis(exp_root, grad_root, args.dwi_glob, args.cut_token)
 
-    for dwi_nii, bval, bvec, seq_name_full, seq_no_ext in dwis:
+    for dwi_nii, grad_values, grad_vectors, grad_kind, seq_name_full, seq_no_ext in dwis:
         out_seq = out_subj / seq_no_ext
         out_seq.mkdir(parents=True, exist_ok=True)
 
         print(f"\n=== Working on phantom sequence ===\nSEQ_NAME={seq_name_full}\nSEQ_no_ext={seq_no_ext}\n")
 
-        b0_mean = make_b0_mean_with_mrtrix_fsl(
-            dwi_nii, bvec, bval, out_seq,
-            dry_run=args.dry_run,
-            fail_on_existing=args.fail_on_existing,
-        )
+        if args.mean:
+            ref_img = make_full_mean_with_fsl(
+                dwi_nii,
+                out_seq,
+                dry_run=args.dry_run,
+                fail_on_existing=args.fail_on_existing,
+            )
+        elif grad_kind == "b":
+            ref_img = make_b0_mean_with_mrtrix_fsl(
+                dwi_nii,
+                grad_vectors,
+                grad_values,
+                out_seq,
+                dry_run=args.dry_run,
+                fail_on_existing=args.fail_on_existing,
+            )
+        else:
+            ref_img = make_zero_gradient_mean_from_values(
+                dwi_nii,
+                grad_values,
+                out_seq,
+                dry_run=args.dry_run,
+                fail_on_existing=args.fail_on_existing,
+            )
 
         mask_specs = discover_sequence_masks(out_seq, dwi_nii, args.mask_glob)
         if not mask_specs:
@@ -426,7 +523,7 @@ def main() -> None:
             all_rois_multilabel = out_seq / f"ALL_ROIS_labels_2_{seq_name_full}.nii.gz"
             all_rois_mapping = out_seq / f"ALL_ROIS_labels_2_{seq_name_full}_mapping.csv"
             build_multilabel_from_binary_masks(
-                ref_img_path=b0_mean,
+                ref_img_path=ref_img,
                 mask_specs=mask_specs,
                 out_img_path=all_rois_multilabel,
                 out_csv_path=all_rois_mapping,
@@ -448,7 +545,7 @@ def main() -> None:
         rois = [build_roi_from_binary_mask(mask_path, dwi_img, roi_name) for roi_name, mask_path in mask_specs]
 
         print("[INFO] Extracting ROI tables (this can take a while)...")
-        tables = extract_tables(dwi_nii, bval, rois)
+        tables = extract_tables(dwi_nii, grad_values, rois, collapse_mean=args.mean)
         print("[INFO] Writing Excel...")
 
         out_xlsx = out_root / "Results" / subj / f"{seq_no_ext}_results.xlsx"

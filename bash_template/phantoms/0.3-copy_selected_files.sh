@@ -4,15 +4,11 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-BASE="Data-signals/20220610-PHANTOM3"
-SRC="$BASE/20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d33_Hz000_b2000_DMRIPHANTOM_20220609151744_51"
+BASE="Data-signals/20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+SRC="$BASE/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_G00_20260122092639_13"
 
 FILES=(
-  "fiber1_mask.nii.gz"
-  "fiber2_mask.nii.gz"
-  "water_mask.nii.gz"
-  "water1_mask.nii.gz"
-  "water2_mask.nii.gz"
+  "mask.nii.gz"
 )
 
 if [[ ! -d "$BASE" ]]; then

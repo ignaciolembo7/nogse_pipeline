@@ -5,37 +5,43 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-SUBJ=""
-EXP_PARENT="Data-NIFTI-BRAINS-denoised_topup"
-OUT_ROOT_REL="Data_signals"
-CUT_TOKEN="_hifi_images_den"
+SUBJ="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+EXP_PARENT="Data-NIFTI"
+OUT_ROOT_REL="Data-signals"
+CUT_TOKEN=""
+# Reference mode:
+#   - mean: average all DWI volumes and write NII_mean.nii.gz + mean.nii.gz
+#   - b0  : extract only b=0 volumes and write NII_b0.nii.gz + b0_mean.nii.gz
+REF_MODE="mean"
 
 usage() {
   echo "Usage:"
-  echo "  bash nogse_pipeline/scripts/prep_phantom_b0.sh --subject <SUBJECT> [options]"
+  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh [options]"
   echo
   echo "Options:"
   echo "  --subject SUBJ     Subject/experiment folder name"
-  echo "                     Example: 20220622_BRAIN"
+  echo "                     Default: $SUBJ"
   echo "  --exp-parent DIR   Parent directory containing <SUBJECT>"
-  echo "                     Default: Data-NIFTI-BRAINS-denoised_topup"
+  echo "                     Default: $EXP_PARENT"
   echo "  --out-root DIR     Output root directory"
-  echo "                     Default: Data_signals"
+  echo "                     Default: $OUT_ROOT_REL"
   echo "  --cut-token TOKEN  Token used to strip the NIfTI filename into seq_no_ext"
-  echo "                     Default: _hifi_images_den"
+  echo "                     Default: '$CUT_TOKEN'"
+  echo
+  echo "Reference mode is configured inside the script:"
+  echo "  REF_MODE=\"mean\"   -> average all volumes"
+  echo "  REF_MODE=\"b0\"     -> average only b=0 volumes"
   echo
   echo "Examples:"
-  echo "  bash nogse_pipeline/scripts/prep_phantom_b0.sh \\"
-  echo "    --subject 20220622_BRAIN"
+  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh"
   echo
-  echo "  bash nogse_pipeline/scripts/prep_phantom_b0.sh \\"
-  echo "    --subject 20220622_BRAIN \\"
-  echo "    --exp-parent Data-NIFTI-BRAINS-denoised_topup"
+  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh \\"
+  echo "    --subject 20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
   echo
-  echo "  bash nogse_pipeline/scripts/prep_phantom_b0.sh \\"
-  echo "    --subject 20220622_BRAIN \\"
-  echo "    --exp-parent Data-NIFTI-PHANTOMS \\"
-  echo "    --out-root Data_signals"
+  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh \\"
+  echo "    --subject 20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF \\"
+  echo "    --exp-parent Data-NIFTI \\"
+  echo "    --out-root Data-signals"
   exit 1
 }
 
@@ -67,12 +73,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$SUBJ" ]]; then
-  echo "ERROR: --subject is required"
-  usage
-fi
+case "$REF_MODE" in
+  mean|b0)
+    ;;
+  *)
+    echo "ERROR: REF_MODE must be 'mean' or 'b0', got: $REF_MODE"
+    exit 1
+    ;;
+esac
 
-PROJECT_ROOT="$PWD"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 EXP_ROOT="$PROJECT_ROOT/$EXP_PARENT/$SUBJ"
 OUT_SUBJ="$PROJECT_ROOT/$OUT_ROOT_REL/$SUBJ"
 
@@ -91,6 +102,7 @@ echo "EXP_PARENT  : $EXP_PARENT"
 echo "EXP_ROOT    : $EXP_ROOT"
 echo "OUT_SUBJ    : $OUT_SUBJ"
 echo "CUT_TOKEN   : $CUT_TOKEN"
+echo "REF_MODE    : $REF_MODE"
 echo "============================================================"
 
 shopt -s nullglob
@@ -102,27 +114,14 @@ for dwi in "$EXP_ROOT"/*.nii.gz; do
 
   base="$(basename "$dwi")"
   seq_name_full="${base%.nii.gz}"
-  seq_no_ext="${seq_name_full%%"$CUT_TOKEN"*}"
-
-  bval="$EXP_ROOT/$seq_no_ext.bval"
-  bvec="$EXP_ROOT/$seq_no_ext.bvec"
-
-  if [[ ! -f "$bval" || ! -f "$bvec" ]]; then
-    echo
-    echo "[WARN] Could not find gradients for:"
-    echo "       $seq_name_full"
-    echo "       Expected:"
-    echo "       $bval"
-    echo "       $bvec"
-    echo "       Skipping this sequence."
-    continue
+  if [[ -n "$CUT_TOKEN" ]]; then
+    seq_no_ext="${seq_name_full%%"$CUT_TOKEN"*}"
+  else
+    seq_no_ext="$seq_name_full"
   fi
 
   out_seq="$OUT_SUBJ/$seq_no_ext"
   mkdir -p "$out_seq"
-
-  nii_b0="$out_seq/NII_b0.nii.gz"
-  b0_mean="$out_seq/b0_mean.nii.gz"
 
   echo
   echo "------------------------------------------------------------"
@@ -131,12 +130,42 @@ for dwi in "$EXP_ROOT"/*.nii.gz; do
   echo "Output dir  : $out_seq"
   echo "------------------------------------------------------------"
 
-  if [[ ! -f "$b0_mean" ]]; then
-    echo "[INFO] Generating NII_b0 and b0_mean..."
-    dwiextract -bzero "$dwi" "$nii_b0" --fslgrad "$bvec" "$bval" -force
-    fslmaths "$nii_b0" -Tmean "$out_seq/b0_mean"
+  if [[ "$REF_MODE" == "mean" ]]; then
+    nii_mean="$out_seq/NII_mean.nii.gz"
+    mean_img="$out_seq/mean.nii.gz"
+
+    if [[ ! -f "$mean_img" ]]; then
+      echo "[INFO] Generating NII_mean and mean..."
+      cp -f "$dwi" "$nii_mean"
+      fslmaths "$nii_mean" -Tmean "$out_seq/mean"
+    else
+      echo "[INFO] Already exists: $mean_img"
+    fi
   else
-    echo "[INFO] Already exists: $b0_mean"
+    bval="$EXP_ROOT/$seq_no_ext.bval"
+    bvec="$EXP_ROOT/$seq_no_ext.bvec"
+    nii_b0="$out_seq/NII_b0.nii.gz"
+    b0_mean="$out_seq/b0_mean.nii.gz"
+
+    if [[ ! -f "$bval" || ! -f "$bvec" ]]; then
+      echo
+      echo "[WARN] Could not find gradients for:"
+      echo "       $seq_name_full"
+      echo "       Expected:"
+      echo "       $bval"
+      echo "       $bvec"
+      echo "       Set REF_MODE=\"mean\" inside this script to average all volumes instead."
+      echo "       Skipping this sequence."
+      continue
+    fi
+
+    if [[ ! -f "$b0_mean" ]]; then
+      echo "[INFO] Generating NII_b0 and b0_mean..."
+      dwiextract -bzero "$dwi" "$nii_b0" --fslgrad "$bvec" "$bval" -force
+      fslmaths "$nii_b0" -Tmean "$out_seq/b0_mean"
+    else
+      echo "[INFO] Already exists: $b0_mean"
+    fi
   fi
 done
 
@@ -149,6 +178,11 @@ fi
 echo
 echo "============================================================"
 echo "Done."
-echo "Now draw the masks manually on each:"
-echo "  $OUT_ROOT_REL/$SUBJ/<sequence>/b0_mean.nii.gz"
+if [[ "$REF_MODE" == "mean" ]]; then
+  echo "Now draw the masks manually on each:"
+  echo "  $OUT_ROOT_REL/$SUBJ/<sequence>/mean.nii.gz"
+else
+  echo "Now draw the masks manually on each:"
+  echo "  $OUT_ROOT_REL/$SUBJ/<sequence>/b0_mean.nii.gz"
+fi
 echo "============================================================"

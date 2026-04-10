@@ -28,6 +28,16 @@ def _unique_scalar_from_aliases(df: pd.DataFrame, aliases: list[str], cast=float
     return None
 
 
+def _unique_str_from_aliases(df: pd.DataFrame, aliases: list[str]) -> str | None:
+    for col in aliases:
+        if col not in df.columns:
+            continue
+        u = pd.Series(df[col]).dropna().astype(str).str.lower().unique().tolist()
+        if len(u) == 1:
+            return str(u[0])
+    return None
+
+
 def _first_finite(series: pd.Series | None) -> float:
     if series is None:
         return np.nan
@@ -181,6 +191,19 @@ def rotate_signals_tensor(
         raise ValueError("rotate_signals_tensor espera tablas limpias y usa b_col='bvalue'.")
 
     clean = finalize_clean_signal_long(df_long)
+    gradient_axis_kind = _unique_str_from_aliases(clean, ["gradient_axis_kind"])
+    if gradient_axis_kind == "g":
+        derived_cols = ["bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten"]
+        has_any_b_axis = any(
+            col in clean.columns and pd.to_numeric(clean[col], errors="coerce").notna().any()
+            for col in derived_cols
+        )
+        if not has_any_b_axis:
+            raise ValueError(
+                "rotate_signals_tensor does not support direct g-only inputs yet. "
+                "This step needs a real b-value axis or precomputed bvalue_* columns."
+            )
+
     dfa = clean[clean["stat"] == stat_avg].copy()
     if dfa.empty:
         raise ValueError(f"No hay filas con stat='{stat_avg}'.")

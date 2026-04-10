@@ -74,6 +74,37 @@ def _unique_str(df: pd.DataFrame, col: str) -> Optional[str]:
     return None
 
 
+def _require_supported_b_axis_for_fit(df: pd.DataFrame, *, g_type: str) -> None:
+    gradient_axis_kind = _unique_str(df, "gradient_axis_kind")
+    if gradient_axis_kind is None or gradient_axis_kind.lower() != "g":
+        return
+
+    requested = _normalize_g_type(g_type)
+    if requested == "bvalue":
+        target_cols = ["bvalue"]
+    elif requested == "g":
+        target_cols = ["bvalue_g"]
+    elif requested == "g_lin_max":
+        target_cols = ["bvalue_g_lin_max"]
+    elif requested == "g_thorsten":
+        target_cols = ["bvalue_thorsten"]
+    else:
+        target_cols = ["bvalue"]
+
+    has_supported_axis = any(
+        col in df.columns and pd.to_numeric(df[col], errors="coerce").notna().any()
+        for col in target_cols
+    )
+    if has_supported_axis:
+        return
+
+    raise ValueError(
+        "This fit step still requires a real b-value axis. "
+        "The input was marked as direct g-only data, but the needed "
+        f"{target_cols} column(s) are empty."
+    )
+
+
 def _normalize_requested_rois(
     *,
     roi: str = 'ALL',
@@ -706,6 +737,7 @@ def run_fit_from_parquet(
 
     _require_strict_columns(df)
     df = _ensure_keys_types(df)
+    _require_supported_b_axis_for_fit(df, g_type=g_type)
 
     exp_id = infer_exp_id(p)
     sheet = _unique_str(df, 'sheet') or exp_id.split('_')[0]
