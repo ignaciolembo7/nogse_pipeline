@@ -10,7 +10,15 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
 PIPELINE_SCRIPT="$REPO_ROOT/scripts/run_tc_pipeline.py"
 PLOT_FIT_PANELS_SCRIPT="$REPO_ROOT/bash/helpers/run_plot_ogse_contrast_fit_panels.sh"
 PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/bash/helpers/run_plot_ogse_tc_peak_panels.sh"
@@ -20,9 +28,9 @@ CONTRAST_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/contrast-data"
 OUT_XLSX="$FIT_ROOT/groupfits_rest.xlsx"
 OUT_PARQUET="$FIT_ROOT/groupfits_rest.parquet"
 MODELS="rest"
-SUBJS="PHANTOM3"
-ROIS="fiber1,fiber2,water,water1,water2"
-DIRECTIONS="1,2,3"
+SUBJS="ALL"
+ROIS="ALL"
+DIRECTIONS="ALL"
 EXCLUDE_TD_MS="209.1"
 FIT_PANELS_OUT_DIR="$FIT_ROOT/contrast_fit_panels"
 TC_PEAK_PANELS_OUT_DIR="$FIT_ROOT/tc_peak_panels"
@@ -46,13 +54,18 @@ if [[ ! -f "$PLOT_TC_PEAK_PANELS_SCRIPT" ]]; then
 fi
 
 if [[ ! -d "$FIT_ROOT" ]]; then
-    echo "ERROR: Fit root not found: $FIT_ROOT" >&2
-    exit 1
+    echo "Fit root not found: $FIT_ROOT. Skipping grouped summaries."
+    exit 0
 fi
 
 if [[ ! -d "$CONTRAST_ROOT" ]]; then
-    echo "ERROR: Contrast root not found: $CONTRAST_ROOT" >&2
-    exit 1
+    echo "Contrast root not found: $CONTRAST_ROOT. Skipping grouped summaries."
+    exit 0
+fi
+
+if [[ -z "$(find "$FIT_ROOT" -type f -name 'fit_params.parquet' -print -quit)" ]]; then
+    echo "No rest contrast fits were found in $FIT_ROOT. Skipping grouped summaries."
+    exit 0
 fi
 
 mkdir -p "$FIT_ROOT"

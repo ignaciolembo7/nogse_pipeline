@@ -10,14 +10,23 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
 FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse-signal_vs_bval.py}"
 DATA_ROOT="${2:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
 OUT_ROOT="${3:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal}"
 DPROJ_ROOT="${4:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
 YCOL="value_norm"
 G_TYPE="bvalue"
-DIRECTIONS=(1 2 3)
+DIRECTIONS="ALL"
+ROIS="ALL"
 FIX_M0="1.0"
 AUTO_FIT_MIN_POINTS="3"
 AUTO_FIT_MAX_POINTS="11"
@@ -35,106 +44,45 @@ if [[ ! -d "$DATA_ROOT" ]]; then
 fi
 
 mkdir -p "$OUT_ROOT"
-
-declare -a FILES=(
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d33_Hz000_b2000_DMRIPHANTOM_20220609151744_51_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d33_Hz035_b0380_DMRIPHANTOM_20220609151744_52_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d33_Hz065_b0105_DMRIPHANTOM_20220609151744_53_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d44_Hz000_b2000_DMRIPHANTOM_20220609151744_59_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d44_Hz025_b1075_DMRIPHANTOM_20220609151744_60_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d44_Hz050_b0250_DMRIPHANTOM_20220609151744_61_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d55_Hz000_b2000_DMRIPHANTOM_20220609151744_21_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d55_Hz020_b1755_DMRIPHANTOM_20220609151744_22_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d55_Hz040_b0505_DMRIPHANTOM_20220609151744_23_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d66p7_Hz000_b2000_DMRIPHANTOM_20220609151744_12_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d66p7_Hz015_b2000_DMRIPHANTOM_20220609151744_13_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d66p7_Hz030_b1165_DMRIPHANTOM_20220609151744_14_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d100_Hz000_b2000_DMRIPHANTOM_20220609151744_68_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d100_Hz010_b2000_DMRIPHANTOM_20220609151744_69_results.long.parquet"
-"20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_10bval_3orthodir_d100_Hz020_b2000_DMRIPHANTOM_20220609151744_70_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz000_b2000_DMRIPHANTOM_20220609151744_120_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz035_b0190_DMRIPHANTOM_20220609151744_121_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d28p6_Hz070_b0040_DMRIPHANTOM_20220609151744_122_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz000_b2000_DMRIPHANTOM_20220609151744_112_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz025_b0535_DMRIPHANTOM_20220609151744_113_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d40_Hz050_b0125_DMRIPHANTOM_20220609151744_114_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz000_b2000_DMRIPHANTOM_20220609151744_103_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz020_b0885_DMRIPHANTOM_20220609151744_104_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d50_Hz040_b0250_DMRIPHANTOM_20220609151744_105_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz000_b2000_DMRIPHANTOM_20220609151744_93_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz015_b1605_DMRIPHANTOM_20220609151744_94_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d66p7_Hz030_b0530_DMRIPHANTOM_20220609151744_95_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz000_b2000_DMRIPHANTOM_20220609151744_82_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz010_b2000_DMRIPHANTOM_20220609151744_83_results.long.parquet"
-# "20220610-PHANTOM3_ep2d_advdiff_AP_919D_OGSE_DDE_10bval_3orthodir_d100_Hz020_b1245_DMRIPHANTOM_20220609151744_84_results.long.parquet"
-)
-
-# ------------------------------------------------------------------
-# Helper functions
-# ------------------------------------------------------------------
-roi_args_for_file() {
-    local fname="$1"
-    echo "fiber1 fiber2 water water1 water2"
-}
-
-resolve_data_file() {
-    local fname="$1"
-    local direct="$DATA_ROOT/$fname"
-    if [[ -f "$direct" ]]; then
-        printf '%s\n' "$direct"
-        return 0
+direction_args=()
+if [[ "$DIRECTIONS" != "ALL" ]]; then
+    read -r -a dir_list <<< "${DIRECTIONS//,/ }"
+    if (( ${#dir_list[@]} > 0 )); then
+        direction_args+=(--directions "${dir_list[@]}")
     fi
+fi
 
-    local -a matches=()
-    while read -r path; do
-        [[ -n "$path" ]] && matches+=("$path")
-done < <(find "$DATA_ROOT" -mindepth 2 -maxdepth 2 -type f -name "$fname" | sort)
-
-    if (( ${#matches[@]} == 1 )); then
-        printf '%s\n' "${matches[0]}"
-        return 0
+roi_args=()
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        roi_args+=(--rois "${roi_list[@]}")
     fi
-
-    if (( ${#matches[@]} > 1 )); then
-        echo "ERROR: multiple matches found for $fname" >&2
-        printf '  %s\n' "${matches[@]}" >&2
-        return 1
-    fi
-
-    echo "ERROR: missing file: $direct" >&2
-    return 1
-}
+fi
 
 total=0
 ok=0
 failed=0
 declare -a failed_jobs=()
 
-for fname in "${FILES[@]}"; do
+while read -r file_path; do
+    [[ -z "$file_path" ]] && continue
     total=$((total + 1))
+    fname="$(basename "$file_path")"
 
     echo "============================================================"
     echo "Job $total"
     echo "  File: $fname"
 
-    if ! file_path="$(resolve_data_file "$fname")"; then
-        failed=$((failed + 1))
-        failed_jobs+=("missing :: $fname")
-        echo "  Continuing with next job..." >&2
-        continue
-    fi
-
-    read -r -a ROI_ARGS <<< "$(roi_args_for_file "$fname")"
-
     if "$PY" "$FIT_SCRIPT" \
         "$file_path" \
         --out_root "$OUT_ROOT" \
         --out_dproj_root "$DPROJ_ROOT" \
-        --directions "${DIRECTIONS[@]}" \
+        "${direction_args[@]}" \
         --ycol "$YCOL" \
         --g_type "$G_TYPE" \
         --fix_M0 "$FIX_M0" \
-        --rois "${ROI_ARGS[@]}" \
+        "${roi_args[@]}" \
         --auto_fit_points \
         --auto_fit_min_points "$AUTO_FIT_MIN_POINTS" \
         --auto_fit_max_points "$AUTO_FIT_MAX_POINTS" \
@@ -149,13 +97,54 @@ for fname in "${FILES[@]}"; do
         echo "  WARNING: command failed with exit code $status" >&2
         echo "  Continuing with next job..." >&2
     fi
-done
+done < <(
+    find "$DATA_ROOT" -type f -name "*.long.parquet" | sort | while read -r candidate; do
+        if "$PY" - "$candidate" "$G_TYPE" <<'PY'
+from __future__ import annotations
+
+import sys
+
+import numpy as np
+import pandas as pd
+
+
+path = sys.argv[1]
+g_type = sys.argv[2]
+col_map = {
+    "bvalue": ["bvalue"],
+    "g": ["bvalue_g"],
+    "g_lin_max": ["bvalue_g_lin_max"],
+    "g_thorsten": ["bvalue_thorsten"],
+}
+
+target_cols = col_map.get(g_type, [g_type])
+df = pd.read_parquet(path)
+usable = False
+for col in target_cols:
+    if col not in df.columns:
+        continue
+    values = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+    if np.isfinite(values).any() and np.nanmax(values) > 0:
+        usable = True
+        break
+
+raise SystemExit(0 if usable else 1)
+PY
+        then
+            printf '%s\n' "$candidate"
+        fi
+    done
+)
 
 echo
 echo "Finished."
 echo "  Total jobs  : $total"
 echo "  Successful  : $ok"
 echo "  Failed      : $failed"
+
+if (( total == 0 )); then
+    echo "  Notes       : no files expose a usable $G_TYPE axis, so monoexp fitting was skipped."
+fi
 
 if (( failed > 0 )); then
     echo

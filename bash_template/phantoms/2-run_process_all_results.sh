@@ -10,10 +10,18 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/20220610-PHANTOM3"
+DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/20260122-PHANTOM_NISO4"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"

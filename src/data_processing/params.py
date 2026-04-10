@@ -54,6 +54,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
         # limpiar tipos (muchas celdas vienen como '-' o strings)
         for c in [
             "seq", "Hz", "bmax", "delta_ms", "delta_app_ms", "N",
+            "group", "G", "TN", "x", "y",
             "g_thorsten", "max_dur_ms", "TE_ms", "TR_ms", "TM_ms"
         ]:
             if c in sub.columns:
@@ -71,9 +72,9 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     # keep columnas relevantes primero (si existen)
     col_order = [
         c for c in [
-            "sheet","subj","protocol","seq","Hz","bmax","max_dur_ms",
-            "delta_ms","delta_app_ms","N","g_thorsten",
-            "seq_type","TE_ms","TR_ms","TM_ms"
+            "sheet","subj","protocol","seq","group","G","TN","Hz","bmax","max_dur_ms",
+            "delta_ms","delta_app_ms","N","x","y","g_thorsten",
+            "type","seq_type","TE_ms","TR_ms","TM_ms"
         ] if c in params.columns
     ]
     rest = [c for c in params.columns if c not in col_order]
