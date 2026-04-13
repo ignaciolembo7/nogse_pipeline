@@ -101,6 +101,30 @@ def _chi2(y: np.ndarray, yhat: np.ndarray) -> float:
     return float(np.sum((y - yhat) ** 2))
 
 
+def _stderr_from_single_param_jacobian(
+    y: np.ndarray,
+    yhat: np.ndarray,
+    jac: np.ndarray,
+    *,
+    n_params: int = 1,
+) -> float | None:
+    if y.size == 0 or yhat.size != y.size or jac.size != y.size:
+        return None
+    if not np.all(np.isfinite(y)) or not np.all(np.isfinite(yhat)) or not np.all(np.isfinite(jac)):
+        return None
+    dof = int(y.size) - int(n_params)
+    if dof <= 0:
+        return None
+    sse = float(np.sum((y - yhat) ** 2))
+    jtj = float(np.sum(jac ** 2))
+    if not np.isfinite(sse) or not np.isfinite(jtj) or jtj <= 0.0:
+        return None
+    var = sse / (float(dof) * jtj)
+    if not np.isfinite(var) or var < 0.0:
+        return None
+    return float(np.sqrt(var))
+
+
 def _analysis_id_from_source_file(source_file: str | None) -> str:
     if not source_file:
         return ""
@@ -315,7 +339,19 @@ def _fit_free(
 
         D0 = float(np.exp(best_log))
         yhat = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), D0)
-        return float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "logD_scalar_search", None, None
+
+        # Estimate D0 uncertainty from the local Jacobian when only D0 varies.
+        d0_step = max(abs(D0) * 1e-6, abs(float(D0_value)) * 1e-6, 1e-18)
+        d0_lo = max(float(D_lo), float(D0 - d0_step))
+        d0_hi = min(float(D_hi), float(D0 + d0_step))
+        D0_err = None
+        if d0_hi > d0_lo:
+            y_lo = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), float(d0_lo))
+            y_hi = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, float(M0_value), float(d0_hi))
+            jac = (y_hi - y_lo) / float(d0_hi - d0_lo)
+            D0_err = _stderr_from_single_param_jacobian(y, yhat, jac, n_params=1)
+
+        return float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "logD_scalar_search", None, D0_err
 
     def f(_dummy, M0):
         return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, float(D0_value))

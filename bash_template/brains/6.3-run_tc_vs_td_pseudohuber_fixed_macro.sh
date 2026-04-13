@@ -24,7 +24,7 @@ elif [[ "$YCOL" == "tc_fit_ms" || "$YCOL" == "tc_ms" ]]; then
 else
     TC_DIRNAME="${YCOL}_vs_td"
 fi
-OUT_DIR="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr/$TC_DIRNAME/$METHOD/$YCOL"
+OUT_DIR="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr/$TC_DIRNAME/$METHOD" #/$YCOL"
 
 if [[ ! -f "$TC_SCRIPT" ]]; then
     echo "ERROR: Script not found: $TC_SCRIPT" >&2

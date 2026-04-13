@@ -27,6 +27,7 @@ def main() -> None:
     ap.add_argument('--exp-d0-col', default='D0_mm2_s')
     ap.add_argument('--exp-scale', type=float, default=1e-9, help='Escala para convertir D0 monoexp en mm2/s a m2/ms.')
     ap.add_argument('--nogse-d0-col', default='D0_m2_ms', help='Columna D0 del fit de contraste NOGSE.')
+    ap.add_argument('--nogse-d0-err-col', default='D0_err_m2_ms', help='Columna de error de D0 del fit de contraste NOGSE.')
     ap.add_argument('--nogse-scale', type=float, default=1.0, help='Escala adicional para D0 NOGSE si hiciera falta.')
 
     ap.add_argument(
@@ -42,6 +43,7 @@ def main() -> None:
         dir_col='direction',
         td_col='td_ms',
         d0_col=args.nogse_d0_col,
+        d0_err_col=args.nogse_d0_err_col,
         stat_col='stat',
         sheet_col='sheet',
         n1_col='N_1',
