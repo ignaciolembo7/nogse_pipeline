@@ -183,10 +183,10 @@ def main() -> None:
         tc_dirname = _tc_vs_td_dirname(args.y_col)
         groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
         if groupfits_path is not None:
-            out_dir = Path(groupfits_path).resolve().parent / tc_dirname / args.method / args.y_col
+            out_dir = Path(groupfits_path).resolve().parent / tc_dirname / args.method # / args.y_col
         else:
             first = Path(args.fits[0]).resolve()
-            out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method / args.y_col
+            out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method # / args.y_col
 
     out_dir.mkdir(parents=True, exist_ok=True)
 

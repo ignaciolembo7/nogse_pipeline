@@ -12,6 +12,14 @@ from monoexp_fitting.plot_monoexp_D_vs_time import (
 )
 
 
+def _clear_compare_n_pngs(out_dir: Path, xcol: str) -> None:
+    compare_dir = out_dir / xcol / "compare_N"
+    if not compare_dir.exists():
+        return
+    for png in compare_dir.glob("*.png"):
+        png.unlink()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Construye plots de D monoexp vs td_ms y Delta_app_ms desde fit_params.parquet."
@@ -50,6 +58,7 @@ def main() -> None:
         avg.to_excel(out_dir / f"monoexp_D_vs_{xcol}.combined.xlsx", index=False)
         plot_by_roi(avg, xcol=xcol, out_dir=out_dir)
         plot_by_direction(avg, xcol=xcol, out_dir=out_dir)
+        _clear_compare_n_pngs(out_dir, xcol)
         plot_compare_N_within_sheet(avg, xcol=xcol, out_dir=out_dir)
 
     print(f"[OK] Monoexp D summary plots + tables in: {out_dir}")
