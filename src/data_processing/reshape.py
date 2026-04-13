@@ -9,6 +9,7 @@ def to_long(
     ndirs: int,
     nbvals: int,
     bcol: str = "bvalues",
+    out_col: str = "bvalue",
     b0_reps: int = 2,
     source_file: str | None = None,
 ) -> pd.DataFrame:
@@ -58,12 +59,12 @@ def to_long(
             var_name="roi",
             value_name="value",
         )
-        long = long.rename(columns={bcol: "bvalue"})
+        long = long.rename(columns={bcol: out_col})
         long["stat"] = stat
 
         # b0 duplicado por direction (b_step=0)
         b0_long = pd.DataFrame({
-            "bvalue": 0.0,
+            out_col: 0.0,
             "direction": np.repeat(np.arange(1, ndirs + 1), len(rois)),
             "b_step": 0,
             "roi": np.tile(np.array(rois), ndirs),

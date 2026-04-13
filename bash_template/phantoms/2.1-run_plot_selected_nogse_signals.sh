@@ -20,40 +20,40 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
-OUT_ROOT="$ANALYSIS_ROOT/contrast-data/plots"
-PLOT_SCRIPT="$REPO_ROOT/scripts/plot_ogse-contrast_vs_g.py"
-FILE_PATTERN="*.long.parquet"
-XCOL="g_1"
+
+PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse-signal_vs_g.py"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
+OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal-plots/nogse_signal_vs_g"
+XCOL="g"
 YCOL="value_norm"
 STAT="avg"
-DIRECTIONS="ALL"
 ROIS="ALL"
+DIRECTIONS="ALL"
 
-if [[ ! -d "$TABLES_ROOT" ]]; then
-    echo "Contrast tables root not found: $TABLES_ROOT. Skipping contrast plots."
-    exit 0
-fi
+declare -a FILES=(
+  # Add the signal parquet files manually.
+  # Example:
+  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
+)
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then
-    echo "ERROR: Plot script not found: $PLOT_SCRIPT" >&2
+    echo "ERROR: plot script not found: $PLOT_SCRIPT" >&2
     exit 1
 fi
 
 mkdir -p "$OUT_ROOT"
 
 extra_args=()
-if [[ "$DIRECTIONS" != "ALL" ]]; then
-    read -r -a dir_list <<< "${DIRECTIONS//,/ }"
-    if (( ${#dir_list[@]} > 0 )); then
-        extra_args+=(--directions "${dir_list[@]}")
-    fi
-fi
 if [[ "$ROIS" != "ALL" ]]; then
     read -r -a roi_list <<< "${ROIS//,/ }"
     if (( ${#roi_list[@]} > 0 )); then
         extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
+if [[ "$DIRECTIONS" != "ALL" ]]; then
+    read -r -a dir_list <<< "${DIRECTIONS//,/ }"
+    if (( ${#dir_list[@]} > 0 )); then
+        extra_args+=(--directions "${dir_list[@]}")
     fi
 fi
 
@@ -62,48 +62,54 @@ ok=0
 failed=0
 declare -a failed_files=()
 
-while read -r file; do
-    [[ -z "$file" ]] && continue
-
+for file_path in "${FILES[@]}"; do
     total=$((total + 1))
-    base_name="$(basename "$file")"
+    base_name="$(basename "$file_path")"
 
     echo "============================================================"
     echo "Job $total"
-    echo "  File       : $base_name"
-    echo "  X column   : $XCOL"
-    echo "  Y column   : $YCOL"
-    echo "  Stat       : $STAT"
-    echo "  Directions : ${DIRECTIONS[*]}"
+    echo "  File : $base_name"
+
+    if [[ ! -f "$file_path" ]]; then
+        failed=$((failed + 1))
+        failed_files+=("$file_path")
+        echo "  ERROR: missing file: $file_path" >&2
+        echo "  Continuing with next job..." >&2
+        continue
+    fi
 
     if "$PY" "$PLOT_SCRIPT" \
-        "$file" \
-        --xcol "$XCOL" \
-        --y "$YCOL" \
-        --stat "$STAT" \
+        "$file_path" \
         --out_root "$OUT_ROOT" \
+        --xcol "$XCOL" \
+        --ycol "$YCOL" \
+        --stat "$STAT" \
         "${extra_args[@]}"; then
         ok=$((ok + 1))
         echo "  OK"
     else
         status=$?
         failed=$((failed + 1))
-        failed_files+=("$file")
-        echo "  WARNING: failed file: $base_name (exit code: $status)" >&2
-        echo "  Continuing with next file..." >&2
+        failed_files+=("$file_path")
+        echo "  WARNING: command failed with exit code $status" >&2
+        echo "  Continuing with next job..." >&2
     fi
-done < <(find "$TABLES_ROOT" -type f -name "$FILE_PATTERN" | sort)
+done
 
 echo
 echo "Finished."
-echo "  Total files   : $total"
-echo "  Successful    : $ok"
-echo "  Failed        : $failed"
+echo "  Total jobs  : $total"
+echo "  Successful  : $ok"
+echo "  Failed      : $failed"
+
+if (( total == 0 )); then
+    echo "  Notes       : FILES is empty. Add the signal parquets manually in this script."
+fi
 
 if (( failed > 0 )); then
     echo
     echo "Failed files:"
-    for f in "${failed_files[@]}"; do
-        echo "  - $f"
+    for item in "${failed_files[@]}"; do
+        echo "  - $item"
     done
 fi

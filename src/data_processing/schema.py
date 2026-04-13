@@ -12,12 +12,13 @@ CLEAN_SIGNAL_LONG_COLUMNS = [
     "stat", "roi", "direction", "b_step",
     "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
     "g", "g_max", "g_lin_max", "g_thorsten",
+    "gradient_axis_kind",
     "value", "value_norm", "S0",
     "source_file",
     "subj",
     "max_dur_ms", "tm_ms", "td_ms",
-    "Hz", "N", "TE", "TR", "bmax",
-    "protocol", "sequence", "sheet",
+    "Hz", "N", "G", "TN", "x", "y", "TE", "TR", "bmax",
+    "protocol", "sequence", "group", "type", "sheet",
     "Delta_app_ms", "delta_ms",
 ]
 
@@ -25,12 +26,13 @@ CLEAN_DPROJ_LONG_COLUMNS = [
     "roi", "direction", "b_step",
     "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
     "g", "g_max", "g_lin_max", "g_thorsten",
+    "gradient_axis_kind",
     "D_proj",
     "source_file",
     "subj",
     "max_dur_ms", "tm_ms", "td_ms",
-    "Hz", "N", "TE", "TR", "bmax",
-    "protocol", "sequence", "sheet",
+    "Hz", "N", "G", "TN", "x", "y", "TE", "TR", "bmax",
+    "protocol", "sequence", "group", "type", "sheet",
     "Delta_app_ms", "delta_ms",
 ]
 
@@ -38,18 +40,26 @@ SIGNAL_LONG_PREFIX = [
     "stat","roi","direction","b_step","bvalue",
     "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten",
     "g","g_max","g_lin_max","g_thorsten",
+    "gradient_axis_kind",
     "value","value_norm","S0","source_file",
     # tiempos canónicos
     "max_dur_ms","tm_ms","td_ms",
+    "Hz","N","G","TN","x","y","TE","TR","bmax",
+    "protocol","sequence","group","type","sheet",
+    "Delta_app_ms","delta_ms",
 ]
 
 DPROJ_LONG_PREFIX = [
     "roi","direction","b_step","bvalue",
     "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten",
     "g","g_max","g_lin_max","g_thorsten",
+    "gradient_axis_kind",
     "D_proj","source_file",
     # tiempos canónicos
     "max_dur_ms","tm_ms","td_ms",
+    "Hz","N","G","TN","x","y","TE","TR","bmax",
+    "protocol","sequence","group","type","sheet",
+    "Delta_app_ms","delta_ms",
 ]
 
 RENAME_MAP = {
@@ -158,6 +168,12 @@ def _ensure_S0_and_norm(df: pd.DataFrame) -> pd.DataFrame:
 
 def _ensure_bvalue_derivatives(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
+    gradient_axis_kind = None
+    if "gradient_axis_kind" in out.columns:
+        kinds = pd.Series(out["gradient_axis_kind"]).dropna().astype(str).str.lower().unique().tolist()
+        if len(kinds) == 1:
+            gradient_axis_kind = kinds[0]
+
     if "bvalue" not in out.columns:
         raise KeyError("Missing 'bvalue' column (after renames).")
 
@@ -167,6 +183,9 @@ def _ensure_bvalue_derivatives(df: pd.DataFrame) -> pd.DataFrame:
     for c in ["bvalue_g","bvalue_g_lin_max","bvalue_thorsten"]:
         if c not in out.columns:
             out[c] = pd.NA
+
+    if gradient_axis_kind == "g":
+        return out
 
     N, gamma, delta_ms, delta_app_ms = _infer_clean_params_for_b(out)
     if N is None or gamma is None or delta_ms is None or delta_app_ms is None:

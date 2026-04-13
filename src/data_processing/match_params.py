@@ -11,6 +11,10 @@ class ResultMeta:
     seq: int | None
     Hz: float | None
     bmax: float | None
+    group: int | None
+    G: float | None
+    TN: float | None
+    N: float | None
 
     # legacy: _d55 (ANTES; lo tratamos como max_dur_ms)
     d_ms: float | None
@@ -28,7 +32,10 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     p = Path(path)
     name = p.name
 
-    if "_ep2d" in name:
+    parent_name = p.parent.name.strip()
+    if parent_name and parent_name.lower() != "results":
+        sheet = parent_name
+    elif "_ep2d" in name:
         sheet = name.split("_ep2d")[0]
     elif "_d" in name:
         sheet = name.split("_d")[0]
@@ -54,6 +61,10 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
 
     nbvals = _int(r"(\d+)bval")
     ndirs  = _int(r"(\d+)(?:ortho)?dir")
+    group = _int(r"_(\d{3})_(?:NOGSE|PGSE)")
+    G = _float_with_p(r"_G(\d+(?:p\d+|\.\d+)?)")
+    TN = _float_with_p(r"_TN(\d+(?:p\d+|\.\d+)?)")
+    N = _float_with_p(r"_N(\d+(?:p\d+|\.\d+)?)")
 
     # nuevo: _d1.5 y _Delta11.6  (solo interpretamos _d como delta_ms si también hay _Delta)
     delta_ms = _float(r"_d(\d+(?:\.\d+)?)") if re.search(r"_Delta", name, re.IGNORECASE) else None
@@ -69,7 +80,8 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     encoding = "OGSE" if re.search(r"OGSE", name, re.IGNORECASE) else ("PGSE" if re.search(r"PGSE", name, re.IGNORECASE) else None)
 
     return ResultMeta(
-        sheet=sheet, seq=seq, Hz=Hz, bmax=bmax, d_ms=(float(d_ms) if d_ms is not None else None),
+        sheet=sheet, seq=seq, Hz=Hz, bmax=bmax, group=group, G=G, TN=TN, N=N,
+        d_ms=(float(d_ms) if d_ms is not None else None),
         delta_ms=delta_ms, Delta_ms=Delta_ms,
         ndirs=ndirs, nbvals=nbvals, encoding=encoding
     )
@@ -132,6 +144,19 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
 
         if len(df) == 1:
             return df.iloc[0]
+
+    # Additional disambiguation for grouped direct-g acquisitions
+    if meta.group is not None and "group" in df.columns:
+        df = _filter_close(df, "group", float(meta.group), atol=1e-6)
+
+    if meta.G is not None and "G" in df.columns:
+        df = _filter_close(df, "G", float(meta.G), atol=1e-6)
+
+    if meta.TN is not None and "TN" in df.columns:
+        df = _filter_close(df, "TN", float(meta.TN), atol=1e-3)
+
+    if meta.N is not None and "N" in df.columns:
+        df = _filter_close(df, "N", float(meta.N), atol=1e-6)
 
     # 3) Hz
     Hz = 0 if (meta.Hz is None and meta.encoding == "PGSE") else meta.Hz

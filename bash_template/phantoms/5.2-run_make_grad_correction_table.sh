@@ -10,7 +10,15 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
 MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
 ROI="water"
@@ -25,13 +33,23 @@ if [[ ! -f "$MAKE_SCRIPT" ]]; then
 fi
 
 if [[ ! -d "$EXP_FITS_ROOT" ]]; then
-    echo "ERROR: Monoexp fits root not found: $EXP_FITS_ROOT" >&2
-    exit 1
+    echo "Monoexp fits root not found: $EXP_FITS_ROOT. Skipping gradient correction."
+    exit 0
 fi
 
 if [[ ! -d "$NOGSE_ROOT" ]]; then
-    echo "ERROR: NOGSE fits root not found: $NOGSE_ROOT" >&2
-    exit 1
+    echo "NOGSE fits root not found: $NOGSE_ROOT. Skipping gradient correction."
+    exit 0
+fi
+
+if [[ -z "$(find "$EXP_FITS_ROOT" -type f -name 'fit_params.parquet' -print -quit)" ]]; then
+    echo "No monoexp fits were found in $EXP_FITS_ROOT. Skipping gradient correction."
+    exit 0
+fi
+
+if [[ -z "$(find "$NOGSE_ROOT" -type f -name 'fit_params.parquet' -print -quit)" ]]; then
+    echo "No NOGSE contrast fits were found in $NOGSE_ROOT. Skipping gradient correction."
+    exit 0
 fi
 
 mkdir -p "$(dirname "$OUT_XLSX")"

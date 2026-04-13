@@ -262,24 +262,96 @@ def build_roi_from_binary_mask(
 # ---------------------------------------------------------------------
 # Table extraction
 # ---------------------------------------------------------------------
-def _read_bvals(bval_path: Path, nvol: int) -> np.ndarray:
+def _read_gradient_values(values_path: Path, nvol: int) -> tuple[np.ndarray, str, str]:
     """
-    Read b-values from a .bval file and validate length.
-    FSL bval files are usually 1xN, but we robustly flatten.
+    Read a per-volume gradient sidecar and validate length.
+
+    Supported formats:
+      - .bval -> column 'bvalues', kind 'b'
+      - .gval -> column 'gvalues', kind 'g'
     """
-    bval = np.loadtxt(bval_path, dtype=float)
-    bval = np.asarray(bval).reshape(-1).astype(float)
+    suffix = values_path.suffix.lower()
+    if suffix == ".bval":
+        col_name = "bvalues"
+        grad_kind = "b"
+    elif suffix == ".gval":
+        col_name = "gvalues"
+        grad_kind = "g"
+    else:
+        raise ValueError(
+            f"Unsupported gradient values sidecar {values_path}. "
+            "Expected a .bval or .gval file."
+        )
 
-    if bval.size != nvol:
-        raise ValueError(f"bval size {bval.size} != nvol {nvol} for file: {bval_path}")
+    values = np.loadtxt(values_path, dtype=float)
+    values = np.asarray(values).reshape(-1).astype(float)
 
-    return bval
+    if values.size != nvol:
+        raise ValueError(f"{suffix} size {values.size} != nvol {nvol} for file: {values_path}")
+
+    return values, col_name, grad_kind
+
+
+def _single_gradient_value(values: np.ndarray, *, values_path: Path) -> float:
+    """Return the unique gradient value expected in collapsed single-point acquisitions."""
+    unique_vals = pd.unique(pd.Series(values).dropna())
+    if len(unique_vals) != 1:
+        raise ValueError(
+            "Collapsed mean extraction expects a single unique gradient value per sequence. "
+            f"Found {unique_vals.tolist()} in {values_path}."
+        )
+    return float(unique_vals[0])
+
+
+def _extract_collapsed_mean_tables(
+    dwi_img: nib.Nifti1Image,
+    *,
+    roi_names: list[str],
+    roi_idx: list[np.ndarray],
+    grad_value: float,
+    grad_col_name: str,
+) -> dict[str, pd.DataFrame]:
+    """
+    Collapse a 4D acquisition into one mean image and compute one ROI summary row.
+
+    This is used for g-based acquisitions where each NIfTI contains repeated
+    measurements of the same sequence and the final signal must represent the
+    average image rather than one value per volume.
+    """
+    nvol = int(dwi_img.shape[3])
+    dataobj = dwi_img.dataobj
+
+    mean_vol = np.zeros(dwi_img.shape[:3], dtype=np.float64)
+    for j in range(nvol):
+        mean_vol += np.asanyarray(dataobj[..., j], dtype=np.float64)
+    mean_vol /= float(nvol)
+    mean_flat = mean_vol.reshape(-1)
+
+    out = {
+        "mean": pd.DataFrame({grad_col_name: [grad_value]}),
+        "std": pd.DataFrame({grad_col_name: [grad_value]}),
+        "median": pd.DataFrame({grad_col_name: [grad_value]}),
+        "mad": pd.DataFrame({grad_col_name: [grad_value]}),
+        "mode": pd.DataFrame({grad_col_name: [grad_value]}),
+    }
+
+    for name, idx in zip(roi_names, roi_idx):
+        x = mean_flat[idx]
+        out["mean"][name] = [float(np.mean(x))]
+        out["std"][name] = [matlab_std(x)]
+        out["median"][name] = [float(np.median(x))]
+        out["mad"][name] = [matlab_mad(x)]
+        out["mode"][name] = [quantized_mode(x, step=1.0)]
+
+    return out
 
 
 def extract_tables(
     dwi_path: Path,
-    bval_path: Path,
+    grad_values_path: Path,
     rois: list[ROI],
+    *,
+    collapse_mean: bool = False,
 ) -> dict[str, pd.DataFrame]:
     """
     Fast table extraction:
@@ -293,7 +365,7 @@ def extract_tables(
         raise ValueError(f"DWI must be 4D (X,Y,Z,Nvol). Got shape={dwi_img.shape}: {dwi_path}")
 
     nvol = int(dwi_img.shape[3])
-    bval = _read_bvals(bval_path, nvol)
+    grad_values, grad_col_name, grad_kind = _read_gradient_values(grad_values_path, nvol)
 
     spatial_shape = dwi_img.shape[:3]
 
@@ -310,6 +382,16 @@ def extract_tables(
             raise ValueError(f"ROI '{roi.name}' is empty.")
         roi_names.append(roi.name)
         roi_idx.append(idx)
+
+    if collapse_mean:
+        grad_value = _single_gradient_value(grad_values, values_path=grad_values_path)
+        return _extract_collapsed_mean_tables(
+            dwi_img,
+            roi_names=roi_names,
+            roi_idx=roi_idx,
+            grad_value=grad_value,
+            grad_col_name=grad_col_name,
+        )
 
     # Allocate result arrays: dict[stat][roi] -> (nvol,)
     mean_arr = {name: np.empty(nvol, dtype=float) for name in roi_names}
@@ -337,11 +419,11 @@ def extract_tables(
 
     # Build output tables
     out = {
-        "mean":   pd.DataFrame({"bvalues": bval}),
-        "std":    pd.DataFrame({"bvalues": bval}),
-        "median": pd.DataFrame({"bvalues": bval}),
-        "mad":    pd.DataFrame({"bvalues": bval}),
-        "mode":   pd.DataFrame({"bvalues": bval}),
+        "mean":   pd.DataFrame({grad_col_name: grad_values}),
+        "std":    pd.DataFrame({grad_col_name: grad_values}),
+        "median": pd.DataFrame({grad_col_name: grad_values}),
+        "mad":    pd.DataFrame({grad_col_name: grad_values}),
+        "mode":   pd.DataFrame({grad_col_name: grad_values}),
     }
 
     for name in roi_names:

@@ -7,11 +7,19 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
-PY="${PY:-python}"
-
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
+
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
 TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
 OUT_ROOT="$ANALYSIS_ROOT/fits/fit_rest_ogse_contrast_corr"
@@ -20,18 +28,18 @@ GRAD_CORR_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water.grad_correction.xlsx"
 FILE_PATTERN="*.long.parquet"
 
 MODEL="rest"
-GBASE="g_lin_max_1"
+GBASE="g"
 YCOL="value_norm"
-DIRECTIONS=(1 2 3)
+DIRECTIONS="ALL"
 CORR_ROI="water"
-ROIS="fiber1,fiber2,water,water1,water2"
+ROIS="ALL"
 PEAK_D0_FIX="2.3e-12"
 FREE_M0="1.0"
 FIX_D0="2.3e-12"
 
 if [[ ! -d "$TABLES_ROOT" ]]; then
-    echo "ERROR: Tables root not found: $TABLES_ROOT" >&2
-    exit 1
+    echo "Contrast tables root not found: $TABLES_ROOT. Skipping corrected rest fit."
+    exit 0
 fi
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then
@@ -40,8 +48,8 @@ if [[ ! -f "$FIT_SCRIPT" ]]; then
 fi
 
 if [[ ! -f "$GRAD_CORR_XLSX" ]]; then
-    echo "ERROR: Gradient correction file not found: $GRAD_CORR_XLSX" >&2
-    exit 1
+    echo "Gradient correction file not found: $GRAD_CORR_XLSX. Skipping corrected rest fit."
+    exit 0
 fi
 
 mkdir -p "$OUT_ROOT"
@@ -51,6 +59,14 @@ if [[ "$ROIS" != "ALL" ]]; then
     read -r -a roi_list <<< "${ROIS//,/ }"
     if (( ${#roi_list[@]} > 0 )); then
         roi_args+=(--rois "${roi_list[@]}")
+    fi
+fi
+
+direction_args=()
+if [[ "$DIRECTIONS" != "ALL" ]]; then
+    read -r -a dir_list <<< "${DIRECTIONS//,/ }"
+    if (( ${#dir_list[@]} > 0 )); then
+        direction_args+=(--directions "${dir_list[@]}")
     fi
 fi
 
@@ -76,7 +92,7 @@ while read -r file; do
         --model "$MODEL"
         --gbase "$GBASE"
         --ycol "$YCOL"
-        --directions "${DIRECTIONS[@]}"
+        "${direction_args[@]}"
         --peak_D0_fix "$PEAK_D0_FIX"
         --apply_grad_corr
         --corr_xlsx "$GRAD_CORR_XLSX"
