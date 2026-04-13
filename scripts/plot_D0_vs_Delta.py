@@ -5,6 +5,7 @@ from pathlib import Path
 
 from monoexp_fitting.plot_D0_vs_Delta import (
     load_all_measurements,
+    load_selected_bstep_map,
     plot_all_groups,
 )
 
@@ -38,6 +39,14 @@ def main() -> None:
     )
     ap.add_argument("--reference-D0", type=float, default=0.0032, help="Valor de referencia para anotar alpha en el plot.")
     ap.add_argument("--reference-D0-error", type=float, default=0.0000283512, help="Error del valor de referencia.")
+    ap.add_argument(
+        "--summary-alpha",
+        default=None,
+        help=(
+            "Ruta opcional a summary_alpha_values (xlsx/csv/parquet). "
+            "Si no se pasa y existe <out-dir>/summary_alpha_values.xlsx, se usa automáticamente."
+        ),
+    )
     args = ap.parse_args()
 
     N = 1.0 if args.N is None and args.Hz is None else args.N
@@ -55,11 +64,26 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    default_summary = out_dir / "summary_alpha_values.xlsx"
+    summary_alpha_path = Path(args.summary_alpha) if args.summary_alpha is not None else (default_summary if default_summary.exists() else None)
+
+    selected_bstep_by_group = None
+    if summary_alpha_path is not None:
+        selected_bstep_by_group = load_selected_bstep_map(summary_alpha_path)
+        print(
+            f"[INFO] Loaded selected_bstep map from {summary_alpha_path} "
+            f"({len(selected_bstep_by_group)} group entries)."
+        )
+        if args.bvalmax is not None:
+            print(
+                "[INFO] --bvalmax is used only as fallback for groups missing in summary_alpha."
+            )
 
     plot_all_groups(
         df,
         out_dir=out_dir,
         selected_bstep=args.bvalmax,
+        selected_bstep_by_group=selected_bstep_by_group,
         reference_D0=float(args.reference_D0),
         reference_D0_error=float(args.reference_D0_error),
     )

@@ -29,6 +29,35 @@ def _ordered_unique(series: pd.Series) -> list[str]:
     return list(dict.fromkeys(series.dropna().astype(str).tolist()))
 
 
+def _parse_roi_bvalmax(items: list[str] | None) -> dict[str, int]:
+    if not items:
+        return {}
+    out: dict[str, int] = {}
+    for raw in items:
+        token = str(raw).strip()
+        if "=" not in token:
+            raise ValueError(
+                f"Valor inválido para --roi-bvalmax {raw!r}. Usá formato ROI=BSTEP, por ejemplo AntCC=7."
+            )
+        roi, bstep = token.split("=", 1)
+        roi = roi.strip()
+        bstep = bstep.strip()
+        if not roi:
+            raise ValueError(f"ROI inválido en --roi-bvalmax {raw!r}.")
+        try:
+            value = int(bstep)
+        except ValueError as exc:
+            raise ValueError(
+                f"BSTEP inválido en --roi-bvalmax {raw!r}. Debe ser entero >= 1."
+            ) from exc
+        if value < 1:
+            raise ValueError(
+                f"BSTEP inválido en --roi-bvalmax {raw!r}. Debe ser entero >= 1."
+            )
+        out[roi] = value
+    return out
+
+
 def _load_measurements_from_args(args: argparse.Namespace) -> pd.DataFrame:
     if args.combined_table is not None:
         path = Path(args.combined_table)
@@ -99,6 +128,16 @@ def main() -> None:
             "Si se omite, usa el bvalue más alto."
         ),
     )
+    ap.add_argument(
+        "--roi-bvalmax",
+        action="append",
+        default=None,
+        help=(
+            "Override de bstep por ROI, repetible, formato ROI=BSTEP. "
+            "Ej: --roi-bvalmax AntCC=7 --roi-bvalmax MidAntCC=6. "
+            "Si un ROI no aparece, usa --bvalmax global (o el mayor bvalue)."
+        ),
+    )
     ap.add_argument("--reference-D0", type=float, default=0.0032, help="Valor de referencia usado para alpha_macro.")
     ap.add_argument("--reference-D0-error", type=float, default=0.0000283512, help="Error del valor de referencia.")
     ap.add_argument("--direction-alias", action="append", default=None, help="Alias raw=agrupado. Repetible. Default: x=long, y=tra, z=tra.")
@@ -118,12 +157,22 @@ def main() -> None:
         args.N = 1.0
 
     df_avg = _load_measurements_from_args(args)
+    roi_bvalmax = _parse_roi_bvalmax(args.roi_bvalmax)
+    if roi_bvalmax:
+        roi_presentes = set(df_avg["roi"].dropna().astype(str).tolist())
+        roi_desconocidos = sorted([roi for roi in roi_bvalmax if roi not in roi_presentes])
+        if roi_desconocidos:
+            raise ValueError(
+                "ROIs en --roi-bvalmax que no están en los datos filtrados: "
+                + ", ".join(roi_desconocidos)
+            )
     aliases = parse_direction_aliases(args.direction_alias)
     df_avg, df_summary = compute_alpha_macro_summary(
         df_avg,
         reference_D0=float(args.reference_D0),
         reference_D0_error=float(args.reference_D0_error),
         selected_bstep=args.bvalmax,
+        roi_selected_bsteps=roi_bvalmax or None,
         direction_aliases=aliases,
     )
 

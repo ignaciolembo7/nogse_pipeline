@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -188,6 +188,7 @@ def plot_d_vs_delta_curves(
     *,
     out_dir: str | Path,
     selected_bstep: int | None = None,
+    selected_bstep_by_group: Mapping[tuple[str, str, str], int] | None = None,
     reference_D0: float | None = None,
     reference_D0_error: float | None = None,
 ) -> list[Path]:
@@ -203,9 +204,13 @@ def plot_d_vs_delta_curves(
 
         fig, ax = plt.subplots(figsize=(8, 6))
         cmap = plt.get_cmap("viridis")
+        group_key = (str(subj), str(roi), str(direction))
+        group_selected_bstep = selected_bstep
+        if selected_bstep_by_group is not None and group_key in selected_bstep_by_group:
+            group_selected_bstep = int(selected_bstep_by_group[group_key])
         selected_bvalue, chosen_bstep = _select_bvalue_and_bstep(
             bvalues,
-            selected_bstep=selected_bstep,
+            selected_bstep=group_selected_bstep,
             group_label=f"subj={subj}, roi={roi}, direction={direction}",
         )
         selected = sub[np.isclose(sub["bvalue"], selected_bvalue, atol=1e-9)].sort_values("Delta_app_ms")
@@ -309,6 +314,7 @@ def compute_alpha_macro_summary(
     reference_D0: float = 0.0032,
     reference_D0_error: float = 0.0000283512,
     selected_bstep: int | None = None,
+    roi_selected_bsteps: dict[str, int] | None = None,
     direction_aliases: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     if reference_D0 <= 0:
@@ -321,9 +327,12 @@ def compute_alpha_macro_summary(
         bvalues = np.sort(sub["bvalue"].dropna().unique())
         if len(bvalues) == 0:
             continue
+        roi_bstep = None
+        if roi_selected_bsteps is not None:
+            roi_bstep = roi_selected_bsteps.get(str(roi))
         selected_bvalue, chosen_bstep = _select_bvalue_and_bstep(
             bvalues,
-            selected_bstep=selected_bstep,
+            selected_bstep=roi_bstep if roi_bstep is not None else selected_bstep,
             group_label=f"subj={subj}, roi={roi}, direction={direction}",
         )
         chosen = sub[np.isclose(sub["bvalue"], selected_bvalue, atol=1e-9)].sort_values("Delta_app_ms")
