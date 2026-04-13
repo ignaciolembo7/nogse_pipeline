@@ -88,9 +88,9 @@ def run_pseudohuber_free(
     df_params = _ensure_direction_col(df_params)
 
     # Blocks que no dependen de nombres específicos de direction
-    block1b_alpha_vs_Td(df_params, df_fit, out_dir)
-    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
-    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
+    block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions)
+    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
+    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Block2b ahora es genérico: plotea 1×N con TODAS las direcciones presentes
@@ -107,10 +107,10 @@ def run_pseudohuber_free(
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
         block3_alpha_macro_summary_vs_fit(
-            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}", region_order=regions
         )
         block4_qquad_vs_alpha_macro(
-            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_free_k={k_last}", region_order=regions
         )
 
 
@@ -142,9 +142,9 @@ def run_pseudohuber_fixed_macro(
     df_fit = _ensure_direction_col(df_fit)
     df_params = _ensure_direction_col(df_params)
 
-    block1b_alpha_vs_Td(df_params, df_fit, out_dir)
-    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
-    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label)
+    block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions)
+    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
+    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Genérico (no depende de long/tra)
@@ -160,10 +160,10 @@ def run_pseudohuber_fixed_macro(
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
         block3_alpha_macro_summary_vs_fit(
-            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}", region_order=regions
         )
         block4_qquad_vs_alpha_macro(
-            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}"
+            df_fit, out_dir, alpha_macro_df, palette, method_tag=f"pseudohuber_fixed_macro_k={k_last}", region_order=regions
         )
 
 

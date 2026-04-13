@@ -29,6 +29,10 @@ def _ordered_unique(series: pd.Series) -> list[str]:
     return list(dict.fromkeys(series.dropna().astype(str).tolist()))
 
 
+def _canonical_roi_name(value: str) -> str:
+    return str(value).strip().replace("_norm", "").lower()
+
+
 def _parse_roi_bvalmax(items: list[str] | None) -> dict[str, int]:
     if not items:
         return {}
@@ -157,15 +161,33 @@ def main() -> None:
         args.N = 1.0
 
     df_avg = _load_measurements_from_args(args)
+    if "roi" in df_avg.columns:
+        df_avg["roi"] = df_avg["roi"].astype(str).str.strip().str.replace("_norm", "", regex=False)
     roi_bvalmax = _parse_roi_bvalmax(args.roi_bvalmax)
     if roi_bvalmax:
-        roi_presentes = set(df_avg["roi"].dropna().astype(str).tolist())
-        roi_desconocidos = sorted([roi for roi in roi_bvalmax if roi not in roi_presentes])
+        roi_presentes = [str(x) for x in df_avg["roi"].dropna().astype(str).tolist()]
+        roi_canon_to_actual: dict[str, str] = {}
+        for roi_name in roi_presentes:
+            key = _canonical_roi_name(roi_name)
+            if key and key not in roi_canon_to_actual:
+                roi_canon_to_actual[key] = roi_name
+
+        roi_bvalmax_resolved: dict[str, int] = {}
+        roi_desconocidos: list[str] = []
+        for roi_name, bstep in roi_bvalmax.items():
+            key = _canonical_roi_name(roi_name)
+            actual = roi_canon_to_actual.get(key)
+            if actual is None:
+                roi_desconocidos.append(roi_name)
+                continue
+            roi_bvalmax_resolved[actual] = bstep
+
         if roi_desconocidos:
-            raise ValueError(
-                "ROIs en --roi-bvalmax que no están en los datos filtrados: "
-                + ", ".join(roi_desconocidos)
+            print(
+                "[WARN] ROIs en --roi-bvalmax no presentes en datos filtrados; se ignoran: "
+                + ", ".join(sorted(roi_desconocidos))
             )
+        roi_bvalmax = roi_bvalmax_resolved
     aliases = parse_direction_aliases(args.direction_alias)
     df_avg, df_summary = compute_alpha_macro_summary(
         df_avg,

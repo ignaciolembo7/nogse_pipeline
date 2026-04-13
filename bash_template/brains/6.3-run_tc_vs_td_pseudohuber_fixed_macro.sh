@@ -14,8 +14,9 @@ METHOD="pseudohuber_fixed_macro"
 GROUPFITS="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr/groupfits_rest.parquet"
 SUMMARY_ALPHA="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 YCOL="tc_peak_ms"
-EXCLUDE_TD_MS="209.1"
+EXCLUDE_TD_MS=""
 SHOW_ERRORBARS="0"
+ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC,Left-Lateral-Ventricle,Right-Lateral-Ventricle,Syringe"
 EXCLUDE_MATCHES=()
 if [[ "$YCOL" == "tc_peak_ms" ]]; then
     TC_DIRNAME="tcpeak_vs_td"
@@ -56,9 +57,16 @@ fi
 if [[ "${SHOW_ERRORBARS}" == "0" || "${SHOW_ERRORBARS,,}" == "false" || "${SHOW_ERRORBARS,,}" == "no" ]]; then
     extra_args+=(--no-errorbars)
 fi
+if [[ -n "${ROIS// }" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
 
 echo "============================================================"
 echo "Dataset       : brains"
+echo "ROIs           : $ROIS"
 echo "Method        : $METHOD"
 echo "Groupfits     : $GROUPFITS"
 echo "Summary alpha : $SUMMARY_ALPHA"

@@ -27,11 +27,6 @@ if [[ ! -d "$DPROJ_ROOT" ]]; then
     echo "ERROR: Dproj root not found: $DPROJ_ROOT" >&2
     exit 1
 fi
-if [[ ! -f "$SUMMARY_ALPHA" ]]; then
-    echo "ERROR: Summary table not found: $SUMMARY_ALPHA" >&2
-    echo "Run 4.4-run_make_alpha_macro_summary.sh first to define selected_bstep per ROI." >&2
-    exit 1
-fi
 
 mkdir -p "$OUT_DIR"
 
@@ -42,17 +37,28 @@ echo "Subjs      : $SUBJS"
 echo "ROIs       : $ROIS"
 echo "Dirs       : $DIRS"
 echo "N          : $N_VALUE"
-echo "Summary    : $SUMMARY_ALPHA"
+if [[ -f "$SUMMARY_ALPHA" ]]; then
+    echo "Summary    : $SUMMARY_ALPHA"
+else
+    echo "Summary    : <not found; using fallback bstep selection>"
+fi
 echo "Output dir : $OUT_DIR"
 
-"$PY" "$PLOT_SCRIPT" \
-    --dproj-root "$DPROJ_ROOT" \
-    --brains $SUBJS \
-    --rois $ROIS \
-    --dirs $DIRS \
-    --N "$N_VALUE" \
-    --summary-alpha "$SUMMARY_ALPHA" \
+cmd=(
+    "$PY" "$PLOT_SCRIPT"
+    --dproj-root "$DPROJ_ROOT"
+    --brains $SUBJS
+    --rois $ROIS
+    --dirs $DIRS
+    --N "$N_VALUE"
     --out-dir "$OUT_DIR"
+)
+
+if [[ -f "$SUMMARY_ALPHA" ]]; then
+    cmd+=(--summary-alpha "$SUMMARY_ALPHA")
+fi
+
+"${cmd[@]}"
 
 echo
 echo "Finished."

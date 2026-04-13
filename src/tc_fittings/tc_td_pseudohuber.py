@@ -263,8 +263,21 @@ def _markers_for_subjs(subjs: list[str]) -> Dict[str, str]:
     return {s: mk[i % len(mk)] for i, s in enumerate(subjs)}
 
 
+def _ordered_regions(region_order: list[str] | None, available: List[str]) -> list[str]:
+    available_set = {str(r).replace("_norm", "") for r in available}
+    if region_order:
+        ordered: list[str] = []
+        for region in region_order:
+            r = str(region).replace("_norm", "")
+            if r in available_set:
+                ordered.append(r)
+        if ordered:
+            return ordered
+    return sorted(available_set)
+
+
 # ---------------------------
-# BLOQUE 1: fit + plots tc(Td)
+# Section 1: fit + plots tc(Td)
 # ---------------------------
 def fit_tc_vs_td_pseudohuber(
     *,
@@ -486,7 +499,7 @@ def fit_tc_vs_td_pseudohuber(
 
         plt.suptitle(f"PseudoHuber model fit | y={y_col} | dir={dir_actual} | mode={mode} | k_last={k_last}", fontsize=18)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1_{y_col}_fit_dir={dir_actual}_mode={mode}_k={k_last}.png", dpi=300)
+        plt.savefig(out_dir / f"tc_td_{y_col}_fit_dir={dir_actual}_mode={mode}_k={k_last}.png", dpi=300)
         plt.close()
 
     if not rows:
@@ -503,7 +516,7 @@ def fit_tc_vs_td_pseudohuber(
 
 
 # ---------------------------
-# BLOQUE 2: plots vs regiones (alpha_macro y delta) + opcional A
+# Section 2: plots vs regions (alpha_macro and delta) + optional A
 # ---------------------------
 def block2_region_plots(
     df_fit: pd.DataFrame,
@@ -562,13 +575,13 @@ def block2_region_plots(
             plt.savefig(out_dir / f"{fname}_dir={dir_actual}.png", dpi=300)
             plt.close()
 
-    plot_var("alpha_macro", "alpha_macro_se", r"$\alpha_{macro} = A\delta$", "BLOCK2_alpha_macro_vs_region")
-    plot_var("delta", "delta_se", r"$\delta$", "BLOCK2_delta_vs_region")
-    plot_var("c", "c_se", r"$c$", "BLOCK2_c_vs_region")
-    plot_var("sqrt_q", "sqrt_q_se", r"$\sqrt{q}$", "BLOCK2_sqrt_q_vs_region")
-    plot_var("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$", "BLOCK2_qquad_vs_region")
+    plot_var("alpha_macro", "alpha_macro_se", r"$\alpha_{macro} = A\delta$", "alpha_macro_vs_region")
+    plot_var("delta", "delta_se", r"$\delta$", "delta_vs_region")
+    plot_var("c", "c_se", r"$c$", "c_vs_region")
+    plot_var("sqrt_q", "sqrt_q_se", r"$\sqrt{q}$", "sqrt_q_vs_region")
+    plot_var("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$", "qquad_vs_region")
     if plot_A:
-        plot_var("A", "A_se", r"$A$", "BLOCK2_A_vs_region")
+        plot_var("A", "A_se", r"$A$", "A_vs_region")
 
 
 def _ensure_A_se(df_fit: pd.DataFrame) -> pd.DataFrame:
@@ -654,7 +667,7 @@ def block2b_cc_vars_long_tra_sameY(
 
     directions = _directions_present(df_fit)  # dinámico
     if not directions:
-        print("[INFO] block2b: no hay direcciones -> skip.")
+        print("[INFO] var-grid plot: no directions found -> skip.")
         return
 
     x = np.arange(len(regiones))
@@ -753,7 +766,7 @@ def block2b_cc_vars_long_tra_sameY(
 
     if fname is None:
         dirs_tag = "_".join(directions)
-        fname = f"BLOCK2b_vars_sameY_dirs={dirs_tag}_{tag}.png"
+        fname = f"vars_sameY_dirs={dirs_tag}_{tag}.png"
 
     fig.suptitle("Pseudo-Huber: q (Taylor), $\\alpha_{macro}$, $\\delta$, A, c, $\\sqrt{q}$ vs regiones", fontsize=14)
     plt.tight_layout(rect=[0, 0.02, 1, 0.95])
@@ -762,7 +775,7 @@ def block2b_cc_vars_long_tra_sameY(
 
 
 # ---------------------------
-# BLOQUE 3: alpha_macro summary vs alpha_macro pseudo-Huber
+# Section 3: alpha_macro summary vs alpha_macro pseudo-Huber
 # ---------------------------
 def block3_alpha_macro_summary_vs_fit(
     df_fit: pd.DataFrame,
@@ -770,6 +783,7 @@ def block3_alpha_macro_summary_vs_fit(
     alpha_macro_df: pd.DataFrame,
     palette: list[str],
     method_tag: str,
+    region_order: list[str] | None = None,
 ) -> None:
     import matplotlib.colors as mcolors
     from matplotlib.lines import Line2D
@@ -787,10 +801,10 @@ def block3_alpha_macro_summary_vs_fit(
 
     dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
-        print("[INFO] No hay intersección entre pseudo-huber fits y summary alpha_macro -> no se hace Block3.")
+        print("[INFO] No overlap between pseudo-huber fits and summary alpha_macro -> skipping summary-vs-fit plot.")
         return
 
-    regiones = sorted(dfm["roi"].unique())
+    regiones = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
     region2color = _region2color(regiones, palette)
 
     volunteers = sorted(dfm["subj"].unique())
@@ -842,23 +856,29 @@ def block3_alpha_macro_summary_vs_fit(
         ]
         ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
 
-    plt.suptitle(f"BLOCK3 alpha_macro summary vs fit | {method_tag}", fontsize=16)
+    plt.suptitle(f"alpha_macro summary vs fit | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"BLOCK3_alpha_macro_summary_vs_fit_{method_tag}.png", dpi=400)
+    plt.savefig(out_dir / f"alpha_macro_summary_vs_fit_{method_tag}.png", dpi=400)
     plt.close()
 
 
 # ---------------------------
-# BLOQUE 1b / 1c: ahora GENÉRICOS por direction
+# Section 1b / 1c: generic by direction
 # ---------------------------
-def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: Path) -> None:
+def block1b_alpha_vs_Td(
+    df_params: pd.DataFrame,
+    df_fit: pd.DataFrame,
+    out_dir: Path,
+    *,
+    region_order: list[str] | None = None,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_subj(_ensure_direction(df_params.copy()))
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = sorted(df_fit["roi"].unique())
+    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
 
     for dir_actual in directions:
@@ -910,9 +930,9 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"BLOCK1b alpha(Td) + small/large-Td limits | dir={dir_actual}", fontsize=16)
+        plt.suptitle(f"alpha(Td) + small/large-Td limits | dir={dir_actual}", fontsize=16)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1b_alpha_vs_Td_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"alpha_vs_Td_dir={dir_actual}.png", dpi=300)
         plt.close()
 
 
@@ -923,6 +943,7 @@ def block1c_smallTd_tc_approx(
     *,
     y_col: str = "tc_peak_ms",
     y_label: str = "$t_{c,peak}$ [ms]",
+    region_order: list[str] | None = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -930,7 +951,7 @@ def block1c_smallTd_tc_approx(
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = sorted(df_fit["roi"].unique())
+    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
 
     for dir_actual in directions:
@@ -981,9 +1002,9 @@ def block1c_smallTd_tc_approx(
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"BLOCK1c {y_col}(Td) vs small-Td quadratic approx | dir={dir_actual}", fontsize=16)
+        plt.suptitle(f"{y_col}(Td) vs small-Td quadratic approximation | dir={dir_actual}", fontsize=16)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1c_{y_col}_smallTd_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"{y_col}_smallTd_dir={dir_actual}.png", dpi=300)
         plt.close()
 
 
@@ -997,16 +1018,17 @@ def block1d_fullrange_tc_with_approximations(
     td_min_ms: float = 0.0,
     td_max_ms: float = 2000.0,
     n_points: int = 1000,
+    region_order: list[str] | None = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    per_fit_dir = out_dir / "BLOCK1d_fullrange_per_fit"
+    per_fit_dir = out_dir / "fullrange_per_fit"
     per_fit_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_subj(_ensure_direction(df_params.copy()))
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = sorted(df_fit["roi"].unique())
+    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
     xx = np.linspace(float(td_min_ms), float(td_max_ms), int(n_points))
 
@@ -1094,7 +1116,7 @@ def block1d_fullrange_tc_with_approximations(
                 plt.tight_layout()
                 plt.savefig(
                     per_fit_dir / (
-                        f"BLOCK1d_{y_col}_subj={_safe_tag(subj)}"
+                        f"{y_col}_subj={_safe_tag(subj)}"
                         f"_roi={_safe_tag(region)}_dir={_safe_tag(dir_actual)}.png"
                     ),
                     dpi=300,
@@ -1113,22 +1135,22 @@ def block1d_fullrange_tc_with_approximations(
             ax.axis("off")
 
         plt.suptitle(
-            f"BLOCK1d {y_col}(Td) full range + approximations | dir={dir_actual} | "
+            f"{y_col}(Td) full range + approximations | dir={dir_actual} | "
             f"{td_min_ms:.0f}-{td_max_ms:.0f} ms",
             fontsize=16,
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(out_dir / f"BLOCK1d_{y_col}_fullrange_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"{y_col}_fullrange_dir={dir_actual}.png", dpi=300)
         plt.close()
 
     if curve_rows:
         df_curves = pd.DataFrame(curve_rows)
-        df_curves.to_csv(out_dir / f"BLOCK1d_{y_col}_fullrange_curves.csv", index=False)
-        df_curves.to_excel(out_dir / f"BLOCK1d_{y_col}_fullrange_curves.xlsx", index=False)
+        df_curves.to_csv(out_dir / f"{y_col}_fullrange_curves.csv", index=False)
+        df_curves.to_excel(out_dir / f"{y_col}_fullrange_curves.xlsx", index=False)
 
 
 # ---------------------------
-# BLOQUE 4: q vs alpha_macro (GENÉRICO)
+# Section 4: q vs alpha_macro (generic)
 # ---------------------------
 def block4_qquad_vs_alpha_macro(
     df_fit: pd.DataFrame,
@@ -1136,6 +1158,7 @@ def block4_qquad_vs_alpha_macro(
     alpha_macro_df: pd.DataFrame,
     palette: list[str],
     method_tag: str,
+    region_order: list[str] | None = None,
 ) -> None:
     import matplotlib.colors as mcolors
     from matplotlib.lines import Line2D
@@ -1153,10 +1176,10 @@ def block4_qquad_vs_alpha_macro(
 
     dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
-        print("[INFO] No hay intersección pseudo-huber vs summary -> no se hace Block4.")
+        print("[INFO] No overlap between pseudo-huber and summary -> skipping q-vs-alpha plot.")
         return
 
-    regiones = sorted(dfm["roi"].unique())
+    regiones = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
     region2color = _region2color(regiones, palette)
 
     volunteers = sorted(dfm["subj"].unique())
@@ -1208,7 +1231,7 @@ def block4_qquad_vs_alpha_macro(
         ]
         ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
 
-    plt.suptitle(f"BLOCK4 q vs alpha_macro | {method_tag}", fontsize=16)
+    plt.suptitle(f"q vs alpha_macro | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"BLOCK4_q_vs_alpha_macro_{method_tag}.png", dpi=400)
+    plt.savefig(out_dir / f"q_vs_alpha_macro_{method_tag}.png", dpi=400)
     plt.close()
