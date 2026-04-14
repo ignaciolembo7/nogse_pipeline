@@ -14,7 +14,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_HOME/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 OUT_ROOT="$PROJECT_ROOT/Data-signals"
-EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260122-PHANTOM_NISO4"
+EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20220610-PHANTOM3"
 CUT_TOKEN=""
 # Set to 1 only for acquisitions that must be collapsed into one mean image
 # and one signal row per sequence.

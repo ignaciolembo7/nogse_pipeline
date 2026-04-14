@@ -8,7 +8,7 @@ import pandas as pd
 
 from data_processing.schema import finalize_clean_dproj_long, finalize_clean_signal_long
 from ogse_fitting.b_from_g import b_from_g
-from signal_rotation.dirs import load_default_dirs, load_dirs_csv
+from signal_rotation.dirs import load_default_dirs, load_dirs_txt
 
 
 ROTATED_DIRECTION_ORDER = ["eig1", "eig2", "eig3", "x", "y", "z", "tra", "long"]
@@ -180,7 +180,7 @@ def rotate_signals_tensor(
     b_col: str = "bvalue",
     gamma: float = 267.5221900,
     g_type: str = "g_lin_max",
-    dirs_csv: str | Path | None = None,
+    dirs_file: str | Path | None = None,
 ) -> RotResult:
     """
     Toma el long DF de 1 archivo y produce:
@@ -214,10 +214,10 @@ def rotate_signals_tensor(
     can_compute_b_from_g = (Nval is not None) and (delta_ms is not None) and (delta_app_ms is not None)
 
     ndirs = int(pd.Series(dfa["direction"]).dropna().nunique())
-    if dirs_csv is not None:
-        n_dirs = load_dirs_csv(dirs_csv)
+    if dirs_file is not None:
+        n_dirs = load_dirs_txt(dirs_file)
         if n_dirs.shape[0] != ndirs:
-            raise ValueError(f"dirs_csv tiene {n_dirs.shape[0]} filas, pero el dataset tiene ndirs={ndirs}.")
+            raise ValueError(f"dirs_file has {n_dirs.shape[0]} rows, but dataset ndirs={ndirs}.")
     else:
         n_dirs = load_default_dirs(ndirs)
 

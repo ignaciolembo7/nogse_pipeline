@@ -6,14 +6,18 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
 PY="${PY:-python}"
 SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
 
-COMBINED_TABLE="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/D_vs_delta_app.combined.xlsx"
+DPROJ_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated"
 SUBJS="BRAIN LUDG MBBL"
-PLOT_ROIS="AntCC MidAntCC CentralCC MidPostCC PostCC Left-Lateral-Ventricle Right-Lateral-Ventricle Syringe"
-PLOT_DIRECTIONS="x y z"
+ROIS="AntCC MidAntCC CentralCC MidPostCC PostCC Left-Lateral-Ventricle Right-Lateral-Ventricle Syringe"
+DIRS="x y z"
+N_VALUE="1"
+PLOT_ROIS="$ROIS"
+PLOT_DIRECTIONS="$DIRS"
 BVALMAX=""
 ROI_BVALMAX_OVERRIDES=(
     "AntCC=10"
@@ -32,8 +36,8 @@ if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$COMBINED_TABLE" ]]; then
-    echo "ERROR: Combined table not found: $COMBINED_TABLE" >&2
+if [[ ! -d "$DPROJ_ROOT" ]]; then
+    echo "ERROR: Dproj root not found: $DPROJ_ROOT" >&2
     exit 1
 fi
 
@@ -41,8 +45,11 @@ mkdir -p "$(dirname "$OUT_SUMMARY")"
 
 echo "============================================================"
 echo "Dataset       : brains"
-echo "Combined table: $COMBINED_TABLE"
+echo "Dproj root    : $DPROJ_ROOT"
 echo "Subjs         : $SUBJS"
+echo "ROIs          : $ROIS"
+echo "Dirs          : $DIRS"
+echo "N             : $N_VALUE"
 echo "Plot ROIs     : $PLOT_ROIS"
 echo "Plot dirs     : $PLOT_DIRECTIONS"
 if [[ -n "$BVALMAX" ]]; then
@@ -55,8 +62,11 @@ echo "Out summary   : $OUT_SUMMARY"
 
 cmd=(
     "$PY" "$SUMMARY_SCRIPT"
-    --combined-table "$COMBINED_TABLE"
+    --dproj-root "$DPROJ_ROOT"
     --subj $SUBJS
+    --rois $ROIS
+    --dirs $DIRS
+    --N "$N_VALUE"
     --plot-rois $PLOT_ROIS
     --plot-directions $PLOT_DIRECTIONS
     --out-summary "$OUT_SUMMARY"

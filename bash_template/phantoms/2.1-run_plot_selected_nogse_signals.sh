@@ -22,7 +22,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse-signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20220610-PHANTOM3"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal-plots/nogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"

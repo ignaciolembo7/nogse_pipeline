@@ -13,7 +13,7 @@ LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/brains}"
 RUN_SCRIPTS=(
 #   "0.0-run_dicom2nifti.sh"    
 #   "1-run_BRAINS-denoised_topup_signal_extraction.sh"
-  "2-run_process_all_results.sh" # starting from this step, results will be saved in analysis/brains
+  "2.0-run_process_all_results.sh" # starting from this step, results will be saved in analysis/brains
   "3.0-run_rotate_all_signals.sh"
   "3.1-run_make_contrast_selected_rotated.sh"
   "3.2-run_plot_all_ogse_contrast_vs_g.sh"

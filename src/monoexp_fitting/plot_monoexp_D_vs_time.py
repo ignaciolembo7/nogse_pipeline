@@ -66,12 +66,14 @@ def load_monoexp_fit_measurements(
     subjs: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
+    Ns: Sequence[float | str] | None = None,
     stat: str = "avg",
     ycol: str = "value_norm",
 ) -> pd.DataFrame:
     subj_set = {str(x) for x in subjs} if subjs is not None else None
     roi_set = {str(x) for x in rois} if rois is not None else None
     direction_set = {str(x) for x in directions} if directions is not None else None
+    n_set = {float(x) for x in Ns} if Ns is not None else None
 
     frames: list[pd.DataFrame] = []
     for path in discover_fit_param_files(fits_root, pattern=pattern):
@@ -125,6 +127,8 @@ def load_monoexp_fit_measurements(
             out = out[out["roi"].isin(roi_set)]
         if direction_set is not None:
             out = out[out["direction"].isin(direction_set)]
+        if n_set is not None:
+            out = out[out["N"].isin(n_set)]
 
         out = out.dropna(subset=["D0_mm2_s"])
         if out.empty:
@@ -274,12 +278,12 @@ def _collapse_compare_n_scope(df: pd.DataFrame, *, xcol: str) -> pd.DataFrame:
     return collapsed.sort_values(group_cols, kind="stable").reset_index(drop=True)
 
 
-def plot_by_roi(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
+def plot_compare_roi(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
     out_dir = Path(out_dir)
     xlabel = "td_ms [ms]" if xcol == "td_ms" else r"$\Delta_{app}$ [ms]"
     outputs: list[Path] = []
     for (subj, Nval, roi), sub in df_avg.groupby(["subj", "N", "roi"], sort=True):
-        out_path = out_dir / f"{xcol}" / "by_roi" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__{_sanitize_token(roi)}.png"
+        out_path = out_dir / f"{xcol}" / "compare_roi" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__{_sanitize_token(roi)}.png"
         outputs.append(
             _plot_group_curves(
                 sub,
@@ -294,12 +298,12 @@ def plot_by_roi(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list
     return outputs
 
 
-def plot_by_direction(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
+def plot_compare_direction(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
     out_dir = Path(out_dir)
     xlabel = "td_ms [ms]" if xcol == "td_ms" else r"$\Delta_{app}$ [ms]"
     outputs: list[Path] = []
     for (subj, Nval, direction), sub in df_avg.groupby(["subj", "N", "direction"], sort=True):
-        out_path = out_dir / f"{xcol}" / "by_direction" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__dir={_sanitize_token(direction)}.png"
+        out_path = out_dir / f"{xcol}" / "compare_direction" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__dir={_sanitize_token(direction)}.png"
         outputs.append(
             _plot_group_curves(
                 sub,
@@ -312,6 +316,10 @@ def plot_by_direction(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -
             )
         )
     return outputs
+
+
+plot_by_roi = plot_compare_roi
+plot_by_direction = plot_compare_direction
 
 
 def plot_compare_N_within_sheet(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
