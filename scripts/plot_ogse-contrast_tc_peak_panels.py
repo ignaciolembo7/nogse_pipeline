@@ -6,6 +6,15 @@ from pathlib import Path
 from ogse_fitting.contrast_tc_peak_panels import plot_contrast_tc_peak_panels
 
 
+def _parse_xlims(rows: list[list[str]] | None) -> dict[str, tuple[float, float]]:
+    out: dict[str, tuple[float, float]] = {}
+    if not rows:
+        return out
+    for xvar, xmin, xmax in rows:
+        out[str(xvar)] = (float(xmin), float(xmax))
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
@@ -26,7 +35,15 @@ def main() -> None:
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
     ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="Lista de td_ms a excluir de las figuras.")
-    ap.add_argument("--x-vars", nargs="+", default=["g", "Ld", "lcf", "Lcf"], help="Variables del eje x a generar.")
+    ap.add_argument("--x-vars", nargs="+", default=["g", "Ld", "lcf", "lcf_a", "tc"], help="Variables del eje x a generar.")
+    ap.add_argument(
+        "--xlim",
+        nargs=3,
+        action="append",
+        metavar=("XVAR", "XMIN", "XMAX"),
+        default=None,
+        help="Límite del eje x para una variable. Repetible: --xlim lcf 0 20.",
+    )
     ap.add_argument("--peak-D0-fix", type=float, default=3.2e-12, help="D0 fijo usado para las transformaciones derivadas del pico.")
     ap.add_argument("--peak-gamma", type=float, default=267.5221900, help="Gamma en rad/(ms*mT) usada para las transformaciones derivadas del pico.")
     ap.add_argument("--include-failed", action="store_true", help="Incluye filas con ok=False.")
@@ -48,6 +65,7 @@ def main() -> None:
         x_vars=args.x_vars,
         peak_D0_fix=float(args.peak_D0_fix),
         peak_gamma=float(args.peak_gamma),
+        x_lims=_parse_xlims(args.xlim),
         ok_only=not bool(args.include_failed),
     )
 

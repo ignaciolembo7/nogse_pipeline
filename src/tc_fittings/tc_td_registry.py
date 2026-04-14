@@ -67,6 +67,17 @@ def run_pseudohuber_free(
     y_col: str = "tc_peak_ms",
     y_label: str = r"$t_{c,peak}$ [ms]",
     show_errorbars: bool = True,
+    td_min_ms: float = 0.0,
+    td_max_ms: float = 2000.0,
+    c_fixed: float | None = None,
+    c_min: float = 0.0,
+    c_max: float = float("inf"),
+    delta_fixed: float | None = None,
+    delta_min: float = 1e-6,
+    delta_max: float = float("inf"),
+    alpha_macro_fixed: float | None = None,
+    alpha_macro_min: float = 0.1,
+    alpha_macro_max: float = 0.3,
 ):
     regions = _regions_for_fit(df_params, cfg)
     palette = _palette_for_fit(cfg)
@@ -81,6 +92,17 @@ def run_pseudohuber_free(
         alpha_macro_df=None,
         y_col=y_col,
         y_label=y_label,
+        td_min_ms=td_min_ms,
+        td_max_ms=td_max_ms,
+        c_fixed=c_fixed,
+        c_min=c_min,
+        c_max=c_max,
+        delta_fixed=delta_fixed,
+        delta_min=delta_min,
+        delta_max=delta_max,
+        alpha_macro_fixed=alpha_macro_fixed,
+        alpha_macro_min=alpha_macro_min,
+        alpha_macro_max=alpha_macro_max,
     )
 
     # Normalizar col de direction (por compatibilidad)
@@ -88,9 +110,27 @@ def run_pseudohuber_free(
     df_params = _ensure_direction_col(df_params)
 
     # Blocks que no dependen de nombres específicos de direction
-    block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions)
-    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
-    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
+    block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions, td_min_ms=td_min_ms, td_max_ms=td_max_ms)
+    block1c_smallTd_tc_approx(
+        df_params,
+        df_fit,
+        out_dir,
+        y_col=y_col,
+        y_label=y_label,
+        region_order=regions,
+        td_min_ms=td_min_ms,
+        td_max_ms=td_max_ms,
+    )
+    block1d_fullrange_tc_with_approximations(
+        df_params,
+        df_fit,
+        out_dir,
+        y_col=y_col,
+        y_label=y_label,
+        td_min_ms=td_min_ms,
+        td_max_ms=td_max_ms,
+        region_order=regions,
+    )
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Block2b ahora es genérico: plotea 1×N con TODAS las direcciones presentes
@@ -124,6 +164,17 @@ def run_pseudohuber_fixed_macro(
     y_col: str = "tc_peak_ms",
     y_label: str = r"$t_{c,peak}$ [ms]",
     show_errorbars: bool = True,
+    td_min_ms: float = 0.0,
+    td_max_ms: float = 2000.0,
+    c_fixed: float | None = None,
+    c_min: float = 0.0,
+    c_max: float = float("inf"),
+    delta_fixed: float | None = None,
+    delta_min: float = 1e-6,
+    delta_max: float = float("inf"),
+    alpha_macro_fixed: float | None = None,
+    alpha_macro_min: float = 0.1,
+    alpha_macro_max: float = 0.3,
 ):
     regions = _regions_for_fit(df_params, cfg)
     palette = _palette_for_fit(cfg)
@@ -137,14 +188,43 @@ def run_pseudohuber_fixed_macro(
         alpha_macro_df=alpha_macro_df,
         y_col=y_col,
         y_label=y_label,
+        td_min_ms=td_min_ms,
+        td_max_ms=td_max_ms,
+        c_fixed=c_fixed,
+        c_min=c_min,
+        c_max=c_max,
+        delta_fixed=delta_fixed,
+        delta_min=delta_min,
+        delta_max=delta_max,
+        alpha_macro_fixed=alpha_macro_fixed,
+        alpha_macro_min=alpha_macro_min,
+        alpha_macro_max=alpha_macro_max,
     )
 
     df_fit = _ensure_direction_col(df_fit)
     df_params = _ensure_direction_col(df_params)
 
-    block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions)
-    block1c_smallTd_tc_approx(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
-    block1d_fullrange_tc_with_approximations(df_params, df_fit, out_dir, y_col=y_col, y_label=y_label, region_order=regions)
+    block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions, td_min_ms=td_min_ms, td_max_ms=td_max_ms)
+    block1c_smallTd_tc_approx(
+        df_params,
+        df_fit,
+        out_dir,
+        y_col=y_col,
+        y_label=y_label,
+        region_order=regions,
+        td_min_ms=td_min_ms,
+        td_max_ms=td_max_ms,
+    )
+    block1d_fullrange_tc_with_approximations(
+        df_params,
+        df_fit,
+        out_dir,
+        y_col=y_col,
+        y_label=y_label,
+        td_min_ms=td_min_ms,
+        td_max_ms=td_max_ms,
+        region_order=regions,
+    )
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
     # ✅ Genérico (no depende de long/tra)

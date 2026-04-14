@@ -23,7 +23,8 @@ from ogse_fitting.contrast_fit_panels import (
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 
-VALID_X_VARS = ("g", "Ld", "lcf", "Lcf")
+VALID_X_VARS = ("g", "Ld", "lcf", "lcf_a", "tc")
+X_VAR_ALIASES = {"Lcf": "lcf_a"}
 
 
 def _active_raw_x(active_corr: np.ndarray, fit_row: pd.Series) -> np.ndarray:
@@ -39,15 +40,16 @@ def _derived_axes_from_raw_g(
     td_ms: float,
     peak_D0_fix: float,
     peak_gamma: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     g_raw = np.asarray(g_raw_mTm, dtype=float)
     Ld = np.full_like(g_raw, np.nan, dtype=float)
     lcf_um = np.full_like(g_raw, np.nan, dtype=float)
-    Lcf = np.full_like(g_raw, np.nan, dtype=float)
+    lcf_a = np.full_like(g_raw, np.nan, dtype=float)
+    tc_ms = np.full_like(g_raw, np.nan, dtype=float)
 
     valid = np.isfinite(g_raw) & (g_raw > 0)
     if not np.any(valid):
-        return Ld, lcf_um, Lcf
+        return Ld, lcf_um, lcf_a, tc_ms
 
     D0 = float(peak_D0_fix)
     gamma = float(peak_gamma)
@@ -57,11 +59,13 @@ def _derived_axes_from_raw_g(
     Ld_valid = l_d / l_G
     Lcf_valid = ((3.0 / 2.0) ** (1.0 / 4.0)) * (Ld_valid ** (-1.0 / 2.0))
     lcf_valid_um = (Lcf_valid * l_G) * 1e6
+    tc_valid_ms = ((lcf_valid_um * 1e-6) ** 2) / (2.0 * D0)
 
     Ld[valid] = Ld_valid
-    Lcf[valid] = Lcf_valid
+    lcf_a[valid] = Lcf_valid
     lcf_um[valid] = lcf_valid_um
-    return Ld, lcf_um, Lcf
+    tc_ms[valid] = tc_valid_ms
+    return Ld, lcf_um, lcf_a, tc_ms
 
 
 def _transform_x(
@@ -77,7 +81,7 @@ def _transform_x(
         return np.asarray(active_corr, dtype=float)
 
     raw = _active_raw_x(active_corr, fit_row)
-    Ld, lcf_um, Lcf = _derived_axes_from_raw_g(
+    Ld, lcf_um, lcf_a, tc_ms = _derived_axes_from_raw_g(
         raw,
         td_ms=float(fit_row["td_ms"]),
         peak_D0_fix=peak_D0_fix,
@@ -87,8 +91,10 @@ def _transform_x(
         return Ld
     if xvar == "lcf":
         return lcf_um
-    if xvar == "Lcf":
-        return Lcf
+    if xvar == "lcf_a":
+        return lcf_a
+    if xvar == "tc":
+        return tc_ms
     raise ValueError(f"xvar no soportada: {xvar!r}. Esperaba una de {VALID_X_VARS}.")
 
 
@@ -108,7 +114,7 @@ def _peak_point_for_xvar(
         return x_peak, y_peak
 
     g_raw = float(pd.to_numeric(pd.Series([fit_row.get("x_peak_raw_mTm", np.nan)]), errors="coerce").iloc[0])
-    Ld, lcf_um, Lcf = _derived_axes_from_raw_g(
+    Ld, lcf_um, lcf_a, tc_ms = _derived_axes_from_raw_g(
         np.asarray([g_raw], dtype=float),
         td_ms=float(fit_row["td_ms"]),
         peak_D0_fix=peak_D0_fix,
@@ -118,8 +124,10 @@ def _peak_point_for_xvar(
         return float(Ld[0]), y_peak
     if xvar == "lcf":
         return float(lcf_um[0]), y_peak
-    if xvar == "Lcf":
-        return float(Lcf[0]), y_peak
+    if xvar == "lcf_a":
+        return float(lcf_a[0]), y_peak
+    if xvar == "tc":
+        return float(tc_ms[0]), y_peak
     raise ValueError(f"xvar no soportada: {xvar!r}")
 
 
@@ -130,16 +138,34 @@ def _x_label(spec_gbase: str, spec_xplot: str, xvar: str) -> str:
         return r"$L_d$"
     if xvar == "lcf":
         return r"$l_{cf}$ [$\mu$m]"
-    if xvar == "Lcf":
-        return r"$L_{cf}$"
+    if xvar == "lcf_a":
+        return r"$l_{cf,a}$"
+    if xvar == "tc":
+        return r"$t_c$ [ms]"
     return xvar
 
 
 def _validate_x_vars(x_vars: Sequence[str]) -> list[str]:
-    out = [str(x) for x in x_vars]
+    out = [X_VAR_ALIASES.get(str(x), str(x)) for x in x_vars]
     invalid = [x for x in out if x not in VALID_X_VARS]
     if invalid:
         raise ValueError(f"x_vars inválidas: {invalid}. Esperaba una de {VALID_X_VARS}.")
+    return list(dict.fromkeys(out))
+
+
+def _normalize_x_lims(x_lims: dict[str, tuple[float, float]] | None) -> dict[str, tuple[float, float]]:
+    if not x_lims:
+        return {}
+
+    out: dict[str, tuple[float, float]] = {}
+    for raw_name, raw_lims in x_lims.items():
+        name = X_VAR_ALIASES.get(str(raw_name), str(raw_name))
+        if name not in VALID_X_VARS:
+            raise ValueError(f"x_lims contiene xvar inválida: {raw_name!r}. Esperaba una de {VALID_X_VARS}.")
+        xmin, xmax = map(float, raw_lims)
+        if not np.isfinite(xmin) or not np.isfinite(xmax) or xmax <= xmin:
+            raise ValueError(f"x_lims inválido para {raw_name!r}: {(xmin, xmax)}")
+        out[name] = (xmin, xmax)
     return out
 
 
@@ -154,12 +180,14 @@ def plot_contrast_tc_peak_panels(
     rois: list[str] | None = None,
     directions: list[str] | None = None,
     exclude_td_ms: list[float] | None = None,
-    x_vars: Sequence[str] = ("g", "Ld", "lcf", "Lcf"),
+    x_vars: Sequence[str] = ("g", "Ld", "lcf", "lcf_a", "tc"),
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
+    x_lims: dict[str, tuple[float, float]] | None = None,
     ok_only: bool = True,
 ) -> list[Path]:
     x_vars = _validate_x_vars(x_vars)
+    x_lims = _normalize_x_lims(x_lims)
     df = load_contrast_fit_params(
         [fits_root],
         pattern=pattern,
@@ -326,6 +354,8 @@ def plot_contrast_tc_peak_panels(
                             if np.isfinite(xmin) and np.isfinite(xmax):
                                 pad = 0.05 * (xmax - xmin) if xmax > xmin else max(1.0, 0.05 * abs(xmax) if xmax != 0.0 else 1.0)
                                 ax.set_xlim(xmin - pad, xmax + pad)
+                    if xvar in x_lims:
+                        ax.set_xlim(*x_lims[xvar])
 
                     ax.set_title(f"{roi} | {direction}", fontsize=11)
                     ax.grid(True, alpha=0.25)

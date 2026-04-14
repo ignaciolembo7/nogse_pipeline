@@ -6,9 +6,14 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
 PY="${PY:-python}"
 TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 
 METHOD="pseudohuber_fixed_macro"
 GROUPFITS="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr/groupfits_rest.parquet"
@@ -17,6 +22,14 @@ YCOL="tc_peak_ms"
 EXCLUDE_TD_MS="76"
 SHOW_ERRORBARS="1"
 ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC,Left-Lateral-Ventricle,Right-Lateral-Ventricle,Syringe"
+TD_MIN_MS="0"
+TD_MAX_MS="250"
+C_FIXED="FREE"
+C_MIN="0"
+C_MAX="10"
+DELTA_FIXED="FREE"
+DELTA_MIN="1e-6"
+DELTA_MAX="100"
 EXCLUDE_MATCHES=()
 if [[ "$YCOL" == "tc_peak_ms" ]]; then
     TC_DIRNAME="tcpeak_vs_td"
@@ -63,6 +76,15 @@ if [[ -n "${ROIS// }" ]]; then
         extra_args+=(--rois "${roi_list[@]}")
     fi
 fi
+extra_args+=(--td-min-ms "$TD_MIN_MS" --td-max-ms "$TD_MAX_MS")
+extra_args+=(--c-min "$C_MIN" --c-max "$C_MAX")
+extra_args+=(--delta-min "$DELTA_MIN" --delta-max "$DELTA_MAX")
+if [[ "$C_FIXED" != "FREE" ]]; then
+    extra_args+=(--c-fixed "$C_FIXED")
+fi
+if [[ "$DELTA_FIXED" != "FREE" ]]; then
+    extra_args+=(--delta-fixed "$DELTA_FIXED")
+fi
 
 echo "============================================================"
 echo "Dataset       : brains"
@@ -74,6 +96,9 @@ echo "Y column      : $YCOL"
 echo "Exclude td_ms : ${EXCLUDE_TD_MS:-<none>}"
 echo "Exclude rows  : ${EXCLUDE_MATCHES[*]:-<none>}"
 echo "Error bars    : $SHOW_ERRORBARS"
+echo "Td x limits   : $TD_MIN_MS $TD_MAX_MS"
+echo "c fit control : fixed=$C_FIXED bounds=[$C_MIN, $C_MAX]"
+echo "delta control : fixed=$DELTA_FIXED bounds=[$DELTA_MIN, $DELTA_MAX]"
 echo "tc_vs_td kind : $TC_DIRNAME"
 echo "Output dir    : $OUT_DIR"
 

@@ -6,11 +6,16 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 
 PY="${PY:-python}"
 PIPELINE_SCRIPT="$REPO_ROOT/scripts/run_tc_pipeline.py"
 PLOT_FIT_PANELS_SCRIPT="$REPO_ROOT/bash/helpers/run_plot_ogse_contrast_fit_panels.sh"
-PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/bash/helpers/run_plot_ogse_tc_peak_panels.sh"
+PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/scripts/plot_ogse-contrast_tc_peak_panels.py"
 
 FIT_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr"
 CONTRAST_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/contrast-data-rotated"
@@ -23,6 +28,19 @@ DIRECTIONS="long,tra"
 EXCLUDE_TD_MS=""
 FIT_PANELS_OUT_DIR="$FIT_ROOT/contrast_fit_panels"
 TC_PEAK_PANELS_OUT_DIR="$FIT_ROOT/tc_peak_panels"
+X_VARS="g,Ld,lcf,lcf_a,tc"
+PEAK_D0_FIX="2.3e-12"
+PEAK_GAMMA="267.5221900"
+TC_PEAK_XLIMS=(
+    "g 0 80"
+    "Ld 0 4"
+    "lcf 0 20"
+    "lcf_a 0.25 1.250"
+    "tc 0 50"
+)
+
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 # Allow EXCLUDE_TD_MS to remain commented out or empty without breaking `set -u`.
 EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
@@ -66,6 +84,7 @@ echo "Output XLSX   : $OUT_XLSX"
 echo "Output Parquet: $OUT_PARQUET"
 echo "Fit panels    : $FIT_PANELS_OUT_DIR"
 echo "tc_peak panels: $TC_PEAK_PANELS_OUT_DIR"
+echo "tc_peak x vars: $X_VARS"
 
 "$PY" "$PIPELINE_SCRIPT" \
     "$FIT_ROOT" \
@@ -88,17 +107,55 @@ bash "$PLOT_FIT_PANELS_SCRIPT"
 
 echo
 echo "Generating tc_peak panels..."
-PY="$PY" \
-FITS_ROOT="$FIT_ROOT" \
-CONTRAST_ROOT="$CONTRAST_ROOT" \
-OUT_DIR="$TC_PEAK_PANELS_OUT_DIR" \
-MODELS="$MODELS" \
-SUBJS="$SUBJS" \
-ROIS="$ROIS" \
-DIRECTIONS="$DIRECTIONS" \
-X_VARS="g,Ld,lcf,Lcf" \
-EXCLUDE_TD_MS="$EXCLUDE_TD_MS" \
-bash "$PLOT_TC_PEAK_PANELS_SCRIPT"
+tc_peak_args=()
+if [[ "$MODELS" != "ALL" ]]; then
+    read -r -a model_list <<< "${MODELS//,/ }"
+    if (( ${#model_list[@]} > 0 )); then
+        tc_peak_args+=(--models "${model_list[@]}")
+    fi
+fi
+if [[ "$SUBJS" != "ALL" ]]; then
+    read -r -a subj_list <<< "${SUBJS//,/ }"
+    if (( ${#subj_list[@]} > 0 )); then
+        tc_peak_args+=(--subjs "${subj_list[@]}")
+    fi
+fi
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        tc_peak_args+=(--rois "${roi_list[@]}")
+    fi
+fi
+if [[ "$DIRECTIONS" != "ALL" ]]; then
+    read -r -a dir_list <<< "${DIRECTIONS//,/ }"
+    if (( ${#dir_list[@]} > 0 )); then
+        tc_peak_args+=(--directions "${dir_list[@]}")
+    fi
+fi
+if [[ "$X_VARS" != "ALL" ]]; then
+    read -r -a xvar_list <<< "${X_VARS//,/ }"
+    if (( ${#xvar_list[@]} > 0 )); then
+        tc_peak_args+=(--x-vars "${xvar_list[@]}")
+    fi
+fi
+if [[ -n "${EXCLUDE_TD_MS// }" ]]; then
+    read -r -a exclude_td_list <<< "${EXCLUDE_TD_MS//,/ }"
+    if (( ${#exclude_td_list[@]} > 0 )); then
+        tc_peak_args+=(--exclude-td-ms "${exclude_td_list[@]}")
+    fi
+fi
+for xlim_spec in "${TC_PEAK_XLIMS[@]}"; do
+    read -r xvar xmin xmax <<< "$xlim_spec"
+    tc_peak_args+=(--xlim "$xvar" "$xmin" "$xmax")
+done
+
+"$PY" "$PLOT_TC_PEAK_PANELS_SCRIPT" \
+    "$FIT_ROOT" \
+    --contrast-root "$CONTRAST_ROOT" \
+    --out-dir "$TC_PEAK_PANELS_OUT_DIR" \
+    --peak-D0-fix "$PEAK_D0_FIX" \
+    --peak-gamma "$PEAK_GAMMA" \
+    "${tc_peak_args[@]}"
 
 echo
 echo "Finished."

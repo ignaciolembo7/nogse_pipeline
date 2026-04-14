@@ -181,12 +181,25 @@ def main() -> None:
         help="Excluye filas específicas. Formato: roi|direction, subj|roi|direction, roi|direction|td_ms o subj|roi|direction|td_ms.",
     )
     ap.add_argument("--no-errorbars", action="store_true", help="Si se pasa, los plots de pseudohuber se generan sin barras/bandas de error.")
+    ap.add_argument("--td-min-ms", type=float, default=0.0, help="Límite inferior del eje Td para los plots.")
+    ap.add_argument("--td-max-ms", type=float, default=2000.0, help="Límite superior del eje Td para los plots.")
+    ap.add_argument("--c-fixed", type=float, default=None, help="Fija c en vez de ajustarlo.")
+    ap.add_argument("--c-min", type=float, default=0.0, help="Límite inferior para c si se ajusta.")
+    ap.add_argument("--c-max", type=float, default=float("inf"), help="Límite superior para c si se ajusta.")
+    ap.add_argument("--delta-fixed", type=float, default=None, help="Fija delta [ms] en vez de ajustarlo.")
+    ap.add_argument("--delta-min", type=float, default=1e-6, help="Límite inferior para delta [ms] si se ajusta.")
+    ap.add_argument("--delta-max", type=float, default=float("inf"), help="Límite superior para delta [ms] si se ajusta.")
+    ap.add_argument("--alpha-macro-fixed", type=float, default=None, help="Fija alpha_macro en pseudohuber_free.")
+    ap.add_argument("--alpha-macro-min", type=float, default=0.1, help="Límite inferior para alpha_macro en pseudohuber_free.")
+    ap.add_argument("--alpha-macro-max", type=float, default=0.3, help="Límite superior para alpha_macro en pseudohuber_free.")
     ap.add_argument("--summary-alpha", default=None, help="Ruta a summary_alpha_values.xlsx. Si no, no se usa salvo que el método lo requiera.")
     ap.add_argument("--out-dir", default=None, help="Directorio de salida. Si no, se arma a partir del input.")
     args = ap.parse_args()
     args.subjs = _normalize_name_list(args.subjs)
     args.directions = _normalize_name_list(args.directions)
     args.rois = _normalize_name_list(args.rois)
+    if float(args.td_max_ms) <= float(args.td_min_ms):
+        raise ValueError("--td-max-ms debe ser mayor que --td-min-ms.")
 
     df_params = _load_df_params(args)
     spec = METHODS[args.method]
@@ -233,6 +246,17 @@ def main() -> None:
         y_col=args.y_col,
         y_label=y_label,
         show_errorbars=not args.no_errorbars,
+        td_min_ms=float(args.td_min_ms),
+        td_max_ms=float(args.td_max_ms),
+        c_fixed=args.c_fixed,
+        c_min=float(args.c_min),
+        c_max=float(args.c_max),
+        delta_fixed=args.delta_fixed,
+        delta_min=float(args.delta_min),
+        delta_max=float(args.delta_max),
+        alpha_macro_fixed=args.alpha_macro_fixed,
+        alpha_macro_min=float(args.alpha_macro_min),
+        alpha_macro_max=float(args.alpha_macro_max),
     )
 
 
