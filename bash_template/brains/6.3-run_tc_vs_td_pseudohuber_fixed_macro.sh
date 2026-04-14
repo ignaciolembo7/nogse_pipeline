@@ -14,8 +14,8 @@ METHOD="pseudohuber_fixed_macro"
 GROUPFITS="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr/groupfits_rest.parquet"
 SUMMARY_ALPHA="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 YCOL="tc_peak_ms"
-EXCLUDE_TD_MS=""
-SHOW_ERRORBARS="0"
+EXCLUDE_TD_MS="76"
+SHOW_ERRORBARS="1"
 ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC,Left-Lateral-Ventricle,Right-Lateral-Ventricle,Syringe"
 EXCLUDE_MATCHES=()
 if [[ "$YCOL" == "tc_peak_ms" ]]; then

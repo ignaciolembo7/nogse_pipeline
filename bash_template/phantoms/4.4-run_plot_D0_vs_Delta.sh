@@ -28,6 +28,7 @@ DIRS="ALL"
 N_VALUE="1"
 BVALMAX="7"
 OUT_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1"
+SUMMARY_ALPHA="$OUT_DIR/summary_alpha_values.xlsx"
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then
     echo "ERROR: Script not found: $PLOT_SCRIPT" >&2
@@ -74,16 +75,29 @@ echo "ROIs       : $ROIS"
 echo "Dirs       : $DIRS"
 echo "N          : $N_VALUE"
 echo "Bstep alpha: $BVALMAX"
+if [[ -f "$SUMMARY_ALPHA" ]]; then
+    echo "Summary    : $SUMMARY_ALPHA"
+else
+    echo "Summary    : <not found; using fallback bstep selection>"
+fi
 echo "Output dir : $OUT_DIR"
 
 # Legacy CLI alias accepted by the plotting script.
-"$PY" "$PLOT_SCRIPT" \
-    --dproj-root "$DPROJ_ROOT" \
-    "${extra_args[@]}" \
-    --N "$N_VALUE" \
-    --bvalmax "$BVALMAX" \
-    --out-dir "$OUT_DIR" \
+cmd=(
+    "$PY" "$PLOT_SCRIPT"
+    --dproj-root "$DPROJ_ROOT"
+    "${extra_args[@]}"
+    --N "$N_VALUE"
+    --bvalmax "$BVALMAX"
+    --out-dir "$OUT_DIR"
     --reference-D0 0.0023
+)
+
+if [[ -f "$SUMMARY_ALPHA" ]]; then
+    cmd+=(--summary-alpha "$SUMMARY_ALPHA")
+fi
+
+"${cmd[@]}"
 
 echo
 echo "Finished."

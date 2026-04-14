@@ -14,7 +14,7 @@ PY="${PY:-python}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
-DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters.xlsx"
+DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_brains.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 

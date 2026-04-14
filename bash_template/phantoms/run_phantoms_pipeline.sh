@@ -8,7 +8,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 # Configuration
 # ------------------------------------------------------------------
 PY="${PY:-python}"
-LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/logs/phantoms_pipeline}"
+LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms}"
 
 RUN_SCRIPTS=(
   "0.3-copy_selected_files.sh"
@@ -20,8 +20,8 @@ RUN_SCRIPTS=(
   "3.2-run_plot_all_ogse_contrast_vs_g.sh"
   "4.1-run_fit_ogse_signal_vs_bval.sh"
   "4.2-run_plot_monoexp_D_vs_time.sh"
-  "4.3-run_plot_D0_vs_Delta.sh"
-  "4.4-run_make_alpha_macro_summary.sh"
+  "4.3-run_make_alpha_macro_summary.sh"
+  "4.4-run_plot_D0_vs_Delta.sh"
   "5.1-run_fit_free_all_ogse_contrast_vs_g.sh"
   "5.2-run_make_grad_correction_table.sh"
   "5.3-run_fit_free_all_ogse_contrast_vs_g_corr.sh"
