@@ -23,7 +23,7 @@ PY="${PY:-$DEFAULT_PY}"
 MAKE_CONTRAST_SCRIPT="$REPO_ROOT/scripts/make_contrast.py"
 DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20220610-PHANTOM3"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/contrast-data"
-DIRECTIONS=(1)
+DIRECTIONS=(1 2 3)
 
 
 # Add the contrast pairs manually.

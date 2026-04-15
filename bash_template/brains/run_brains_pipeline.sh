@@ -25,7 +25,7 @@ RUN_SCRIPTS=(
 #   "5.2-run_make_grad_correction_table.sh"
 #   "5.3-run_fit_free_all_ogse_contrast_vs_g_corr.sh"
 #   "6.1-run_fit_rest_all_ogse_contrast_vs_g_corr.sh"
-  "6.2-run_make_groupfits_rest.sh"
+#   "6.2-run_make_groupfits_rest.sh"
   "6.3-run_tc_vs_td_pseudohuber_fixed_macro.sh"
 )
 

@@ -1042,11 +1042,9 @@ def block1b_alpha_vs_Td(
                 xx = np.linspace(xmin, xmax, 200)
                 alpha_curve = alpha_of_Td(xx, delta, alpha_macro)
                 alpha_small = A * xx
-                alpha_asym = np.full_like(xx, alpha_macro)
 
                 ax.plot(xx, alpha_curve, "-", linewidth=2, label=f"{subj} alpha(Td)")
                 ax.plot(xx, alpha_small, "--", linewidth=1.5, label=f"{subj} A*Td")
-                ax.plot(xx, alpha_asym, ":", linewidth=1.5, label=f"{subj} alpha_macro")
                 any_line = True
 
             ax.set_title(region)
@@ -1061,7 +1059,7 @@ def block1b_alpha_vs_Td(
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"alpha(Td) + small/large-Td limits | dir={dir_actual}", fontsize=16)
+        plt.suptitle(f"alpha(Td) + small-Td limit | dir={dir_actual}", fontsize=16)
         plt.tight_layout(rect=[0,0.03,1,0.95])
         plt.savefig(out_dir / f"alpha_vs_Td_dir={dir_actual}.png", dpi=300)
         plt.close()

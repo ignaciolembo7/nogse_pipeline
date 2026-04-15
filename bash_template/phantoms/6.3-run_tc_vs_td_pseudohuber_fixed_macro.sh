@@ -22,7 +22,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 
-METHOD="pseudohuber_fixed_macro"
+METHOD="${METHOD:-pseudohuber_fixed_macro}"
 GROUPFITS="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_rest_ogse_contrast_corr/groupfits_rest.parquet"
 SUMMARY_ALPHA="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 YCOL="tc_peak_ms"
@@ -34,6 +34,8 @@ C_FIXED="FREE"
 C_MIN="0"
 C_MAX="INF"
 DELTA_FIXED="FREE"
+# To force delta to 0 ms, uncomment the next line.
+# DELTA_FIXED="0"
 DELTA_MIN="1e-6"
 DELTA_MAX="250"
 EXCLUDE_MATCHES=()
@@ -111,3 +113,6 @@ echo "Output dir    : $OUT_DIR"
 
 echo
 echo "Finished."
+
+# To release alpha_macro (fit it instead of using fixed macro values), run:
+# METHOD="pseudohuber_free" bash "$0"

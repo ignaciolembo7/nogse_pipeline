@@ -29,7 +29,7 @@ C_MIN="0"
 C_MAX="10"
 DELTA_FIXED="FREE"
 DELTA_MIN="1e-6"
-DELTA_MAX="100"
+DELTA_MAX="300"
 EXCLUDE_MATCHES=()
 if [[ "$YCOL" == "tc_peak_ms" ]]; then
     TC_DIRNAME="tcpeak_vs_td"

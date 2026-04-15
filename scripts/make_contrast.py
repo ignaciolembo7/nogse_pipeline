@@ -12,6 +12,31 @@ from tools.strict_columns import find_unrecognized_column_names
 KEY_COLS = ("stat", "roi", "direction", "b_step")
 
 
+def _normalize_direction_token(value: object) -> str:
+    token = str(value).strip()
+    if token == "":
+        return ""
+    try:
+        num = float(token)
+        if pd.notna(num) and abs(num - round(num)) < 1e-6:
+            return str(int(round(num)))
+    except Exception:
+        pass
+    return token
+
+
+def _normalize_direction_list(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    out: list[str] = []
+    for raw in values:
+        for token in str(raw).split(","):
+            norm = _normalize_direction_token(token)
+            if norm:
+                out.append(norm)
+    return list(dict.fromkeys(out))
+
+
 def _one(df: pd.DataFrame, col: str, default=None):
     if col not in df.columns:
         return default
@@ -124,6 +149,7 @@ def _normalize_key_dtypes(df: pd.DataFrame, label: str) -> pd.DataFrame:
     out = df.copy()
     for c in ["stat", "roi", "direction"]:
         out[c] = out[c].astype(str)
+    out["direction"] = out["direction"].map(_normalize_direction_token)
 
     bs = pd.to_numeric(out["b_step"], errors="coerce")
     if bs.isna().any():
@@ -267,7 +293,7 @@ def main():
     ap.add_argument("--exp", default=None, help="Override the sheet name used for naming only.")
     args = ap.parse_args()
 
-    directions = [str(x) for x in (args.direction or [])]
+    directions = _normalize_direction_list(args.direction)
     subjs = args.subjs
     if subjs is not None and len(subjs) == 1 and str(subjs[0]).upper() == "ALL":
         subjs = None
@@ -282,8 +308,15 @@ def main():
     df_cmp = _normalize_key_dtypes(df_cmp, "cmp")
 
     if directions:
+        ref_dirs_before = sorted(df_ref["direction"].astype(str).dropna().unique().tolist())
+        cmp_dirs_before = sorted(df_cmp["direction"].astype(str).dropna().unique().tolist())
         df_ref = df_ref[df_ref["direction"].isin(directions)]
         df_cmp = df_cmp[df_cmp["direction"].isin(directions)]
+        if df_ref.empty or df_cmp.empty:
+            raise ValueError(
+                "Direction filter left empty inputs. "
+                f"Requested directions={directions}, ref_available={ref_dirs_before}, cmp_available={cmp_dirs_before}."
+            )
 
     analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp)
     old_analysis_id, _ = build_analysis_id_without_sequence(df_ref, df_cmp, directions, args.exp)
