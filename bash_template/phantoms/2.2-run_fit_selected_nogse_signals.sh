@@ -22,11 +22,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 
 FIT_SCRIPT="$REPO_ROOT/scripts/fit_nogse-signal_vs_g.py"
-<<<<<<< HEAD
 DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
-=======
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20220610-PHANTOM3"
->>>>>>> origin/main
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_nogse-signal_vs_g"
 XCOL="g"
 YCOL="value_norm"
@@ -39,11 +35,7 @@ declare -a JOBS=(
   # Add jobs manually as: "path|model"
   # Supported models: free_cpmg | free_hahn
   # Example:
-<<<<<<< HEAD
-  "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet|free_cpmg"
-=======
   # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet|free_cpmg"
->>>>>>> origin/main
 )
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then

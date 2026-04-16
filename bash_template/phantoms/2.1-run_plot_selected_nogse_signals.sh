@@ -22,11 +22,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse-signal_vs_g.py"
-<<<<<<< HEAD
 DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
-=======
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20220610-PHANTOM3"
->>>>>>> origin/main
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal-plots/nogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"
@@ -37,11 +33,7 @@ DIRECTIONS="ALL"
 declare -a FILES=(
   # Add the signal parquet files manually.
   # Example:
-<<<<<<< HEAD
   "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
-=======
-  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
->>>>>>> origin/main
 )
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then

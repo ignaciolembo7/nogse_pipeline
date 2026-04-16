@@ -20,15 +20,9 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
-<<<<<<< HEAD:bash_template/phantoms/2-run_process_all_results.sh
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/20260122-PHANTOM_NISO4"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
-=======
-ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
-DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_brains.xlsx"
->>>>>>> origin/main:bash_template/brains/2.0-run_process_all_results.sh
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 
