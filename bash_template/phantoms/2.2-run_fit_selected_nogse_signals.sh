@@ -35,7 +35,7 @@ declare -a JOBS=(
   # Add jobs manually as: "path|model"
   # Supported models: free_cpmg | free_hahn
   # Example:
-  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet|free_cpmg"
+  "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet|free_cpmg"
 )
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then

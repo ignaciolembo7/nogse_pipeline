@@ -33,7 +33,7 @@ DIRECTIONS="ALL"
 declare -a FILES=(
   # Add the signal parquet files manually.
   # Example:
-  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
+  "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
 )
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then
