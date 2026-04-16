@@ -12,7 +12,7 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 DATA_ROOT="${1:-$PROJECT_ROOT/analysis/brains/ogse_experiments/data}"
-DIRS_CSV="${2:-$REPO_ROOT/assets/dirs/dirs_6.csv}"
+DIRS_TXT="${2:-$REPO_ROOT/assets/dirs/dirs_6.txt}"
 ROTATE_SCRIPT="${3:-$REPO_ROOT/scripts/rotate_ogse_tensor.py}"
 FILE_PATTERN="${4:-*_results.long.parquet}"
 OUT_ROOT="${5:-$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated}"
@@ -22,8 +22,8 @@ if [[ ! -d "$DATA_ROOT" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$DIRS_CSV" ]]; then
-    echo "ERROR: dirs CSV not found: $DIRS_CSV" >&2
+if [[ ! -f "$DIRS_TXT" ]]; then
+    echo "ERROR: dirs TXT not found: $DIRS_TXT" >&2
     exit 1
 fi
 
@@ -37,7 +37,7 @@ mkdir -p "$OUT_ROOT"
 echo "============================================================"
 echo "Dataset      : brains"
 echo "Data root    : $DATA_ROOT"
-echo "Dirs CSV     : $DIRS_CSV"
+echo "Dirs TXT     : $DIRS_TXT"
 echo "Rotate script: $ROTATE_SCRIPT"
 echo "File pattern : $FILE_PATTERN"
 echo "Output root  : $OUT_ROOT"
@@ -57,7 +57,7 @@ while read -r file; do
     echo "Processing: $base_name"
     echo "  File: $file"
 
-    if "$PY" "$ROTATE_SCRIPT" "$file" --dirs_csv "$DIRS_CSV" --out_dir "$OUT_ROOT"; then
+    if "$PY" "$ROTATE_SCRIPT" "$file" --dirs_txt "$DIRS_TXT" --out_dir "$OUT_ROOT"; then
         ok=$((ok + 1))
         echo "  OK: $base_name"
     else

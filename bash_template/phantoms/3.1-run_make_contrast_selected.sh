@@ -25,6 +25,8 @@ DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTO
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/contrast-data"
 DIRECTIONS=(1)
 
+
+# Add the contrast pairs manually.
 declare -a PAIRS=(
   # Add the contrast pairs manually.
   # Example:

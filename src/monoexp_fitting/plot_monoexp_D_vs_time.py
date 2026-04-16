@@ -20,6 +20,13 @@ def _join_sorted_unique(values: pd.Series) -> str:
     return "|".join(items)
 
 
+def _join_limited_sorted_unique(values: pd.Series, *, max_items: int = 6) -> str:
+    items = sorted({str(x).strip() for x in values.dropna() if str(x).strip()})
+    if len(items) <= max_items:
+        return "|".join(items)
+    return "|".join(items[:max_items] + [f"...(+{len(items) - max_items})"])
+
+
 def _valid_text(value: object) -> str | None:
     token = str(value).strip()
     if not token or token.lower() in {"nan", "none", "<na>"}:
@@ -59,12 +66,14 @@ def load_monoexp_fit_measurements(
     subjs: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
+    Ns: Sequence[float | str] | None = None,
     stat: str = "avg",
     ycol: str = "value_norm",
 ) -> pd.DataFrame:
     subj_set = {str(x) for x in subjs} if subjs is not None else None
     roi_set = {str(x) for x in rois} if rois is not None else None
     direction_set = {str(x) for x in directions} if directions is not None else None
+    n_set = {float(x) for x in Ns} if Ns is not None else None
 
     frames: list[pd.DataFrame] = []
     for path in discover_fit_param_files(fits_root, pattern=pattern):
@@ -118,6 +127,8 @@ def load_monoexp_fit_measurements(
             out = out[out["roi"].isin(roi_set)]
         if direction_set is not None:
             out = out[out["direction"].isin(direction_set)]
+        if n_set is not None:
+            out = out[out["N"].isin(n_set)]
 
         out = out.dropna(subset=["D0_mm2_s"])
         if out.empty:
@@ -213,12 +224,66 @@ def _plot_group_curves(
     return out_path
 
 
-def plot_by_roi(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
+def _compare_n_curve_score(df: pd.DataFrame, *, xcol: str) -> int:
+    work = df.copy()
+    work["N"] = pd.to_numeric(work.get("N", np.nan), errors="coerce")
+    work[xcol] = pd.to_numeric(work.get(xcol, np.nan), errors="coerce")
+    work = work.dropna(subset=["N", xcol])
+    if work.empty:
+        return 0
+
+    n_x_counts = work.groupby("N")[xcol].nunique()
+    if len(n_x_counts) < 2:
+        return 0
+    return int(n_x_counts.max())
+
+
+def _collapse_compare_n_scope(df: pd.DataFrame, *, xcol: str) -> pd.DataFrame:
+    group_cols = ["subj", "roi", "direction", "N", xcol]
+    missing = [col for col in group_cols if col not in df.columns]
+    if missing:
+        raise KeyError(f"Missing columns for compare_N collapse: {missing}")
+
+    work = df.copy()
+    work["D_mean_mm2_s"] = pd.to_numeric(work.get("D_mean_mm2_s", np.nan), errors="coerce")
+    work["D_std_mm2_s"] = pd.to_numeric(work.get("D_std_mm2_s", np.nan), errors="coerce")
+    work["n_measurements"] = pd.to_numeric(work.get("n_measurements", 1), errors="coerce").fillna(1)
+
+    if "source_files" not in work.columns:
+        work["source_files"] = ""
+    if "sheet" not in work.columns:
+        work["sheet"] = ""
+    if "other_x_mean" not in work.columns:
+        work["other_x_mean"] = np.nan
+
+    collapsed = (
+        work.groupby(group_cols, as_index=False)
+        .agg(
+            sheet=("sheet", _join_limited_sorted_unique),
+            D_mean_mm2_s=("D_mean_mm2_s", "mean"),
+            D_std_mm2_s=("D_mean_mm2_s", "std"),
+            n_measurements=("n_measurements", "sum"),
+            other_x_mean=("other_x_mean", "mean"),
+            source_files=("source_files", _join_limited_sorted_unique),
+        )
+    )
+    fallback_std = (
+        work.groupby(group_cols, as_index=False)["D_std_mm2_s"]
+        .mean()
+        .rename(columns={"D_std_mm2_s": "_fallback_std"})
+    )
+    collapsed = collapsed.merge(fallback_std, on=group_cols, how="left")
+    collapsed["D_std_mm2_s"] = collapsed["D_std_mm2_s"].fillna(collapsed["_fallback_std"]).fillna(0.0)
+    collapsed = collapsed.drop(columns=["_fallback_std"])
+    return collapsed.sort_values(group_cols, kind="stable").reset_index(drop=True)
+
+
+def plot_compare_roi(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
     out_dir = Path(out_dir)
     xlabel = "td_ms [ms]" if xcol == "td_ms" else r"$\Delta_{app}$ [ms]"
     outputs: list[Path] = []
     for (subj, Nval, roi), sub in df_avg.groupby(["subj", "N", "roi"], sort=True):
-        out_path = out_dir / f"{xcol}" / "by_roi" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__{_sanitize_token(roi)}.png"
+        out_path = out_dir / f"{xcol}" / "compare_roi" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__{_sanitize_token(roi)}.png"
         outputs.append(
             _plot_group_curves(
                 sub,
@@ -233,12 +298,12 @@ def plot_by_roi(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list
     return outputs
 
 
-def plot_by_direction(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
+def plot_compare_direction(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
     out_dir = Path(out_dir)
     xlabel = "td_ms [ms]" if xcol == "td_ms" else r"$\Delta_{app}$ [ms]"
     outputs: list[Path] = []
     for (subj, Nval, direction), sub in df_avg.groupby(["subj", "N", "direction"], sort=True):
-        out_path = out_dir / f"{xcol}" / "by_direction" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__dir={_sanitize_token(direction)}.png"
+        out_path = out_dir / f"{xcol}" / "compare_direction" / f"{_sanitize_token(subj)}__N={_sanitize_token(Nval)}__dir={_sanitize_token(direction)}.png"
         outputs.append(
             _plot_group_curves(
                 sub,
@@ -253,28 +318,60 @@ def plot_by_direction(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -
     return outputs
 
 
+plot_by_roi = plot_compare_roi
+plot_by_direction = plot_compare_direction
+
+
 def plot_compare_N_within_sheet(df_avg: pd.DataFrame, *, xcol: str, out_dir: str | Path) -> list[Path]:
     out_dir = Path(out_dir)
     xlabel = "td_ms [ms]" if xcol == "td_ms" else r"$\Delta_{app}$ [ms]"
     outputs: list[Path] = []
-    for (subj, sheet, roi, direction), sub in df_avg.groupby(["subj", "sheet", "roi", "direction"], sort=True):
-        n_unique = pd.to_numeric(sub["N"], errors="coerce").dropna().unique()
-        if len(n_unique) < 2:
+    for (subj, roi, direction), subj_sub in df_avg.groupby(["subj", "roi", "direction"], sort=True):
+        collapsed = _collapse_compare_n_scope(subj_sub, xcol=xcol)
+        subject_score = _compare_n_curve_score(collapsed, xcol=xcol)
+        if subject_score < 2:
             continue
+
+        plotted_sheet_scope = False
+        for sheet, sheet_sub in subj_sub.groupby("sheet", sort=True):
+            if _compare_n_curve_score(sheet_sub, xcol=xcol) < subject_score:
+                continue
+            plotted_sheet_scope = True
+            out_path = (
+                out_dir
+                / f"{xcol}"
+                / "compare_N"
+                / f"{_sanitize_token(subj)}__{_sanitize_token(sheet)}__{_sanitize_token(roi)}__dir={_sanitize_token(direction)}.png"
+            )
+            outputs.append(
+                _plot_group_curves(
+                    sheet_sub,
+                    group_key=(subj, direction),
+                    curve_col="N",
+                    xcol=xcol,
+                    out_path=out_path,
+                    title=f"{subj} | {sheet} | {roi} | dir={direction} | compare N",
+                    xlabel=xlabel,
+                )
+            )
+
+        if plotted_sheet_scope:
+            continue
+
         out_path = (
             out_dir
             / f"{xcol}"
             / "compare_N"
-            / f"{_sanitize_token(subj)}__{_sanitize_token(sheet)}__{_sanitize_token(roi)}__dir={_sanitize_token(direction)}.png"
+            / f"{_sanitize_token(subj)}__all-sheets__{_sanitize_token(roi)}__dir={_sanitize_token(direction)}.png"
         )
         outputs.append(
             _plot_group_curves(
-                sub,
+                collapsed,
                 group_key=(subj, direction),
                 curve_col="N",
                 xcol=xcol,
                 out_path=out_path,
-                title=f"{subj} | {sheet} | {roi} | dir={direction} | compare N",
+                title=f"{subj} | all sheets | {roi} | dir={direction} | compare N",
                 xlabel=xlabel,
             )
         )

@@ -25,6 +25,10 @@ OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
 PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
 ROIS="ALL"
 DIRECTIONS="ALL"
+<<<<<<< HEAD
+=======
+NS="1,4,8"
+>>>>>>> origin/main
 
 if [[ ! -d "$FITS_ROOT" ]]; then
     echo "ERROR: Fits root not found: $FITS_ROOT" >&2
@@ -56,6 +60,15 @@ if [[ "$DIRECTIONS" != "ALL" ]]; then
         extra_args+=(--dirs "${dir_list[@]}")
     fi
 fi
+<<<<<<< HEAD
+=======
+if [[ "$NS" != "ALL" ]]; then
+    read -r -a n_list <<< "${NS//,/ }"
+    if (( ${#n_list[@]} > 0 )); then
+        extra_args+=(--Ns "${n_list[@]}")
+    fi
+fi
+>>>>>>> origin/main
 
 "$PY" "$PLOT_SCRIPT" \
     --fits-root "$FITS_ROOT" \

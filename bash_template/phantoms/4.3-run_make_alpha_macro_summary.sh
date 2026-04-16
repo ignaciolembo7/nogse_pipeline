@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
 # ------------------------------------------------------------------
 # Configuration
@@ -21,8 +22,11 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
 
-COMBINED_TABLE="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/D_vs_delta_app.combined.xlsx"
+DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data"
 SUBJS="ALL"
+ROIS="ALL"
+DIRS="1 2 3"
+N_VALUE="1"
 PLOT_ROIS="ALL"
 PLOT_DIRECTIONS="ALL"
 BVALMAX="7"
@@ -33,8 +37,13 @@ if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$COMBINED_TABLE" ]]; then
-    echo "Combined monoexp table not found: $COMBINED_TABLE. Skipping alpha macro summary."
+if [[ ! -d "$DPROJ_ROOT" ]]; then
+    echo "ERROR: Dproj root not found: $DPROJ_ROOT" >&2
+    exit 1
+fi
+
+if [[ -z "$(find "$DPROJ_ROOT" -type f -name '*.Dproj.long.parquet' -print -quit)" ]]; then
+    echo "No monoexp Dproj tables were found in $DPROJ_ROOT. Skipping alpha macro summary."
     exit 0
 fi
 
@@ -45,6 +54,18 @@ if [[ "$SUBJS" != "ALL" ]]; then
     read -r -a subj_list <<< "${SUBJS//,/ }"
     if (( ${#subj_list[@]} > 0 )); then
         extra_args+=(--subj "${subj_list[@]}")
+    fi
+fi
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
+if [[ "$DIRS" != "ALL" ]]; then
+    read -r -a dir_list <<< "${DIRS//,/ }"
+    if (( ${#dir_list[@]} > 0 )); then
+        extra_args+=(--dirs "${dir_list[@]}")
     fi
 fi
 if [[ "$PLOT_ROIS" != "ALL" ]]; then
@@ -62,16 +83,20 @@ fi
 
 echo "============================================================"
 echo "Dataset       : phantoms"
-echo "Combined table: $COMBINED_TABLE"
+echo "Dproj root    : $DPROJ_ROOT"
 echo "Subjs         : $SUBJS"
+echo "ROIs          : $ROIS"
+echo "Dirs          : $DIRS"
+echo "N             : $N_VALUE"
 echo "Plot ROIs     : $PLOT_ROIS"
 echo "Plot dirs     : $PLOT_DIRECTIONS"
 echo "Bstep alpha   : $BVALMAX"
 echo "Out summary   : $OUT_SUMMARY"
 
 "$PY" "$SUMMARY_SCRIPT" \
-    --combined-table "$COMBINED_TABLE" \
+    --dproj-root "$DPROJ_ROOT" \
     "${extra_args[@]}" \
+    --N "$N_VALUE" \
     --bvalmax "$BVALMAX" \
     --out-summary "$OUT_SUMMARY" \
     --reference-D0 0.0023 

@@ -30,17 +30,26 @@ def main() -> None:
     ap.add_argument("--solver", type=str, default="lstsq", choices=["lstsq", "solve"])
     ap.add_argument("--s0_mode", type=str, default="dir1", choices=["dir1", "mean"])
     ap.add_argument("--b_col", type=str, default="bvalue")
-    ap.add_argument("--dirs_csv", type=Path, default=None, help="CSV Nx3 con direcciones (sin header). Si no se pasa, usa assets/dirs/dirs_{ndirs}.csv")
+    ap.add_argument(
+        "--dirs_txt",
+        type=Path,
+        default=None,
+        help="TXT Nx3 con direcciones (sin header). Si no se pasa, usa assets/dirs/dirs_{ndirs}.txt",
+    )
+    ap.add_argument("--dirs_csv", type=Path, default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
+    if args.dirs_txt is not None and args.dirs_csv is not None:
+        raise SystemExit("Use only one of --dirs_txt or --dirs_csv.")
 
     df = pd.read_parquet(args.long_parquet)
+    dirs_file = args.dirs_txt if args.dirs_txt is not None else args.dirs_csv
 
     res = rotate_signals_tensor(
         df,
         solver=args.solver,
         s0_mode=args.s0_mode,
         b_col=args.b_col,
-        dirs_csv=args.dirs_csv, 
+        dirs_file=dirs_file,
     )
 
     exp_dir = args.out_dir / _infer_exp_dir(df, args.long_parquet)

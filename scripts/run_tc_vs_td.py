@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -74,6 +75,20 @@ def _looks_like_float(text: str) -> bool:
         return False
 
 
+def _normalize_name_list(values: list[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+    out: list[str] = []
+    for raw in values:
+        for token in str(raw).split(","):
+            token = token.strip()
+            if token:
+                out.append(token)
+    if not out:
+        return None
+    return list(dict.fromkeys(out))
+
+
 def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
     groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
     if groupfits_path is not None:
@@ -102,6 +117,12 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
 
     if args.subjs is not None and "subj" in df.columns:
         df = df[df["subj"].astype(str).isin([str(x) for x in args.subjs])].copy()
+    if args.directions is not None and "direction" in df.columns:
+        df = df[df["direction"].astype(str).isin([str(x) for x in args.directions])].copy()
+    if args.rois is not None and "roi" in df.columns:
+        target_rois = {str(x).replace("_norm", "").strip() for x in args.rois}
+        roi_norm = df["roi"].astype(str).str.replace("_norm", "", regex=False).str.strip()
+        df = df[roi_norm.isin(target_rois)].copy()
 
     if args.exclude_td_ms:
         td_vals = pd.to_numeric(df.get("td_ms"), errors="coerce")
@@ -160,9 +181,25 @@ def main() -> None:
         help="Excluye filas específicas. Formato: roi|direction, subj|roi|direction, roi|direction|td_ms o subj|roi|direction|td_ms.",
     )
     ap.add_argument("--no-errorbars", action="store_true", help="Si se pasa, los plots de pseudohuber se generan sin barras/bandas de error.")
+    ap.add_argument("--td-min-ms", type=float, default=0.0, help="Límite inferior del eje Td para los plots.")
+    ap.add_argument("--td-max-ms", type=float, default=2000.0, help="Límite superior del eje Td para los plots.")
+    ap.add_argument("--c-fixed", type=float, default=None, help="Fija c en vez de ajustarlo.")
+    ap.add_argument("--c-min", type=float, default=0.0, help="Límite inferior para c si se ajusta.")
+    ap.add_argument("--c-max", type=float, default=float("inf"), help="Límite superior para c si se ajusta.")
+    ap.add_argument("--delta-fixed", type=float, default=None, help="Fija delta [ms] en vez de ajustarlo.")
+    ap.add_argument("--delta-min", type=float, default=1e-6, help="Límite inferior para delta [ms] si se ajusta.")
+    ap.add_argument("--delta-max", type=float, default=float("inf"), help="Límite superior para delta [ms] si se ajusta.")
+    ap.add_argument("--alpha-macro-fixed", type=float, default=None, help="Fija alpha_macro en pseudohuber_free.")
+    ap.add_argument("--alpha-macro-min", type=float, default=0.1, help="Límite inferior para alpha_macro en pseudohuber_free.")
+    ap.add_argument("--alpha-macro-max", type=float, default=0.3, help="Límite superior para alpha_macro en pseudohuber_free.")
     ap.add_argument("--summary-alpha", default=None, help="Ruta a summary_alpha_values.xlsx. Si no, no se usa salvo que el método lo requiera.")
     ap.add_argument("--out-dir", default=None, help="Directorio de salida. Si no, se arma a partir del input.")
     args = ap.parse_args()
+    args.subjs = _normalize_name_list(args.subjs)
+    args.directions = _normalize_name_list(args.directions)
+    args.rois = _normalize_name_list(args.rois)
+    if float(args.td_max_ms) <= float(args.td_min_ms):
+        raise ValueError("--td-max-ms debe ser mayor que --td-min-ms.")
 
     df_params = _load_df_params(args)
     spec = METHODS[args.method]
@@ -174,6 +211,12 @@ def main() -> None:
         if not summary_path.exists():
             raise FileNotFoundError(summary_path)
         alpha_macro_df = load_alpha_macro_summary(summary_path)
+        if args.directions is not None and "direction" in alpha_macro_df.columns:
+            alpha_macro_df = alpha_macro_df[alpha_macro_df["direction"].astype(str).isin([str(x) for x in args.directions])].copy()
+        if args.rois is not None and "roi" in alpha_macro_df.columns:
+            target_rois = {str(x).replace("_norm", "").strip() for x in args.rois}
+            roi_norm = alpha_macro_df["roi"].astype(str).str.replace("_norm", "", regex=False).str.strip()
+            alpha_macro_df = alpha_macro_df[roi_norm.isin(target_rois)].copy()
     elif spec.needs_alpha_macro:
         raise FileNotFoundError(f"{args.method} requiere --summary-alpha con summary_alpha_values.xlsx")
 
@@ -183,16 +226,19 @@ def main() -> None:
         tc_dirname = _tc_vs_td_dirname(args.y_col)
         groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
         if groupfits_path is not None:
-            out_dir = Path(groupfits_path).resolve().parent / tc_dirname / args.method / args.y_col
+            out_dir = Path(groupfits_path).resolve().parent / tc_dirname / args.method # / args.y_col
         else:
             first = Path(args.fits[0]).resolve()
-            out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method / args.y_col
+            out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method # / args.y_col
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     y_label = YCOL_LABELS.get(args.y_col, args.y_col)
+    cfg = None
+    if args.rois is not None:
+        cfg = SimpleNamespace(regions=[str(r).replace("_norm", "") for r in args.rois])
     spec.func(
-        cfg=None,
+        cfg=cfg,
         df_params=df_params,
         out_dir=out_dir,
         k_last=k_last,
@@ -200,6 +246,17 @@ def main() -> None:
         y_col=args.y_col,
         y_label=y_label,
         show_errorbars=not args.no_errorbars,
+        td_min_ms=float(args.td_min_ms),
+        td_max_ms=float(args.td_max_ms),
+        c_fixed=args.c_fixed,
+        c_min=float(args.c_min),
+        c_max=float(args.c_max),
+        delta_fixed=args.delta_fixed,
+        delta_min=float(args.delta_min),
+        delta_max=float(args.delta_max),
+        alpha_macro_fixed=args.alpha_macro_fixed,
+        alpha_macro_min=float(args.alpha_macro_min),
+        alpha_macro_max=float(args.alpha_macro_max),
     )
 
 

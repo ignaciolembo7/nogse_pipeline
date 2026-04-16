@@ -7,9 +7,17 @@ from monoexp_fitting.plot_monoexp_D_vs_time import (
     aggregate_monoexp_by_x,
     load_monoexp_fit_measurements,
     plot_compare_N_within_sheet,
-    plot_by_direction,
-    plot_by_roi,
+    plot_compare_direction,
+    plot_compare_roi,
 )
+
+
+def _clear_compare_n_pngs(out_dir: Path, xcol: str) -> None:
+    compare_dir = out_dir / xcol / "compare_N"
+    if not compare_dir.exists():
+        return
+    for png in compare_dir.glob("*.png"):
+        png.unlink()
 
 
 def main() -> None:
@@ -24,6 +32,7 @@ def main() -> None:
     subj_group.add_argument("--brains", nargs="+", dest="subjs", help="Legacy alias for --subjs.")
     ap.add_argument("--rois", nargs="+", default=None, help="ROIs a incluir.")
     ap.add_argument("--dirs", nargs="+", default=None, help="Direcciones a incluir.")
+    ap.add_argument("--Ns", "--ns", nargs="+", type=float, default=None, help="N values a incluir.")
     ap.add_argument("--stat", default="avg", help="Stat a conservar del fit monoexp.")
     ap.add_argument("--ycol", default="value_norm", help="ycol a conservar del fit monoexp.")
     args = ap.parse_args()
@@ -37,6 +46,7 @@ def main() -> None:
         subjs=args.subjs,
         rois=args.rois,
         directions=args.dirs,
+        Ns=args.Ns,
         stat=args.stat,
         ycol=args.ycol,
     )
@@ -48,8 +58,9 @@ def main() -> None:
         avg = aggregate_monoexp_by_x(raw, xcol=xcol)
         avg.to_csv(out_dir / f"monoexp_D_vs_{xcol}.combined.csv", index=False)
         avg.to_excel(out_dir / f"monoexp_D_vs_{xcol}.combined.xlsx", index=False)
-        plot_by_roi(avg, xcol=xcol, out_dir=out_dir)
-        plot_by_direction(avg, xcol=xcol, out_dir=out_dir)
+        plot_compare_roi(avg, xcol=xcol, out_dir=out_dir)
+        plot_compare_direction(avg, xcol=xcol, out_dir=out_dir)
+        _clear_compare_n_pngs(out_dir, xcol)
         plot_compare_N_within_sheet(avg, xcol=xcol, out_dir=out_dir)
 
     print(f"[OK] Monoexp D summary plots + tables in: {out_dir}")

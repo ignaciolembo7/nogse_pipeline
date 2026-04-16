@@ -122,6 +122,19 @@ def _fit_least_squares(fun, p0, bounds):
                 pass
     return p, se, res
 
+
+def _validate_fit_bound(name: str, lower: float, upper: float) -> None:
+    if not np.isfinite(lower):
+        raise ValueError(f"{name}_min debe ser finito.")
+    if upper <= lower:
+        raise ValueError(f"{name}_max debe ser mayor que {name}_min.")
+
+
+def _clip_initial(value: float, lower: float, upper: float) -> float:
+    if np.isfinite(upper):
+        return float(np.clip(value, lower, upper))
+    return float(max(value, lower))
+
 def _make_grid(n: int, ncols: int = 3) -> tuple[int, int]:
     ncols = max(1, int(ncols))
     nrows = int(np.ceil(n / ncols))
@@ -263,8 +276,21 @@ def _markers_for_subjs(subjs: list[str]) -> Dict[str, str]:
     return {s: mk[i % len(mk)] for i, s in enumerate(subjs)}
 
 
+def _ordered_regions(region_order: list[str] | None, available: List[str]) -> list[str]:
+    available_set = {str(r).replace("_norm", "") for r in available}
+    if region_order:
+        ordered: list[str] = []
+        for region in region_order:
+            r = str(region).replace("_norm", "")
+            if r in available_set:
+                ordered.append(r)
+        if ordered:
+            return ordered
+    return sorted(available_set)
+
+
 # ---------------------------
-# BLOQUE 1: fit + plots tc(Td)
+# Section 1: fit + plots tc(Td)
 # ---------------------------
 def fit_tc_vs_td_pseudohuber(
     *,
@@ -277,6 +303,17 @@ def fit_tc_vs_td_pseudohuber(
     alpha_macro_df: Optional[pd.DataFrame] = None,
     y_col: str = "tc_peak_ms",
     y_label: str = "$t_{c,peak}$ [ms]",
+    td_min_ms: float | None = None,
+    td_max_ms: float | None = None,
+    c_fixed: float | None = None,
+    c_min: float = 0.0,
+    c_max: float = np.inf,
+    delta_fixed: float | None = None,
+    delta_min: float = 1e-6,
+    delta_max: float = np.inf,
+    alpha_macro_fixed: float | None = None,
+    alpha_macro_min: float = 0.1,
+    alpha_macro_max: float = 0.3,
 ) -> pd.DataFrame:
     """
     mode:
@@ -284,6 +321,16 @@ def fit_tc_vs_td_pseudohuber(
       - fixed_macro: fija alpha_macro = alpha_macro(summary) y ajusta (c, delta)
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    _validate_fit_bound("c", float(c_min), float(c_max))
+    _validate_fit_bound("delta", float(delta_min), float(delta_max))
+    _validate_fit_bound("alpha_macro", float(alpha_macro_min), float(alpha_macro_max))
+
+    if c_fixed is not None and not np.isfinite(float(c_fixed)):
+        raise ValueError("c_fixed debe ser finito.")
+    if delta_fixed is not None and (not np.isfinite(float(delta_fixed)) or float(delta_fixed) <= 0):
+        raise ValueError("delta_fixed debe ser finito y > 0.")
+    if alpha_macro_fixed is not None and not np.isfinite(float(alpha_macro_fixed)):
+        raise ValueError("alpha_macro_fixed debe ser finito.")
 
     df = df_params.copy()
     df["roi"] = df["roi"].astype(str).str.replace("_norm", "", regex=False)
@@ -368,43 +415,123 @@ def fit_tc_vs_td_pseudohuber(
                     alpha_fixed = float(mdf["alpha_macro"].values[0])
                     alpha_fixed_err = float(mdf.get("alpha_macro_error", pd.Series([np.nan])).values[0])
 
-                    # fit c, delta
-                    c0 = float(np.min(y_fit))
-                    delta0 = float(np.median(x_fit)) if np.median(x_fit) > 0 else 10.0
-                    p0 = np.array([c0, delta0], float)
-                    bounds = ([0.0, 1e-6], [np.inf, np.inf])
+                    c0 = _clip_initial(float(np.min(y_fit)), float(c_min), float(c_max))
+                    delta0 = _clip_initial(
+                        float(np.median(x_fit)) if np.median(x_fit) > 0 else 10.0,
+                        float(delta_min),
+                        float(delta_max),
+                    )
+                    fit_names: list[str] = []
+                    p0_parts: list[float] = []
+                    lower_parts: list[float] = []
+                    upper_parts: list[float] = []
 
-                    def fun(p):
-                        c, delta = p
-                        return tc_pseudohuber_alpha_fixed(x_fit, c, delta, alpha_fixed) - y_fit
+                    if c_fixed is None:
+                        fit_names.append("c")
+                        p0_parts.append(c0)
+                        lower_parts.append(float(c_min))
+                        upper_parts.append(float(c_max))
+                    if delta_fixed is None:
+                        fit_names.append("delta")
+                        p0_parts.append(delta0)
+                        lower_parts.append(float(delta_min))
+                        upper_parts.append(float(delta_max))
 
-                    p, se, res = _fit_least_squares(fun, p0, bounds)
-                    c, delta = map(float, p)
-                    c_se, delta_se = map(float, se)
+                    def unpack_fixed_macro(p):
+                        vals = dict(zip(fit_names, p))
+                        return (
+                            float(c_fixed) if c_fixed is not None else float(vals["c"]),
+                            float(delta_fixed) if delta_fixed is not None else float(vals["delta"]),
+                        )
+
+                    if fit_names:
+                        if len(x_fit) < len(fit_names):
+                            continue
+
+                        def fun(p):
+                            c_val, delta_val = unpack_fixed_macro(p)
+                            return tc_pseudohuber_alpha_fixed(x_fit, c_val, delta_val, alpha_fixed) - y_fit
+
+                        p, se, res = _fit_least_squares(
+                            fun,
+                            np.array(p0_parts, float),
+                            (np.array(lower_parts, float), np.array(upper_parts, float)),
+                        )
+                        c, delta = unpack_fixed_macro(p)
+                        se_by_name = dict(zip(fit_names, se))
+                        c_se = float(se_by_name.get("c", 0.0 if c_fixed is not None else np.nan))
+                        delta_se = float(se_by_name.get("delta", 0.0 if delta_fixed is not None else np.nan))
+                    else:
+                        c = float(c_fixed)
+                        delta = float(delta_fixed)
+                        c_se = 0.0
+                        delta_se = 0.0
 
                     alpha_macro = alpha_fixed
                     alpha_macro_se = alpha_fixed_err
 
                 else:
-                    # free alpha_macro
-                    if len(x_fit) < 3:
-                        # 3 parámetros -> al menos 3 puntos
+                    c0 = _clip_initial(float(np.min(y_fit)), float(c_min), float(c_max))
+                    delta0 = _clip_initial(
+                        float(np.median(x_fit)) if np.median(x_fit) > 0 else 10.0,
+                        float(delta_min),
+                        float(delta_max),
+                    )
+                    alpha0 = _clip_initial(0.2, float(alpha_macro_min), float(alpha_macro_max))
+                    fit_names = []
+                    p0_parts = []
+                    lower_parts = []
+                    upper_parts = []
+
+                    if c_fixed is None:
+                        fit_names.append("c")
+                        p0_parts.append(c0)
+                        lower_parts.append(float(c_min))
+                        upper_parts.append(float(c_max))
+                    if delta_fixed is None:
+                        fit_names.append("delta")
+                        p0_parts.append(delta0)
+                        lower_parts.append(float(delta_min))
+                        upper_parts.append(float(delta_max))
+                    if alpha_macro_fixed is None:
+                        fit_names.append("alpha_macro")
+                        p0_parts.append(alpha0)
+                        lower_parts.append(float(alpha_macro_min))
+                        upper_parts.append(float(alpha_macro_max))
+
+                    if len(x_fit) < max(1, len(fit_names)):
                         continue
 
-                    c0 = float(np.min(y_fit))
-                    delta0 = float(np.median(x_fit)) if np.median(x_fit) > 0 else 10.0
-                    alpha0 = 0.2
-                    p0 = np.array([c0, delta0, alpha0], float)
-                    alpha_min, alpha_max = 0.1, 0.3
-                    bounds = ([-np.inf, 1e-6, alpha_min], [np.inf, np.inf, alpha_max])
+                    def unpack_free_macro(p):
+                        vals = dict(zip(fit_names, p))
+                        return (
+                            float(c_fixed) if c_fixed is not None else float(vals["c"]),
+                            float(delta_fixed) if delta_fixed is not None else float(vals["delta"]),
+                            float(alpha_macro_fixed) if alpha_macro_fixed is not None else float(vals["alpha_macro"]),
+                        )
 
-                    def fun(p):
-                        c, delta, alpha_macro = p
-                        return tc_pseudohuber(x_fit, c, delta, alpha_macro) - y_fit
+                    if fit_names:
+                        def fun(p):
+                            c_val, delta_val, alpha_val = unpack_free_macro(p)
+                            return tc_pseudohuber(x_fit, c_val, delta_val, alpha_val) - y_fit
 
-                    p, se, res = _fit_least_squares(fun, p0, bounds)
-                    c, delta, alpha_macro = map(float, p)
-                    c_se, delta_se, alpha_macro_se = map(float, se)
+                        p, se, res = _fit_least_squares(
+                            fun,
+                            np.array(p0_parts, float),
+                            (np.array(lower_parts, float), np.array(upper_parts, float)),
+                        )
+                        c, delta, alpha_macro = unpack_free_macro(p)
+                        se_by_name = dict(zip(fit_names, se))
+                        c_se = float(se_by_name.get("c", 0.0 if c_fixed is not None else np.nan))
+                        delta_se = float(se_by_name.get("delta", 0.0 if delta_fixed is not None else np.nan))
+                        alpha_macro_se = float(se_by_name.get("alpha_macro", 0.0 if alpha_macro_fixed is not None else np.nan))
+                    else:
+                        c = float(c_fixed)
+                        delta = float(delta_fixed)
+                        alpha_macro = float(alpha_macro_fixed)
+                        c_se = 0.0
+                        delta_se = 0.0
+                        alpha_macro_se = 0.0
 
                 # r2
                 yhat = tc_pseudohuber(x_fit, c, delta, alpha_macro)
@@ -427,6 +554,15 @@ def fit_tc_vs_td_pseudohuber(
                     "c": c, "c_se": c_se,
                     "delta": delta, "delta_se": delta_se,
                     "alpha_macro": alpha_macro, "alpha_macro_se": alpha_macro_se,
+                    "c_fixed": c_fixed,
+                    "c_min": c_min,
+                    "c_max": c_max,
+                    "delta_fixed": delta_fixed,
+                    "delta_min": delta_min,
+                    "delta_max": delta_max,
+                    "alpha_macro_fixed": alpha_macro_fixed if mode != "fixed_macro" else np.nan,
+                    "alpha_macro_min": alpha_macro_min,
+                    "alpha_macro_max": alpha_macro_max,
                     "A": A,
                     "q_quad": q_quad,
                     "q_quad_se": q_quad_se,
@@ -476,6 +612,8 @@ def fit_tc_vs_td_pseudohuber(
             ax.set_title(region, fontsize=14)
             ax.set_xlabel("Diffusion time $T_d$ [ms]", fontsize=16)
             ax.set_ylabel(y_label, fontsize=16)
+            if td_min_ms is not None and td_max_ms is not None:
+                ax.set_xlim(float(td_min_ms), float(td_max_ms))
             ax.grid(True)
             if any_line:
                 ax.legend(fontsize=9)
@@ -486,7 +624,7 @@ def fit_tc_vs_td_pseudohuber(
 
         plt.suptitle(f"PseudoHuber model fit | y={y_col} | dir={dir_actual} | mode={mode} | k_last={k_last}", fontsize=18)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1_{y_col}_fit_dir={dir_actual}_mode={mode}_k={k_last}.png", dpi=300)
+        plt.savefig(out_dir / f"tc_td_{y_col}_fit_dir={dir_actual}_mode={mode}_k={k_last}.png", dpi=300)
         plt.close()
 
     if not rows:
@@ -503,7 +641,7 @@ def fit_tc_vs_td_pseudohuber(
 
 
 # ---------------------------
-# BLOQUE 2: plots vs regiones (alpha_macro y delta) + opcional A
+# Section 2: plots vs regions (alpha_macro and delta) + optional A
 # ---------------------------
 def block2_region_plots(
     df_fit: pd.DataFrame,
@@ -562,13 +700,13 @@ def block2_region_plots(
             plt.savefig(out_dir / f"{fname}_dir={dir_actual}.png", dpi=300)
             plt.close()
 
-    plot_var("alpha_macro", "alpha_macro_se", r"$\alpha_{macro} = A\delta$", "BLOCK2_alpha_macro_vs_region")
-    plot_var("delta", "delta_se", r"$\delta$", "BLOCK2_delta_vs_region")
-    plot_var("c", "c_se", r"$c$", "BLOCK2_c_vs_region")
-    plot_var("sqrt_q", "sqrt_q_se", r"$\sqrt{q}$", "BLOCK2_sqrt_q_vs_region")
-    plot_var("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$", "BLOCK2_qquad_vs_region")
+    plot_var("alpha_macro", "alpha_macro_se", r"$\alpha_{macro} = A\delta$", "alpha_macro_vs_region")
+    plot_var("delta", "delta_se", r"$\delta$", "delta_vs_region")
+    plot_var("c", "c_se", r"$c$", "c_vs_region")
+    plot_var("sqrt_q", "sqrt_q_se", r"$\sqrt{q}$", "sqrt_q_vs_region")
+    plot_var("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$", "qquad_vs_region")
     if plot_A:
-        plot_var("A", "A_se", r"$A$", "BLOCK2_A_vs_region")
+        plot_var("A", "A_se", r"$A$", "A_vs_region")
 
 
 def _ensure_A_se(df_fit: pd.DataFrame) -> pd.DataFrame:
@@ -654,7 +792,7 @@ def block2b_cc_vars_long_tra_sameY(
 
     directions = _directions_present(df_fit)  # dinámico
     if not directions:
-        print("[INFO] block2b: no hay direcciones -> skip.")
+        print("[INFO] var-grid plot: no directions found -> skip.")
         return
 
     x = np.arange(len(regiones))
@@ -753,7 +891,7 @@ def block2b_cc_vars_long_tra_sameY(
 
     if fname is None:
         dirs_tag = "_".join(directions)
-        fname = f"BLOCK2b_vars_sameY_dirs={dirs_tag}_{tag}.png"
+        fname = f"vars_sameY_dirs={dirs_tag}_{tag}.png"
 
     fig.suptitle("Pseudo-Huber: q (Taylor), $\\alpha_{macro}$, $\\delta$, A, c, $\\sqrt{q}$ vs regiones", fontsize=14)
     plt.tight_layout(rect=[0, 0.02, 1, 0.95])
@@ -762,7 +900,7 @@ def block2b_cc_vars_long_tra_sameY(
 
 
 # ---------------------------
-# BLOQUE 3: alpha_macro summary vs alpha_macro pseudo-Huber
+# Section 3: alpha_macro summary vs alpha_macro pseudo-Huber
 # ---------------------------
 def block3_alpha_macro_summary_vs_fit(
     df_fit: pd.DataFrame,
@@ -770,6 +908,7 @@ def block3_alpha_macro_summary_vs_fit(
     alpha_macro_df: pd.DataFrame,
     palette: list[str],
     method_tag: str,
+    region_order: list[str] | None = None,
 ) -> None:
     import matplotlib.colors as mcolors
     from matplotlib.lines import Line2D
@@ -787,10 +926,10 @@ def block3_alpha_macro_summary_vs_fit(
 
     dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
-        print("[INFO] No hay intersección entre pseudo-huber fits y summary alpha_macro -> no se hace Block3.")
+        print("[INFO] No overlap between pseudo-huber fits and summary alpha_macro -> skipping summary-vs-fit plot.")
         return
 
-    regiones = sorted(dfm["roi"].unique())
+    regiones = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
     region2color = _region2color(regiones, palette)
 
     volunteers = sorted(dfm["subj"].unique())
@@ -842,23 +981,31 @@ def block3_alpha_macro_summary_vs_fit(
         ]
         ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
 
-    plt.suptitle(f"BLOCK3 alpha_macro summary vs fit | {method_tag}", fontsize=16)
+    plt.suptitle(f"alpha_macro summary vs fit | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"BLOCK3_alpha_macro_summary_vs_fit_{method_tag}.png", dpi=400)
+    plt.savefig(out_dir / f"alpha_macro_summary_vs_fit_{method_tag}.png", dpi=400)
     plt.close()
 
 
 # ---------------------------
-# BLOQUE 1b / 1c: ahora GENÉRICOS por direction
+# Section 1b / 1c: generic by direction
 # ---------------------------
-def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: Path) -> None:
+def block1b_alpha_vs_Td(
+    df_params: pd.DataFrame,
+    df_fit: pd.DataFrame,
+    out_dir: Path,
+    *,
+    region_order: list[str] | None = None,
+    td_min_ms: float | None = None,
+    td_max_ms: float | None = None,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_subj(_ensure_direction(df_params.copy()))
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = sorted(df_fit["roi"].unique())
+    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
 
     for dir_actual in directions:
@@ -890,19 +1037,21 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
                 alpha_macro = float(sub_fit["alpha_macro"].values[0])
                 A = A_from_params(delta, alpha_macro)
 
-                xx = np.linspace(np.nanmin(x), np.nanmax(x), 200)
+                xmin = float(td_min_ms) if td_min_ms is not None else float(np.nanmin(x))
+                xmax = float(td_max_ms) if td_max_ms is not None else float(np.nanmax(x))
+                xx = np.linspace(xmin, xmax, 200)
                 alpha_curve = alpha_of_Td(xx, delta, alpha_macro)
                 alpha_small = A * xx
-                alpha_asym = np.full_like(xx, alpha_macro)
 
                 ax.plot(xx, alpha_curve, "-", linewidth=2, label=f"{subj} alpha(Td)")
                 ax.plot(xx, alpha_small, "--", linewidth=1.5, label=f"{subj} A*Td")
-                ax.plot(xx, alpha_asym, ":", linewidth=1.5, label=f"{subj} alpha_macro")
                 any_line = True
 
             ax.set_title(region)
             ax.set_xlabel("Td [ms]")
             ax.set_ylabel("alpha(Td) = dtc/dTd")
+            if td_min_ms is not None and td_max_ms is not None:
+                ax.set_xlim(float(td_min_ms), float(td_max_ms))
             ax.grid(True)
             if any_line:
                 ax.legend(fontsize=9)
@@ -910,9 +1059,9 @@ def block1b_alpha_vs_Td(df_params: pd.DataFrame, df_fit: pd.DataFrame, out_dir: 
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"BLOCK1b alpha(Td) + small/large-Td limits | dir={dir_actual}", fontsize=16)
+        plt.suptitle(f"alpha(Td) + small-Td limit | dir={dir_actual}", fontsize=16)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1b_alpha_vs_Td_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"alpha_vs_Td_dir={dir_actual}.png", dpi=300)
         plt.close()
 
 
@@ -923,6 +1072,9 @@ def block1c_smallTd_tc_approx(
     *,
     y_col: str = "tc_peak_ms",
     y_label: str = "$t_{c,peak}$ [ms]",
+    region_order: list[str] | None = None,
+    td_min_ms: float | None = None,
+    td_max_ms: float | None = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -930,7 +1082,7 @@ def block1c_smallTd_tc_approx(
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = sorted(df_fit["roi"].unique())
+    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
 
     for dir_actual in directions:
@@ -962,7 +1114,9 @@ def block1c_smallTd_tc_approx(
                 delta = float(sub_fit["delta"].values[0])
                 alpha_macro = float(sub_fit["alpha_macro"].values[0])
 
-                xx = np.linspace(np.nanmin(x), np.nanmax(x), 200)
+                xmin = float(td_min_ms) if td_min_ms is not None else float(np.nanmin(x))
+                xmax = float(td_max_ms) if td_max_ms is not None else float(np.nanmax(x))
+                xx = np.linspace(xmin, xmax, 200)
                 y_full = tc_pseudohuber(xx, c, delta, alpha_macro)
                 y_quad = tc_quadratic_smallTd(xx, c, delta, alpha_macro)
 
@@ -974,6 +1128,8 @@ def block1c_smallTd_tc_approx(
             ax.set_title(region)
             ax.set_xlabel("Td [ms]")
             ax.set_ylabel(y_label)
+            if td_min_ms is not None and td_max_ms is not None:
+                ax.set_xlim(float(td_min_ms), float(td_max_ms))
             ax.grid(True)
             if any_line:
                 ax.legend(fontsize=9)
@@ -981,9 +1137,9 @@ def block1c_smallTd_tc_approx(
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
-        plt.suptitle(f"BLOCK1c {y_col}(Td) vs small-Td quadratic approx | dir={dir_actual}", fontsize=16)
+        plt.suptitle(f"{y_col}(Td) vs small-Td quadratic approximation | dir={dir_actual}", fontsize=16)
         plt.tight_layout(rect=[0,0.03,1,0.95])
-        plt.savefig(out_dir / f"BLOCK1c_{y_col}_smallTd_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"{y_col}_smallTd_dir={dir_actual}.png", dpi=300)
         plt.close()
 
 
@@ -997,16 +1153,17 @@ def block1d_fullrange_tc_with_approximations(
     td_min_ms: float = 0.0,
     td_max_ms: float = 2000.0,
     n_points: int = 1000,
+    region_order: list[str] | None = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    per_fit_dir = out_dir / "BLOCK1d_fullrange_per_fit"
+    per_fit_dir = out_dir / "fullrange_per_fit"
     per_fit_dir.mkdir(parents=True, exist_ok=True)
 
     df_params = _ensure_subj(_ensure_direction(df_params.copy()))
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = sorted(df_fit["roi"].unique())
+    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
     xx = np.linspace(float(td_min_ms), float(td_max_ms), int(n_points))
 
@@ -1094,7 +1251,7 @@ def block1d_fullrange_tc_with_approximations(
                 plt.tight_layout()
                 plt.savefig(
                     per_fit_dir / (
-                        f"BLOCK1d_{y_col}_subj={_safe_tag(subj)}"
+                        f"{y_col}_subj={_safe_tag(subj)}"
                         f"_roi={_safe_tag(region)}_dir={_safe_tag(dir_actual)}.png"
                     ),
                     dpi=300,
@@ -1113,22 +1270,22 @@ def block1d_fullrange_tc_with_approximations(
             ax.axis("off")
 
         plt.suptitle(
-            f"BLOCK1d {y_col}(Td) full range + approximations | dir={dir_actual} | "
+            f"{y_col}(Td) full range + approximations | dir={dir_actual} | "
             f"{td_min_ms:.0f}-{td_max_ms:.0f} ms",
             fontsize=16,
         )
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(out_dir / f"BLOCK1d_{y_col}_fullrange_dir={dir_actual}.png", dpi=300)
+        plt.savefig(out_dir / f"{y_col}_fullrange_dir={dir_actual}.png", dpi=300)
         plt.close()
 
     if curve_rows:
         df_curves = pd.DataFrame(curve_rows)
-        df_curves.to_csv(out_dir / f"BLOCK1d_{y_col}_fullrange_curves.csv", index=False)
-        df_curves.to_excel(out_dir / f"BLOCK1d_{y_col}_fullrange_curves.xlsx", index=False)
+        df_curves.to_csv(out_dir / f"{y_col}_fullrange_curves.csv", index=False)
+        df_curves.to_excel(out_dir / f"{y_col}_fullrange_curves.xlsx", index=False)
 
 
 # ---------------------------
-# BLOQUE 4: q vs alpha_macro (GENÉRICO)
+# Section 4: q vs alpha_macro (generic)
 # ---------------------------
 def block4_qquad_vs_alpha_macro(
     df_fit: pd.DataFrame,
@@ -1136,6 +1293,7 @@ def block4_qquad_vs_alpha_macro(
     alpha_macro_df: pd.DataFrame,
     palette: list[str],
     method_tag: str,
+    region_order: list[str] | None = None,
 ) -> None:
     import matplotlib.colors as mcolors
     from matplotlib.lines import Line2D
@@ -1153,10 +1311,10 @@ def block4_qquad_vs_alpha_macro(
 
     dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
-        print("[INFO] No hay intersección pseudo-huber vs summary -> no se hace Block4.")
+        print("[INFO] No overlap between pseudo-huber and summary -> skipping q-vs-alpha plot.")
         return
 
-    regiones = sorted(dfm["roi"].unique())
+    regiones = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
     region2color = _region2color(regiones, palette)
 
     volunteers = sorted(dfm["subj"].unique())
@@ -1208,7 +1366,7 @@ def block4_qquad_vs_alpha_macro(
         ]
         ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
 
-    plt.suptitle(f"BLOCK4 q vs alpha_macro | {method_tag}", fontsize=16)
+    plt.suptitle(f"q vs alpha_macro | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"BLOCK4_q_vs_alpha_macro_{method_tag}.png", dpi=400)
+    plt.savefig(out_dir / f"q_vs_alpha_macro_{method_tag}.png", dpi=400)
     plt.close()

@@ -2,7 +2,9 @@
 # Python
 # =========================
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *.pyd
 *$py.class
 *.so
@@ -95,6 +97,7 @@ ogse_experiments/
 # Misc
 *.tmp
 *.bak
+.nfs*
 
 # Bash 
 bash/
