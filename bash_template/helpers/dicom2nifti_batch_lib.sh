@@ -16,6 +16,13 @@ set -u -o pipefail
 #   CASE_FILTER    Comma-separated list of input/output case names to run.
 #   SKIP_EXISTING  When set to 1, skip series whose target folder already
 #                  contains `.nii` or `.nii.gz` files. Default: 1.
+#   DCM2NIIX_FILENAME_PATTERN
+#                  Optional dcm2niix -f pattern. Leave empty for dcm2niix default.
+#   DCM2NIIX_WRITE_BEHAVIOR
+#                  Optional dcm2niix -w behavior: 0=skip, 1=overwrite,
+#                  2=add suffix. Leave empty for dcm2niix default.
+#   LOG_ROOT       Directory where timestamped run logs are written.
+#                  Default: "$REPO_ROOT/logs".
 
 DICOM2NIFTI_LIB_PATH="${BASH_SOURCE[0]}"
 
@@ -138,7 +145,8 @@ init_run() {
   cd "$PROJECT_ROOT"
 
   RUN_ID="${run_name}_$(date +%Y%m%d_%H%M%S)"
-  LOG_DIR="$PROJECT_ROOT/logs/$RUN_ID"
+  LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs}"
+  LOG_DIR="$LOG_ROOT/$RUN_ID"
 
   mkdir -p "$LOG_DIR"
 
@@ -160,8 +168,11 @@ init_run() {
     echo "REPO_ROOT=$REPO_ROOT"
     echo "INPUT_ROOT=$INPUT_ROOT"
     echo "OUTPUT_ROOT=$OUTPUT_ROOT"
+    echo "LOG_ROOT=$LOG_ROOT"
     echo "CASE_FILTER=${CASE_FILTER:-}"
     echo "SKIP_EXISTING=${SKIP_EXISTING:-1}"
+    echo "DCM2NIIX_FILENAME_PATTERN=${DCM2NIIX_FILENAME_PATTERN:-}"
+    echo "DCM2NIIX_WRITE_BEHAVIOR=${DCM2NIIX_WRITE_BEHAVIOR:-}"
     echo "PWD_AT_START=$(pwd)"
     echo "USER=${USER:-}"
     echo "HOSTNAME=$(hostname)"
@@ -312,9 +323,19 @@ run_case() {
       continue
     fi
 
-    echo "dcm2niix -z y -o \"$out_series_dir\" \"$series_dir\"" >> "$COMMANDS_FILE"
+    local cmd=(dcm2niix -z y -o "$out_series_dir")
+    if [[ -n "${DCM2NIIX_FILENAME_PATTERN:-}" ]]; then
+      cmd+=(-f "$DCM2NIIX_FILENAME_PATTERN")
+    fi
+    if [[ -n "${DCM2NIIX_WRITE_BEHAVIOR:-}" ]]; then
+      cmd+=(-w "$DCM2NIIX_WRITE_BEHAVIOR")
+    fi
+    cmd+=("$series_dir")
 
-    if dcm2niix -z y -o "$out_series_dir" "$series_dir"; then
+    printf '%q ' "${cmd[@]}" >> "$COMMANDS_FILE"
+    printf '\n' >> "$COMMANDS_FILE"
+
+    if "${cmd[@]}"; then
       echo "  Status     : converted"
       case_series_converted=$((case_series_converted + 1))
       TOTAL_SERIES_CONVERTED=$((TOTAL_SERIES_CONVERTED + 1))

@@ -16,6 +16,8 @@ set -u -o pipefail
 #   SUBJECTS_DIR         FreeSurfer subjects directory, required only when
 #                        REQUIRE_SUBJECTS_DIR=1.
 #   REQUIRE_SUBJECTS_DIR Set to 1 for brain workflows that need SUBJECTS_DIR.
+#   LOG_ROOT             Directory where timestamped run logs are written.
+#                        Default: "$REPO_ROOT/logs".
 
 COREG_BATCH_LIB_PATH="${BASH_SOURCE[0]}"
 
@@ -68,7 +70,8 @@ init_run() {
   cd "$PROJECT_ROOT"
 
   RUN_ID="${run_name}_$(date +%Y%m%d_%H%M%S)"
-  LOG_DIR="$PROJECT_ROOT/logs/$RUN_ID"
+  LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs}"
+  LOG_DIR="$LOG_ROOT/$RUN_ID"
 
   mkdir -p "$LOG_DIR"
 
@@ -93,6 +96,7 @@ init_run() {
       echo "SUBJECTS_DIR=$SUBJECTS_DIR"
     fi
     echo "OUT_ROOT=$OUT_ROOT"
+    echo "LOG_ROOT=$LOG_ROOT"
     echo "PWD_AT_START=$(pwd)"
     echo "USER=${USER:-}"
     echo "HOSTNAME=$(hostname)"

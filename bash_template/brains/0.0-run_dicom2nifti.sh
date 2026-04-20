@@ -12,6 +12,7 @@ source "$SCRIPT_HOME/../helpers/dicom2nifti_batch_lib.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_default_project_root "$REPO_ROOT")}"
 INPUT_ROOT="${INPUT_ROOT:-$PROJECT_ROOT/Data-DICOM}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$PROJECT_ROOT/Data-NIFTI}"
+LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/brains}"
 
 init_run "run_brains_dicom2nifti"
 

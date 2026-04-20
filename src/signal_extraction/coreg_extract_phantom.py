@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
 import shutil
 import subprocess
@@ -58,6 +59,31 @@ def maybe_reuse_existing(path: Path, what: str, fail_on_existing: bool) -> bool:
     return False
 
 
+def read_nonnegative_int_env(name: str, default: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SystemExit(f"[STOP] {name} must be a non-negative integer. Got {raw!r}.") from exc
+    if value < 0:
+        raise SystemExit(f"[STOP] {name} must be a non-negative integer. Got {value}.")
+    return value
+
+
+def read_bool_env(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    raise SystemExit(f"[STOP] {name} must be true/false or 1/0. Got {raw!r}.")
+
+
 def strip_nii_ext(p: Path) -> str:
     """Return filename without .nii or .nii.gz extension."""
     n = p.name
@@ -66,6 +92,23 @@ def strip_nii_ext(p: Path) -> str:
     if n.endswith(".nii"):
         return n[:-4]
     return p.stem
+
+
+def dcm2niix_variant(seq_name: str) -> str:
+    """Return dcm2niix conflict suffix: "", "a", "b", etc."""
+    m = re.search(r"_(\d+)([a-z])$", seq_name, flags=re.IGNORECASE)
+    return m.group(2).lower() if m else ""
+
+
+def dwi_variant_matches(seq_name: str, wanted: str) -> bool:
+    """Filter dcm2niix variants. Use 'none', 'a', 'b', ... or 'all'."""
+    wanted_norm = wanted.strip().lower()
+    if wanted_norm in {"all", "*", "any"}:
+        return True
+    variant = dcm2niix_variant(seq_name)
+    if wanted_norm in {"", "none", "primary", "base"}:
+        return variant == ""
+    return variant == wanted_norm
 
 
 def cut_before_any(s: str, tokens: Iterable[str]) -> Tuple[str, str | None]:
@@ -164,6 +207,7 @@ def find_dwis(
     grad_root: Path,
     dwi_glob: str,
     cut_tokens: list[str],
+    dwi_variant: str,
 ) -> list[tuple[Path, Path, Path, str, str, str]]:
     """
     Find DWI NIfTIs and matching gradient sidecars.
@@ -174,6 +218,8 @@ def find_dwis(
     dwis: list[tuple[Path, Path, Path, str, str, str]] = []
     for nii in sorted(exp_root.glob(dwi_glob)):
         seq_name_full = strip_nii_ext(nii)
+        if not dwi_variant_matches(seq_name_full, dwi_variant):
+            continue
         seq_no_ext, _tok = cut_before_any(seq_name_full, cut_tokens)
 
         bval = grad_root / f"{seq_no_ext}.bval"
@@ -190,7 +236,8 @@ def find_dwis(
     if not dwis:
         raise SystemExit(
             f"[STOP] No DWIs found with glob '{dwi_glob}' in {exp_root} "
-            f"with gradients in {grad_root}. Expected .bval/.bvec or .gval/.gvec files."
+            f"and dwi_variant='{dwi_variant}' with gradients in {grad_root}. "
+            "Expected .bval/.bvec or .gval/.gvec files."
         )
 
     return dwis
@@ -204,6 +251,7 @@ def make_b0_mean_with_mrtrix_fsl(
     bvec: Path,
     bval: Path,
     out_seq: Path,
+    reuse_reference: bool = True,
     dry_run: bool = False,
     fail_on_existing: bool = False,
 ) -> Path:
@@ -216,8 +264,10 @@ def make_b0_mean_with_mrtrix_fsl(
     nii_b0 = out_seq / "NII_b0.nii.gz"
     b0_mean = out_seq / "b0_mean.nii.gz"
 
-    if maybe_reuse_existing(b0_mean, "b0_mean.nii.gz", fail_on_existing):
+    if reuse_reference and maybe_reuse_existing(b0_mean, "b0_mean.nii.gz", fail_on_existing):
         return b0_mean
+    if not reuse_reference and (nii_b0.exists() or b0_mean.exists()):
+        print(f"[INFO] Overwriting reference images: {nii_b0}, {b0_mean}")
 
     run(
         ["dwiextract", "-bzero", str(dwi_nii), str(nii_b0), "--fslgrad", str(bvec), str(bval), "-force"],
@@ -230,22 +280,41 @@ def make_b0_mean_with_mrtrix_fsl(
 def make_full_mean_with_fsl(
     dwi_nii: Path,
     out_seq: Path,
+    dummy_scans: int = 0,
+    reuse_reference: bool = True,
     dry_run: bool = False,
     fail_on_existing: bool = False,
 ) -> Path:
     """
-    Compute the mean across all DWI volumes:
-      - copy full 4D DWI -> NII_mean.nii.gz
-      - fslmaths -Tmean  -> mean.nii.gz
+    Compute the mean across DWI volumes:
+      - write the selected 4D DWI volumes -> NII_mean.nii.gz
+      - fslmaths -Tmean                   -> mean.nii.gz
     """
+    if dummy_scans < 0:
+        raise SystemExit(f"[STOP] --dummy-scans must be >= 0. Got {dummy_scans}.")
+
+    dwi_shape = nib.load(str(dwi_nii)).shape
+    if len(dwi_shape) != 4:
+        raise SystemExit(f"[STOP] DWI must be 4D. Got shape={dwi_shape}: {dwi_nii}")
+    nvol = int(dwi_shape[3])
+    if dummy_scans >= nvol:
+        raise SystemExit(
+            f"[STOP] --dummy-scans must be smaller than the number of DWI volumes. "
+            f"Got --dummy-scans={dummy_scans}, nvol={nvol}: {dwi_nii}"
+        )
+
     out_seq.mkdir(parents=True, exist_ok=True)
     nii_mean = out_seq / "NII_mean.nii.gz"
     mean_img = out_seq / "mean.nii.gz"
 
-    if maybe_reuse_existing(mean_img, "mean.nii.gz", fail_on_existing):
+    if reuse_reference and maybe_reuse_existing(mean_img, "mean.nii.gz", fail_on_existing):
         return mean_img
+    if not reuse_reference and (nii_mean.exists() or mean_img.exists()):
+        print(f"[INFO] Overwriting reference images: {nii_mean}, {mean_img}")
 
-    if dry_run:
+    if dummy_scans > 0:
+        run(["fslroi", str(dwi_nii), str(nii_mean), str(dummy_scans), "-1"], dry_run=dry_run)
+    elif dry_run:
         print(f"cp {dwi_nii} {nii_mean}")
     else:
         shutil.copyfile(dwi_nii, nii_mean)
@@ -258,6 +327,7 @@ def make_zero_gradient_mean_from_values(
     dwi_nii: Path,
     grad_values_path: Path,
     out_seq: Path,
+    reuse_reference: bool = True,
     dry_run: bool = False,
     fail_on_existing: bool = False,
 ) -> Path:
@@ -268,8 +338,10 @@ def make_zero_gradient_mean_from_values(
     nii_b0 = out_seq / "NII_b0.nii.gz"
     b0_mean = out_seq / "b0_mean.nii.gz"
 
-    if maybe_reuse_existing(b0_mean, "b0_mean.nii.gz", fail_on_existing):
+    if reuse_reference and maybe_reuse_existing(b0_mean, "b0_mean.nii.gz", fail_on_existing):
         return b0_mean
+    if not reuse_reference and (nii_b0.exists() or b0_mean.exists()):
+        print(f"[INFO] Overwriting reference images: {nii_b0}, {b0_mean}")
 
     values = np.loadtxt(grad_values_path, dtype=float)
     values = np.asarray(values, dtype=float).reshape(-1)
@@ -447,15 +519,35 @@ def build_multilabel_from_binary_masks(
 # ---------------------------------------------------------------------
 def main() -> None:
     ap = argparse.ArgumentParser("Phantom signal extraction pipeline (direct ROI extraction in DWI space)")
+    default_dummy_scans = read_nonnegative_int_env("DUMMY_SCANS", 0)
+    default_reuse_reference = read_bool_env("REUSE_REFERENCE", True)
 
     ap.add_argument("--exp-root", type=Path, required=True, help="Folder containing DWI NIfTIs.")
     ap.add_argument("--out-root", type=Path, required=True, help="Base output folder.")
+    ap.add_argument("--out-subj", type=Path, default=None, help="Relative subject folder under --out-root. Defaults to the --exp-root folder name.")
     ap.add_argument("--grad-root", type=Path, default=None, help="Folder with .bval/.bvec or .gval/.gvec. Defaults to --exp-root if omitted.")
 
     ap.add_argument("--dwi-glob", default="*.nii.gz", help="Glob pattern to find DWI NIfTIs within --exp-root.")
+    ap.add_argument(
+        "--dwi-variant",
+        default="all",
+        help="Which dcm2niix conflict variant to use: 'none' for no suffix, 'a', 'b', etc., or 'all'.",
+    )
     ap.add_argument("--cut-token", action="append", default=[""], help="Token(s) used to derive seq_no_ext from seq_name_full.")
     ap.add_argument("--mask-glob", default="*mask*.nii*", help="Glob used inside each per-sequence output folder to discover manually drawn binary masks.")
     ap.add_argument("--mean", action="store_true", help="Collapse all volumes into one mean image and write one signal row per sequence.")
+    ap.add_argument(
+        "--dummy-scans",
+        type=int,
+        default=default_dummy_scans,
+        help="Discard this many initial volumes when --mean computes NII_mean.nii.gz, mean.nii.gz, and collapsed ROI tables.",
+    )
+    ap.add_argument(
+        "--reuse-reference",
+        action=argparse.BooleanOptionalAction,
+        default=default_reuse_reference,
+        help="Reuse existing reference images. Use --no-reuse-reference to overwrite NII_mean/mean or NII_b0/b0_mean.",
+    )
 
     ap.add_argument("--write-fslmeants", action="store_true", help="Write fslmeants .txt files in addition to the Excel table.")
     ap.add_argument("--dry-run", action="store_true", help="Print commands but do not execute external commands.")
@@ -463,15 +555,25 @@ def main() -> None:
 
     args = ap.parse_args()
 
+    if args.dummy_scans < 0:
+        raise SystemExit(f"[STOP] --dummy-scans must be >= 0. Got {args.dummy_scans}.")
+    if args.dummy_scans > 0 and not args.mean:
+        raise SystemExit("[STOP] --dummy-scans can only be used together with --mean.")
+
     exp_root = args.exp_root.resolve()
     grad_root = args.grad_root.resolve() if args.grad_root is not None else exp_root
     out_root = args.out_root.resolve()
 
-    subj = exp_root.name
+    if args.out_subj is not None:
+        if args.out_subj.is_absolute() or ".." in args.out_subj.parts:
+            raise SystemExit("[STOP] --out-subj must be a relative path inside --out-root.")
+        subj = str(args.out_subj)
+    else:
+        subj = exp_root.name
     out_subj = out_root / subj
     out_subj.mkdir(parents=True, exist_ok=True)
 
-    dwis = find_dwis(exp_root, grad_root, args.dwi_glob, args.cut_token)
+    dwis = find_dwis(exp_root, grad_root, args.dwi_glob, args.cut_token, args.dwi_variant)
 
     for dwi_nii, grad_values, grad_vectors, grad_kind, seq_name_full, seq_no_ext in dwis:
         out_seq = out_subj / seq_no_ext
@@ -483,6 +585,8 @@ def main() -> None:
             ref_img = make_full_mean_with_fsl(
                 dwi_nii,
                 out_seq,
+                dummy_scans=args.dummy_scans,
+                reuse_reference=args.reuse_reference,
                 dry_run=args.dry_run,
                 fail_on_existing=args.fail_on_existing,
             )
@@ -492,6 +596,7 @@ def main() -> None:
                 grad_vectors,
                 grad_values,
                 out_seq,
+                reuse_reference=args.reuse_reference,
                 dry_run=args.dry_run,
                 fail_on_existing=args.fail_on_existing,
             )
@@ -500,6 +605,7 @@ def main() -> None:
                 dwi_nii,
                 grad_values,
                 out_seq,
+                reuse_reference=args.reuse_reference,
                 dry_run=args.dry_run,
                 fail_on_existing=args.fail_on_existing,
             )
@@ -545,7 +651,13 @@ def main() -> None:
         rois = [build_roi_from_binary_mask(mask_path, dwi_img, roi_name) for roi_name, mask_path in mask_specs]
 
         print("[INFO] Extracting ROI tables (this can take a while)...")
-        tables = extract_tables(dwi_nii, grad_values, rois, collapse_mean=args.mean)
+        tables = extract_tables(
+            dwi_nii,
+            grad_values,
+            rois,
+            collapse_mean=args.mean,
+            dummy_scans=args.dummy_scans,
+        )
         print("[INFO] Writing Excel...")
 
         out_xlsx = out_root / "Results" / subj / f"{seq_no_ext}_results.xlsx"

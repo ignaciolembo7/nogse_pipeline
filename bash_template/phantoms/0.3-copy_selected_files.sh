@@ -8,7 +8,11 @@ BASE="Data-signals/20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
 SRC="$BASE/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_G00_20260122092639_13"
 
 FILES=(
-  "mask.nii.gz"
+  "niso4-1_mask.nii.gz"
+  "niso4-2_mask.nii.gz"
+  "niso4-3_mask.nii.gz"
+  "niso4-4_mask.nii.gz"
+  "niso4-5_mask.nii.gz"
 )
 
 if [[ ! -d "$BASE" ]]; then

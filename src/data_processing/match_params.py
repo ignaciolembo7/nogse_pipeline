@@ -32,17 +32,21 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     p = Path(path)
     name = p.name
 
-    parent_name = p.parent.name.strip()
-    if parent_name and parent_name.lower() != "results":
-        sheet = parent_name
-    elif "_ep2d" in name:
-        sheet = name.split("_ep2d")[0]
-    elif "_d" in name:
-        sheet = name.split("_d")[0]
-    elif "_Delta" in name:
-        sheet = name.split("_Delta")[0]
+    parts_lower = [part.lower() for part in p.parts]
+    if "results" in parts_lower and parts_lower.index("results") + 1 < len(p.parts) - 1:
+        sheet = p.parts[parts_lower.index("results") + 1].strip()
     else:
-        sheet = p.stem.split("_")[0]
+        parent_name = p.parent.name.strip()
+        if parent_name and parent_name.lower() != "results":
+            sheet = parent_name
+        elif "_ep2d" in name:
+            sheet = name.split("_ep2d")[0]
+        elif "_d" in name:
+            sheet = name.split("_d")[0]
+        elif "_Delta" in name:
+            sheet = name.split("_Delta")[0]
+        else:
+            sheet = p.stem.split("_")[0]
     sheet = re.sub(r"_(\d+)bval_(\d+)dir.*$", "", sheet, flags=re.IGNORECASE)
 
     def _int(rx: str) -> int | None:

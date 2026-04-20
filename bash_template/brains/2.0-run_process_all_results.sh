@@ -20,9 +20,9 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
-ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/20260122-PHANTOM_NISO4"
-DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
+ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
+DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
+DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_brains.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 
@@ -89,4 +89,5 @@ if (( failed > 0 )); then
     for seq in "${failed_sequences[@]}"; do
         echo "  - $seq"
     done
+    exit 1
 fi

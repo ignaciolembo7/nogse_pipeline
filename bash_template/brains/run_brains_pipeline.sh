@@ -63,7 +63,7 @@ for script_name in "${RUN_SCRIPTS[@]}"; do
         continue
     fi
 
-    if PY="$PY" bash "$script_path" >"$log_path" 2>&1; then
+    if PY="$PY" LOG_ROOT="$LOG_ROOT" bash "$script_path" >"$log_path" 2>&1; then
         ok=$((ok + 1))
         echo "OK: $script_name"
     else

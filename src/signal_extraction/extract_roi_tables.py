@@ -310,6 +310,7 @@ def _extract_collapsed_mean_tables(
     roi_idx: list[np.ndarray],
     grad_value: float,
     grad_col_name: str,
+    dummy_scans: int = 0,
 ) -> dict[str, pd.DataFrame]:
     """
     Collapse a 4D acquisition into one mean image and compute one ROI summary row.
@@ -319,12 +320,20 @@ def _extract_collapsed_mean_tables(
     average image rather than one value per volume.
     """
     nvol = int(dwi_img.shape[3])
+    if dummy_scans < 0:
+        raise ValueError(f"dummy_scans must be >= 0. Got {dummy_scans}.")
+    if dummy_scans >= nvol:
+        raise ValueError(
+            f"dummy_scans must be smaller than the number of DWI volumes. "
+            f"Got dummy_scans={dummy_scans}, nvol={nvol}."
+        )
+
     dataobj = dwi_img.dataobj
 
     mean_vol = np.zeros(dwi_img.shape[:3], dtype=np.float64)
-    for j in range(nvol):
+    for j in range(dummy_scans, nvol):
         mean_vol += np.asanyarray(dataobj[..., j], dtype=np.float64)
-    mean_vol /= float(nvol)
+    mean_vol /= float(nvol - dummy_scans)
     mean_flat = mean_vol.reshape(-1)
 
     out = {
@@ -352,6 +361,7 @@ def extract_tables(
     rois: list[ROI],
     *,
     collapse_mean: bool = False,
+    dummy_scans: int = 0,
 ) -> dict[str, pd.DataFrame]:
     """
     Fast table extraction:
@@ -391,6 +401,7 @@ def extract_tables(
             roi_idx=roi_idx,
             grad_value=grad_value,
             grad_col_name=grad_col_name,
+            dummy_scans=dummy_scans,
         )
 
     # Allocate result arrays: dict[stat][roi] -> (nvol,)

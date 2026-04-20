@@ -21,7 +21,8 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/20220610-PHANTOM3"
+PHANTOM_SUBJ_REL="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
@@ -89,4 +90,5 @@ if (( failed > 0 )); then
     for seq in "${failed_sequences[@]}"; do
         echo "  - $seq"
     done
+    exit 1
 fi

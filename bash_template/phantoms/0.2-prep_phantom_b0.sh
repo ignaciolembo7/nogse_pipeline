@@ -9,10 +9,16 @@ SUBJ="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
 EXP_PARENT="Data-NIFTI"
 OUT_ROOT_REL="Data-signals"
 CUT_TOKEN=""
+# Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
+DWI_VARIANT="all"
 # Reference mode:
 #   - mean: average all DWI volumes and write NII_mean.nii.gz + mean.nii.gz
 #   - b0  : extract only b=0 volumes and write NII_b0.nii.gz + b0_mean.nii.gz
 REF_MODE="mean"
+# Number of initial volumes to discard when REF_MODE="mean".
+DUMMY_SCANS="5"
+# Set to 1 to reuse existing reference images, or 0 to overwrite them.
+REUSE_REFERENCE="0"
 
 usage() {
   echo "Usage:"
@@ -27,10 +33,14 @@ usage() {
   echo "                     Default: $OUT_ROOT_REL"
   echo "  --cut-token TOKEN  Token used to strip the NIfTI filename into seq_no_ext"
   echo "                     Default: '$CUT_TOKEN'"
+  echo "  --dwi-variant VAR  NIfTI variant to use: none, a, b, ... or all"
+  echo "                     Default: $DWI_VARIANT"
   echo
   echo "Reference mode is configured inside the script:"
   echo "  REF_MODE=\"mean\"   -> average all volumes"
   echo "  REF_MODE=\"b0\"     -> average only b=0 volumes"
+  echo "  DUMMY_SCANS=\"0\"   -> discard no initial volumes for REF_MODE=\"mean\""
+  echo "  REUSE_REFERENCE=\"1\" -> reuse existing reference images"
   echo
   echo "Examples:"
   echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh"
@@ -63,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       CUT_TOKEN="$2"
       shift 2
       ;;
+    --dwi-variant)
+      DWI_VARIANT="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       ;;
@@ -81,6 +95,53 @@ case "$REF_MODE" in
     exit 1
     ;;
 esac
+
+if ! [[ "$DUMMY_SCANS" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: DUMMY_SCANS must be a non-negative integer, got: $DUMMY_SCANS"
+  exit 1
+fi
+
+case "$REUSE_REFERENCE" in
+  0|1)
+    ;;
+  *)
+    echo "ERROR: REUSE_REFERENCE must be 0 or 1, got: $REUSE_REFERENCE"
+    exit 1
+    ;;
+esac
+
+case "${DWI_VARIANT,,}" in
+  all|any|"*"|none|primary|base|[a-z])
+    ;;
+  *)
+    echo "ERROR: DWI_VARIANT must be 'none', 'a', 'b', ..., or 'all', got: $DWI_VARIANT"
+    exit 1
+    ;;
+esac
+
+dcm2niix_variant() {
+  local seq_name="$1"
+  if [[ "$seq_name" =~ _[0-9]+([A-Za-z])$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1],,}"
+  else
+    printf '\n'
+  fi
+}
+
+dwi_variant_matches() {
+  local seq_name="$1"
+  local wanted="${2,,}"
+  local variant
+  if [[ "$wanted" == "all" || "$wanted" == "any" || "$wanted" == "*" ]]; then
+    return 0
+  fi
+  variant="$(dcm2niix_variant "$seq_name")"
+  if [[ "$wanted" == "none" || "$wanted" == "primary" || "$wanted" == "base" || -z "$wanted" ]]; then
+    [[ -z "$variant" ]]
+    return
+  fi
+  [[ "$variant" == "$wanted" ]]
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -102,7 +163,10 @@ echo "EXP_PARENT  : $EXP_PARENT"
 echo "EXP_ROOT    : $EXP_ROOT"
 echo "OUT_SUBJ    : $OUT_SUBJ"
 echo "CUT_TOKEN   : $CUT_TOKEN"
+echo "DWI_VARIANT : $DWI_VARIANT"
 echo "REF_MODE    : $REF_MODE"
+echo "DUMMY_SCANS : $DUMMY_SCANS"
+echo "REUSE_REF   : $REUSE_REFERENCE"
 echo "============================================================"
 
 shopt -s nullglob
@@ -110,10 +174,14 @@ shopt -s nullglob
 found_any=0
 
 for dwi in "$EXP_ROOT"/*.nii.gz; do
-  found_any=1
-
   base="$(basename "$dwi")"
   seq_name_full="${base%.nii.gz}"
+  if ! dwi_variant_matches "$seq_name_full" "$DWI_VARIANT"; then
+    echo "[SKIP] Variant excluded by DWI_VARIANT=$DWI_VARIANT: $seq_name_full"
+    continue
+  fi
+  found_any=1
+
   if [[ -n "$CUT_TOKEN" ]]; then
     seq_no_ext="${seq_name_full%%"$CUT_TOKEN"*}"
   else
@@ -134,9 +202,19 @@ for dwi in "$EXP_ROOT"/*.nii.gz; do
     nii_mean="$out_seq/NII_mean.nii.gz"
     mean_img="$out_seq/mean.nii.gz"
 
-    if [[ ! -f "$mean_img" ]]; then
+    if [[ "$REUSE_REFERENCE" == "0" || ! -f "$mean_img" ]]; then
       echo "[INFO] Generating NII_mean and mean..."
-      cp -f "$dwi" "$nii_mean"
+      if [[ "$DUMMY_SCANS" -gt 0 ]]; then
+        nvol="$(fslnvols "$dwi")"
+        if [[ "$DUMMY_SCANS" -ge "$nvol" ]]; then
+          echo "ERROR: DUMMY_SCANS must be smaller than the number of DWI volumes."
+          echo "       DUMMY_SCANS=$DUMMY_SCANS, nvol=$nvol"
+          exit 1
+        fi
+        fslroi "$dwi" "$nii_mean" "$DUMMY_SCANS" -1
+      else
+        cp -f "$dwi" "$nii_mean"
+      fi
       fslmaths "$nii_mean" -Tmean "$out_seq/mean"
     else
       echo "[INFO] Already exists: $mean_img"
@@ -159,7 +237,7 @@ for dwi in "$EXP_ROOT"/*.nii.gz; do
       continue
     fi
 
-    if [[ ! -f "$b0_mean" ]]; then
+    if [[ "$REUSE_REFERENCE" == "0" || ! -f "$b0_mean" ]]; then
       echo "[INFO] Generating NII_b0 and b0_mean..."
       dwiextract -bzero "$dwi" "$nii_b0" --fslgrad "$bvec" "$bval" -force
       fslmaths "$nii_b0" -Tmean "$out_seq/b0_mean"

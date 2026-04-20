@@ -29,12 +29,23 @@ YCOL="value_norm"
 STAT="avg"
 ROIS="ALL"
 DIRECTIONS="ALL"
-FIX_M0="1.0"
+DEFAULT_MODEL="free_cpmg"
+AUTO_DISCOVER_JOBS="true"
+# Use "fix" or "free" for each fitted parameter.
+M0_MODE="fix"
+M0_VALUE="1.0"
+M0_MIN="0.0"
+M0_MAX="2.0"
+D0_MODE="free"
+D0_VALUE="2.3e-12"
+D0_MIN="1e-13"
+D0_MAX="1e-10"
 
 declare -a JOBS=(
-  # Add jobs manually as: "path|model"
+  # Optional manual jobs, formatted as: "path|model"
   # Supported models: free_cpmg | free_hahn
-  # Example:
+  # If this list is empty and AUTO_DISCOVER_JOBS is true, all *.long.parquet
+  # files under DATA_ROOT are fitted with DEFAULT_MODEL.
   # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet|free_cpmg"
 )
 
@@ -45,7 +56,19 @@ fi
 
 mkdir -p "$OUT_ROOT"
 
+if (( ${#JOBS[@]} == 0 )) && [[ "${AUTO_DISCOVER_JOBS,,}" == "true" ]]; then
+    if [[ ! -d "$DATA_ROOT" ]]; then
+        echo "ERROR: DATA_ROOT not found: $DATA_ROOT" >&2
+        exit 1
+    fi
+    while IFS= read -r file; do
+        JOBS+=("$file|$DEFAULT_MODEL")
+    done < <(find "$DATA_ROOT" -type f -name "*.long.parquet" | sort)
+fi
+
 extra_args=()
+extra_args+=(--M0_bounds "$M0_MIN" "$M0_MAX")
+extra_args+=(--D0_bounds "$D0_MIN" "$D0_MAX")
 if [[ "$ROIS" != "ALL" ]]; then
     read -r -a roi_list <<< "${ROIS//,/ }"
     if (( ${#roi_list[@]} > 0 )); then
@@ -58,9 +81,30 @@ if [[ "$DIRECTIONS" != "ALL" ]]; then
         extra_args+=(--directions "${dir_list[@]}")
     fi
 fi
-if [[ -n "${FIX_M0// }" ]]; then
-    extra_args+=(--fix_M0 "$FIX_M0")
-fi
+case "${M0_MODE,,}" in
+    fix)
+        extra_args+=(--fix_M0 "$M0_VALUE")
+        ;;
+    free)
+        extra_args+=(--free_M0)
+        ;;
+    *)
+        echo "ERROR: M0_MODE must be 'fix' or 'free'." >&2
+        exit 1
+        ;;
+esac
+case "${D0_MODE,,}" in
+    fix)
+        extra_args+=(--fix_D0 "$D0_VALUE")
+        ;;
+    free)
+        extra_args+=(--free_D0)
+        ;;
+    *)
+        echo "ERROR: D0_MODE must be 'fix' or 'free'." >&2
+        exit 1
+        ;;
+esac
 
 total=0
 ok=0
@@ -112,7 +156,8 @@ echo "  Successful  : $ok"
 echo "  Failed      : $failed"
 
 if (( total == 0 )); then
-    echo "  Notes       : JOBS is empty. Add the signal parquets and models manually in this script."
+    echo "  ERROR       : no jobs were found. Check DATA_ROOT or add entries to JOBS." >&2
+    exit 1
 fi
 
 if (( failed > 0 )); then

@@ -6,7 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, least_squares
 
 from nogse_models.nogse_model_fitting import M_nogse_free
 
@@ -81,23 +81,74 @@ def _resolve_sigma(avg_df: pd.DataFrame, std_df: pd.DataFrame | None, *, xcol: s
     return sigma
 
 
-def _build_model(model_name: str, *, tn_ms: float, n_value: int, fix_m0: float | None):
-    x_ms = 0.5 * tn_ms if model_name == "free_cpmg" else 0.0
+def _validate_bounds(name: str, bounds: list[float] | tuple[float, float]) -> tuple[float, float]:
+    lower, upper = float(bounds[0]), float(bounds[1])
+    if not lower < upper:
+        raise ValueError(f"{name} lower bound must be smaller than upper bound: {lower}, {upper}")
+    return lower, upper
 
-    if fix_m0 is None:
+
+def _clamp_p0(value: float, bounds: tuple[float, float]) -> float:
+    lower, upper = bounds
+    return float(min(max(float(value), lower), upper))
+
+
+def _validate_fixed_value(name: str, value: float | None, bounds: tuple[float, float]) -> None:
+    if value is None:
+        return
+    lower, upper = bounds
+    if not lower <= float(value) <= upper:
+        raise ValueError(f"{name} fixed value {value} is outside bounds [{lower}, {upper}].")
+
+
+def _validate_log_bounds(name: str, bounds: tuple[float, float]) -> None:
+    lower, _upper = bounds
+    if lower <= 0:
+        raise ValueError(f"{name} lower bound must be positive when fitting in log-space: {lower}")
+
+
+def _build_model(
+    model_name: str,
+    *,
+    tn_ms: float,
+    n_value: int,
+    fix_m0: float | None,
+    fix_d0: float | None,
+    m0_bounds: tuple[float, float],
+    d0_bounds: tuple[float, float],
+):
+    x_ms = 0.5 * tn_ms if model_name == "free_cpmg" else 0.0
+    m0_lo, m0_hi = m0_bounds
+    d0_lo, d0_hi = d0_bounds
+
+    if fix_m0 is None and fix_d0 is None:
         def model(g, m0, d0):
             return M_nogse_free(tn_ms, g, n_value, x_ms, m0, d0)
 
         param_names = ["M0", "D0_m2_ms"]
-        p0 = [1.0, 2.3e-12]
-        bounds = ([0.0, 0.0], [np.inf, np.inf])
-    else:
+        p0 = [_clamp_p0(1.0, m0_bounds), _clamp_p0(2.3e-12, d0_bounds)]
+        bounds = ([m0_lo, d0_lo], [m0_hi, d0_hi])
+    elif fix_m0 is not None and fix_d0 is None:
         def model(g, d0):
             return M_nogse_free(tn_ms, g, n_value, x_ms, fix_m0, d0)
 
         param_names = ["D0_m2_ms"]
-        p0 = [2.3e-12]
-        bounds = ([0.0], [np.inf])
+        p0 = [_clamp_p0(2.3e-12, d0_bounds)]
+        bounds = ([d0_lo], [d0_hi])
+    elif fix_m0 is None and fix_d0 is not None:
+        def model(g, m0):
+            return M_nogse_free(tn_ms, g, n_value, x_ms, m0, fix_d0)
+
+        param_names = ["M0"]
+        p0 = [_clamp_p0(1.0, m0_bounds)]
+        bounds = ([m0_lo], [m0_hi])
+    else:
+        def model(g):
+            return M_nogse_free(tn_ms, g, n_value, x_ms, fix_m0, fix_d0)
+
+        param_names = []
+        p0 = []
+        bounds = ([], [])
 
     return model, x_ms, param_names, p0, bounds
 
@@ -110,6 +161,9 @@ def _fit_one_group(
     xcol: str,
     ycol: str,
     fix_m0: float | None,
+    fix_d0: float | None,
+    m0_bounds: tuple[float, float],
+    d0_bounds: tuple[float, float],
 ) -> tuple[dict[str, object], np.ndarray, np.ndarray, np.ndarray]:
     data = avg_df.copy()
     data[xcol] = pd.to_numeric(data[xcol], errors="coerce")
@@ -125,28 +179,75 @@ def _fit_one_group(
         tn_ms=tn_ms,
         n_value=n_value,
         fix_m0=fix_m0,
+        fix_d0=fix_d0,
+        m0_bounds=m0_bounds,
+        d0_bounds=d0_bounds,
     )
 
     x = data[xcol].to_numpy(dtype=float)
     y = data[ycol].to_numpy(dtype=float)
     sigma = _resolve_sigma(data, std_df, xcol=xcol, ycol=ycol)
 
-    if fix_m0 is None:
-        p0[0] = float(np.nanmax(y))
-    elif ycol == "value_norm":
-        fix_m0 = 1.0
+    if "M0" in param_names:
+        p0[param_names.index("M0")] = _clamp_p0(float(np.nanmax(y)), m0_bounds)
 
-    popt, _pcov = curve_fit(
-        model,
-        x,
-        y,
-        p0=p0,
-        bounds=bounds,
-        sigma=sigma,
-        absolute_sigma=False,
-        maxfev=200000,
-    )
-    yhat = model(x, *popt)
+    if param_names:
+        if "D0_m2_ms" in param_names:
+            opt_p0: list[float] = []
+            opt_lower: list[float] = []
+            opt_upper: list[float] = []
+            for name, value, lower, upper in zip(param_names, p0, bounds[0], bounds[1]):
+                if name == "D0_m2_ms":
+                    opt_p0.append(float(np.log(value)))
+                    opt_lower.append(float(np.log(lower)))
+                    opt_upper.append(float(np.log(upper)))
+                else:
+                    opt_p0.append(float(value))
+                    opt_lower.append(float(lower))
+                    opt_upper.append(float(upper))
+
+            def _unpack_opt(values: np.ndarray) -> list[float]:
+                out: list[float] = []
+                for name, value in zip(param_names, values):
+                    out.append(float(np.exp(value)) if name == "D0_m2_ms" else float(value))
+                return out
+
+            def _residual(values: np.ndarray) -> np.ndarray:
+                yhat_local = model(x, *_unpack_opt(values))
+                residual = yhat_local - y
+                if sigma is not None:
+                    residual = residual / sigma
+                return residual
+
+            opt = least_squares(
+                _residual,
+                np.asarray(opt_p0, dtype=float),
+                bounds=(np.asarray(opt_lower, dtype=float), np.asarray(opt_upper, dtype=float)),
+                x_scale="jac",
+                max_nfev=200000,
+            )
+            if not opt.success:
+                raise RuntimeError(f"least_squares failed: {opt.message}")
+            popt = np.asarray(_unpack_opt(opt.x), dtype=float)
+            yhat = model(x, *popt)
+            fit_method = "least_squares_logD"
+        else:
+            popt, _pcov = curve_fit(
+                model,
+                x,
+                y,
+                p0=p0,
+                bounds=bounds,
+                sigma=sigma,
+                absolute_sigma=False,
+                maxfev=200000,
+            )
+            yhat = model(x, *popt)
+            fit_method = "scipy_curve_fit"
+    else:
+        popt = np.array([], dtype=float)
+        yhat = model(x)
+        fit_method = "fixed"
     rmse = float(np.sqrt(np.mean((y - yhat) ** 2)))
     ss_res = float(np.sum((y - yhat) ** 2))
     ss_tot = float(np.sum((y - np.mean(y)) ** 2))
@@ -163,15 +264,22 @@ def _fit_one_group(
         "x_max": float(np.nanmax(x)),
         "rmse": rmse,
         "r2": r2,
+        "method": fit_method,
         "n_points": int(len(x)),
+        "M0_bound_min": float(m0_bounds[0]),
+        "M0_bound_max": float(m0_bounds[1]),
+        "D0_bound_min": float(d0_bounds[0]),
+        "D0_bound_max": float(d0_bounds[1]),
     }
     if fix_m0 is not None:
         fit_row["M0"] = float(fix_m0)
+    if fix_d0 is not None:
+        fit_row["D0_m2_ms"] = float(fix_d0)
     for name, value in zip(param_names, popt):
         fit_row[name] = float(value)
 
     xfit = np.linspace(float(np.nanmin(x)), float(np.nanmax(x)), 400)
-    yfit = model(xfit, *popt)
+    yfit = model(xfit, *popt) if param_names else model(xfit)
     return fit_row, x, y, np.column_stack([xfit, yfit])
 
 
@@ -248,6 +356,11 @@ def main() -> None:
     m0_group = ap.add_mutually_exclusive_group()
     m0_group.add_argument("--fix_M0", type=float, default=None)
     m0_group.add_argument("--free_M0", action="store_true")
+    d0_group = ap.add_mutually_exclusive_group()
+    d0_group.add_argument("--fix_D0", type=float, default=None)
+    d0_group.add_argument("--free_D0", action="store_true")
+    ap.add_argument("--M0_bounds", "--M0-bounds", nargs=2, type=float, default=(0.0, np.inf), metavar=("MIN", "MAX"))
+    ap.add_argument("--D0_bounds", "--D0-bounds", nargs=2, type=float, default=(1e-16, np.inf), metavar=("MIN", "MAX"))
     args = ap.parse_args()
 
     rois = _split_all_or_values(args.rois)
@@ -275,6 +388,13 @@ def main() -> None:
     fix_m0 = args.fix_M0
     if fix_m0 is None and not args.free_M0 and args.ycol == "value_norm":
         fix_m0 = 1.0
+    fix_d0 = args.fix_D0
+    m0_bounds = _validate_bounds("M0", args.M0_bounds)
+    d0_bounds = _validate_bounds("D0", args.D0_bounds)
+    _validate_fixed_value("M0", fix_m0, m0_bounds)
+    _validate_fixed_value("D0", fix_d0, d0_bounds)
+    if fix_d0 is None:
+        _validate_log_bounds("D0", d0_bounds)
 
     out_dir = args.out_root / args.model / analysis_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -295,6 +415,9 @@ def main() -> None:
             xcol=args.xcol,
             ycol=args.ycol,
             fix_m0=fix_m0,
+            fix_d0=fix_d0,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
         )
 
         for col in [
