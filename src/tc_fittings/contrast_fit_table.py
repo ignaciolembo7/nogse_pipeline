@@ -16,7 +16,7 @@ def _read_table(path: Path) -> pd.DataFrame:
         return pd.read_csv(path)
     if suffix in {".xlsx", ".xls"}:
         return pd.read_excel(path, sheet_name=0)
-    raise ValueError(f"Formato no soportado: {path}")
+    raise ValueError(f"Unsupported format: {path}")
 
 
 def _score_fit_params_path(path: Path) -> int:
@@ -40,7 +40,7 @@ def discover_fit_param_files(root: str | Path, pattern: str = "**/fit_params.*")
         if p.name.startswith("fit_params.") and p.suffix.lower() in {".parquet", ".xlsx", ".xls", ".csv"}
     ]
     if not candidates:
-        raise FileNotFoundError(f"No encontré fit_params en {base} con pattern={pattern!r}")
+        raise FileNotFoundError(f"Could not find fit_params in {base} with pattern={pattern!r}")
 
     best_by_dir: dict[Path, Path] = {}
     for path in sorted(candidates):
@@ -130,7 +130,7 @@ def load_contrast_fit_params(
             files.extend(discover_fit_param_files(path, pattern=pattern))
 
     if not files:
-        raise FileNotFoundError("No encontré fit_params para cargar.")
+        raise FileNotFoundError("Could not find fit_params to load.")
 
     frames = [canonicalize_contrast_fit_params(_read_table(path)) for path in files]
     out = pd.concat(frames, ignore_index=True)
@@ -156,6 +156,6 @@ def load_contrast_fit_params(
 def ensure_required_target_column(df: pd.DataFrame, y_col: str) -> pd.DataFrame:
     out = canonicalize_contrast_fit_params(df)
     if y_col not in out.columns:
-        raise KeyError(f"No existe y_col={y_col!r} en fit_params. Columnas: {list(out.columns)}")
+        raise KeyError(f"y_col={y_col!r} does not exist in fit_params. Columns: {list(out.columns)}")
     out[y_col] = pd.to_numeric(out[y_col], errors="coerce")
     return out

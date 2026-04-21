@@ -13,6 +13,8 @@ from fitting.core import fit_least_squares, format_value_error
 from fitting.core import r2_score, rmse as fit_rmse
 from nogse_models.nogse_model_fitting import M_nogse_free
 from tools.fit_params_schema import standardize_fit_params
+from data_processing.io import write_table_outputs
+from tools.value_formatting import scalar_or_compact_column
 
 
 @dataclass(frozen=True)
@@ -80,35 +82,6 @@ def _unique_scalar(df: pd.DataFrame, col: str, *, required: bool = False):
     if len(values) > 1:
         raise ValueError(f"Column {col!r} is not unique inside the group: {values}")
     return values[0]
-
-
-def _compact_values(values: Sequence[object]) -> str:
-    text_values = [str(value) for value in values]
-    numeric = pd.to_numeric(pd.Series(values), errors="coerce")
-    if numeric.notna().all():
-        nums = sorted({float(value) for value in numeric.to_numpy(dtype=float)})
-        if all(float(value).is_integer() for value in nums):
-            ints = [int(value) for value in nums]
-            if ints == list(range(ints[0], ints[-1] + 1)):
-                return f"{ints[0]}-{ints[-1]}"
-            return ",".join(str(value) for value in ints)
-        return ",".join(f"{value:g}" for value in nums)
-    return ",".join(text_values)
-
-
-def _scalar_or_compact_values(df: pd.DataFrame, col: str, *, required: bool = False):
-    if col not in df.columns:
-        if required:
-            raise ValueError(f"Missing required column {col!r}.")
-        return None
-    values = pd.Series(df[col]).dropna().unique().tolist()
-    if len(values) == 0:
-        if required:
-            raise ValueError(f"Column {col!r} is empty.")
-        return None
-    if len(values) == 1:
-        return values[0]
-    return _compact_values(values)
 
 
 def _resolve_tn_ms(df: pd.DataFrame) -> float:
@@ -461,7 +434,7 @@ def fit_nogse_signal_long(
                 fit_row[col] = _unique_scalar(group, col, required=False)
 
         if "sequence" in group.columns:
-            fit_row["sequence"] = _scalar_or_compact_values(group, "sequence", required=False)
+            fit_row["sequence"] = scalar_or_compact_column(group, "sequence", required=False)
 
         if "G" in group.columns:
             g_values = pd.to_numeric(group["G"], errors="coerce").dropna().to_numpy(dtype=float)
@@ -539,8 +512,11 @@ def run_fit_from_parquet(
     )
 
     out_parquet = out_dir / "fit_params.parquet"
-    outs.fit_params.to_parquet(out_parquet, index=False)
-    outs.fit_params.to_excel(out_parquet.with_suffix(".xlsx"), index=False)
-    outs.fit_params.to_csv(out_dir / "fit_params.csv", index=False)
+    write_table_outputs(
+        outs.fit_params,
+        out_parquet,
+        xlsx_path=out_parquet.with_suffix(".xlsx"),
+        csv_path=out_dir / "fit_params.csv",
+    )
     print("Saved fit table:", out_parquet)
     return outs, out_dir

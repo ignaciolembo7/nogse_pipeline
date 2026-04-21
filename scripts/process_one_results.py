@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from dataclasses import dataclass
 import os
@@ -9,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from data_processing.io import infer_layout_from_filename, read_result_xls
+from data_processing.io import infer_layout_from_filename, read_result_xls, write_table_outputs
 from data_processing.match_params import parse_results_filename, select_params_row
 from data_processing.params import read_sequence_params_xlsx
 from data_processing.reshape import to_long
@@ -627,7 +629,7 @@ def main() -> None:
         ndirs = meta.ndirs or layout.ndirs
         nbvals = meta.nbvals or layout.nbvals
         if ndirs is None or nbvals is None:
-            raise SystemExit(f"No pude inferir ndirs/nbvals del filename: {args.results_file.name}")
+            raise SystemExit(f"Could not infer ndirs/nbvals from filename: {args.results_file.name}")
         df_long = to_long(stats, ndirs=ndirs, nbvals=nbvals, source_file=args.results_file.name)
     else:
         if _is_single_point_results(stats):
@@ -643,12 +645,12 @@ def main() -> None:
             ndirs = meta.ndirs or layout.ndirs
             nbvals = meta.nbvals or layout.nbvals
             if ndirs is None or nbvals is None:
-                raise SystemExit(f"No pude inferir ndirs/nbvals del filename: {args.results_file.name}")
+                raise SystemExit(f"Could not infer ndirs/nbvals from filename: {args.results_file.name}")
 
             any_df = next(iter(stats.values()))
             gcol = _first_present([str(c) for c in any_df.columns], ["gvalues", "gval", "g"])
             if gcol is None:
-                raise SystemExit(f"No pude encontrar una columna g en: {list(any_df.columns)}")
+                raise SystemExit(f"Could not find a g column in: {list(any_df.columns)}")
 
             df_long = to_long(
                 stats,
@@ -716,8 +718,7 @@ def main() -> None:
     else:
         df_to_save = df_long
 
-    df_to_save.to_parquet(out_path, index=False)
-    df_to_save.to_excel(out_path.with_suffix(".xlsx"), index=False)
+    write_table_outputs(df_to_save, out_path, xlsx_path=out_path.with_suffix(".xlsx"))
 
     print("Selected params (clean):")
     print(

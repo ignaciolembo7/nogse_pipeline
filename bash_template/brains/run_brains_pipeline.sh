@@ -3,12 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/brains}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 RUN_SCRIPTS=(
 #   "0.0-run_dicom2nifti.sh"    
@@ -35,7 +37,9 @@ echo "============================================================"
 echo "Brains pipeline runner"
 echo "Script dir : $SCRIPT_DIR"
 echo "Project    : $PROJECT_ROOT"
+echo "Repo       : $REPO_ROOT"
 echo "PY         : $PY"
+echo "PYTHONPATH : $PYTHONPATH"
 echo "Log root   : $LOG_ROOT"
 echo "============================================================"
 

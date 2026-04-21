@@ -25,14 +25,14 @@ from .tc_td_pseudohuber import (
     block2_region_plots,
     block3_alpha_macro_summary_vs_fit,
     block4_qquad_vs_alpha_macro,
-    block2b_cc_vars_long_tra_sameY,  # ahora es genérico (usa todas las direcciones presentes)
+    block2b_cc_vars_long_tra_sameY,  # Now generic: uses all directions present.
 )
 
 
 def _ensure_direction_col(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Normaliza el nombre de la columna de direction para todo el pipeline.
-    Preferimos 'direction' (como en groupfits).
+    Normalize the direction column name for the whole pipeline.
+    Prefer 'direction', matching groupfits.
     """
     df = df.copy()
     if "direction" in df.columns:
@@ -105,11 +105,11 @@ def run_pseudohuber_free(
         alpha_macro_max=alpha_macro_max,
     )
 
-    # Normalizar col de direction (por compatibilidad)
+    # Normalize direction column for compatibility.
     df_fit = _ensure_direction_col(df_fit)
     df_params = _ensure_direction_col(df_params)
 
-    # Blocks que no dependen de nombres específicos de direction
+    # Blocks that do not depend on specific direction names.
     block1b_alpha_vs_Td(df_params, df_fit, out_dir, region_order=regions, td_min_ms=td_min_ms, td_max_ms=td_max_ms)
     block1c_smallTd_tc_approx(
         df_params,
@@ -133,7 +133,7 @@ def run_pseudohuber_free(
     )
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
-    # ✅ Block2b ahora es genérico: plotea 1×N con TODAS las direcciones presentes
+    # Block2b is now generic: plot 1xN with all directions present.
     block2b_cc_vars_long_tra_sameY(
         df_fit=df_fit,
         out_dir=out_dir,
@@ -143,7 +143,7 @@ def run_pseudohuber_free(
         tag=f"pseudohuber_free_k={k_last}_y={y_col}_mode={df_fit['mode'].unique()[0] if 'mode' in df_fit.columns else 'free_macro'}",
     )
 
-    # Block3/4 solo si hay summary alpha_macro (macro)
+    # Blocks 3/4 run only when an alpha_macro summary exists.
     if alpha_macro_df is not None:
         alpha_macro_df = _ensure_direction_col(alpha_macro_df)
         block3_alpha_macro_summary_vs_fit(
@@ -227,7 +227,7 @@ def run_pseudohuber_fixed_macro(
     )
     block2_region_plots(df_fit, out_dir, regions, palette, plot_A=True, show_errorbars=show_errorbars)
 
-    # ✅ Genérico (no depende de long/tra)
+    # Generic: does not depend on long/tra labels.
     block2b_cc_vars_long_tra_sameY(
         df_fit=df_fit,
         out_dir=out_dir,
@@ -253,13 +253,13 @@ METHODS = {
         func=run_pseudohuber_free,
         default_k_last=None,
         needs_alpha_macro=False,
-        description="PseudoHuber model: ajusta c, delta, alpha_macro (alpha_macro libre).",
+        description="PseudoHuber model: fit c, delta, and alpha_macro (free alpha_macro).",
     ),
     "pseudohuber_fixed_macro": FitSpec(
         name="pseudohuber_fixed_macro",
         func=run_pseudohuber_fixed_macro,
         default_k_last=None,
         needs_alpha_macro=True,
-        description="PseudoHuber model: fija alpha_macro=alpha_macro(summary) y ajusta c, delta.",
+        description="PseudoHuber model: fix alpha_macro=alpha_macro(summary) and fit c, delta.",
     ),
 }

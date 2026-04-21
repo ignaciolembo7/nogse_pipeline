@@ -7,12 +7,12 @@ def _find_protocol_header_row(df: pd.DataFrame) -> int:
     col0 = df.iloc[:, 0].astype(str)
     hits = col0.str.contains("Protocol", case=False, na=False)
     if not hits.any():
-        raise ValueError("No encontré una fila con 'Protocol*' en este sheet.")
-    return int(hits.idxmax())  # primer match
+        raise ValueError("Could not find a row with 'Protocol*' in this sheet.")
+    return int(hits.idxmax())  # First match.
 
 def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     """
-    Lee 'Parámetros secuencias.xlsx' y devuelve una tabla tidy con una fila por (sheet, protocol, seq, Hz).
+    Read the sequence-parameters workbook into one tidy row per (sheet, protocol, seq, Hz).
     Extra columns such as a manually curated 'subj' tag are preserved.
     """
     xls = pd.ExcelFile(path)
@@ -26,10 +26,10 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
         sub.columns = sub.iloc[0].tolist()
         sub = sub.iloc[1:].reset_index(drop=True)
 
-        # borrar columnas vacías
+        # Drop empty columns.
         sub = sub.loc[:, [c for c in sub.columns if str(c) != "nan"]]
 
-        # Normalizar nombres (los que usaremos sí o sí)
+        # Normalize names required by the pipeline.
         rename = {
             "Protocol*": "protocol",
             "Protocol": "protocol",
@@ -41,7 +41,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
             "N": "N",
             "G thorsten [mT/m]": "g_thorsten",
             "type of seq": "seq_type",
-            # CANÓNICO: max_dur_ms (antes d_ms)
+            # Canonical name: max_dur_ms (formerly d_ms).
             "max duration d  [ms]": "max_dur_ms",
             "Echo time TE  [ms]": "TE_ms",
             "Repetition time TR  [ms]": "TR_ms",
@@ -51,7 +51,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
 
         sub["sheet"] = sheet
 
-        # limpiar tipos (muchas celdas vienen como '-' o strings)
+        # Clean numeric types; many cells arrive as '-' or strings.
         for c in [
             "seq", "Hz", "bmax", "delta_ms", "delta_app_ms", "N",
             "group", "G", "TN", "x", "y",
@@ -60,7 +60,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
             if c in sub.columns:
                 sub[c] = pd.to_numeric(sub[c], errors="coerce")
 
-        # regla del notebook: PGSE => N=1 si está vacío
+        # Notebook convention: PGSE uses N=1 when the value is empty.
         if "seq_type" in sub.columns and "N" in sub.columns:
             is_pgse = sub["seq_type"].astype(str).str.contains("PGSE", case=False, na=False)
             sub.loc[is_pgse & sub["N"].isna(), "N"] = 1
@@ -69,7 +69,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
 
     params = pd.concat(out, ignore_index=True)
 
-    # keep columnas relevantes primero (si existen)
+    # Keep relevant columns first when they exist.
     col_order = [
         c for c in [
             "sheet","subj","protocol","seq","group","G","TN","Hz","bmax","max_dur_ms",

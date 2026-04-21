@@ -16,6 +16,7 @@ set -u -o pipefail
 #   SUBJECTS_DIR         FreeSurfer subjects directory, required only when
 #                        REQUIRE_SUBJECTS_DIR=1.
 #   REQUIRE_SUBJECTS_DIR Set to 1 for brain workflows that need SUBJECTS_DIR.
+#   PY                   Python interpreter. Default: python.
 #   LOG_ROOT             Directory where timestamped run logs are written.
 #                        Default: "$REPO_ROOT/logs".
 
@@ -68,6 +69,7 @@ init_run() {
   fi
 
   cd "$PROJECT_ROOT"
+  export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
   RUN_ID="${run_name}_$(date +%Y%m%d_%H%M%S)"
   LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs}"
@@ -102,6 +104,8 @@ init_run() {
     echo "HOSTNAME=$(hostname)"
     echo "SHELL=${SHELL:-}"
     echo "PATH=$PATH"
+    echo "PYTHONPATH=${PYTHONPATH:-}"
+    echo "PY=${PY:-python}"
     echo "CONDA_DEFAULT_ENV=${CONDA_DEFAULT_ENV:-}"
     echo "CONDA_PREFIX=${CONDA_PREFIX:-}"
     echo "FSLDIR=${FSLDIR:-}"
@@ -151,7 +155,7 @@ init_run() {
 
   : > "$VERSIONS_FILE"
 
-  append_version "python --version" python --version
+  append_version "python --version" "${PY:-python}" --version
 
   if command_exists git; then
     git -C "$REPO_ROOT" diff > "$LOG_DIR/repo_worktree.diff" || true
@@ -227,15 +231,19 @@ init_run() {
 run_case() {
   local label="$1"
   shift
+  local cmd=("${PY:-python}" "$COREG_SCRIPT" "$@")
 
   echo
   echo "------------------------------------------------------------"
   echo "[$(date '+%F %T')] Executing: $label"
-  echo "Command: python $COREG_SCRIPT $*"
-  echo "python $COREG_SCRIPT $*" >> "$COMMANDS_FILE"
+  printf 'Command:'
+  printf ' %q' "${cmd[@]}"
+  printf '\n'
+  printf '%q ' "${cmd[@]}" >> "$COMMANDS_FILE"
+  printf '\n' >> "$COMMANDS_FILE"
   echo "------------------------------------------------------------"
 
-  if python "$COREG_SCRIPT" "$@"; then
+  if "${cmd[@]}"; then
     echo "[$(date '+%F %T')] OK: $label"
   else
     local rc=$?

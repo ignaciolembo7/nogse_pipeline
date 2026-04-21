@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 from types import SimpleNamespace
@@ -61,7 +63,7 @@ def _parse_exclude_match(spec: str) -> dict[str, object]:
             "td_ms": float(td_ms),
         }
     raise ValueError(
-        "Formato inválido en --exclude-match. Usa 'roi|direction', "
+        "Invalid --exclude-match format. Use 'roi|direction', "
         "'subj|roi|direction', 'roi|direction|td_ms' "
         "o 'subj|roi|direction|td_ms'."
     )
@@ -104,7 +106,7 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
         df = canonicalize_contrast_fit_params(df)
     else:
         if not args.fits:
-            raise ValueError("Pasá --groupfits/--globalfit o al menos una raíz/archivo en --fits.")
+            raise ValueError("Pass --groupfits/--globalfit or at least one root/file via --fits.")
         df = load_contrast_fit_params(
             args.fits,
             pattern=args.pattern,
@@ -163,33 +165,33 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--method", required=True, choices=sorted(METHODS.keys()))
-    ap.add_argument("--k-last", type=int, default=None, help="Usar últimos K puntos (default: método).")
-    ap.add_argument("--groupfits", default=None, help="Tabla groupfits ya combinada (xlsx/csv/parquet).")
-    ap.add_argument("--globalfit", default=None, help="Alias legacy de --groupfits.")
+    ap.add_argument("--k-last", type=int, default=None, help="Use the last K points. Defaults to the method setting.")
+    ap.add_argument("--groupfits", default=None, help="Already-combined groupfits table (xlsx/csv/parquet).")
+    ap.add_argument("--globalfit", default=None, help="Deprecated alias for --groupfits.")
     ap.add_argument("--fits", nargs="*", default=None, help="Raíces o archivos fit_params para cargar directamente.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo si se usa --fits con directorios.")
-    ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos de contraste.")
+    ap.add_argument("--models", nargs="+", default=None, help="Filter contrast models.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
-    ap.add_argument("--y-col", default="tc_peak_ms", help="Columna a ajustar vs td_ms. Ej: tc_peak_ms o tc_fit_ms.")
+    ap.add_argument("--y-col", default="tc_peak_ms", help="Column to fit vs td_ms, for example tc_peak_ms or tc_fit_ms.")
     ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="Lista de td_ms a excluir del ajuste. Ej: --exclude-td-ms 209.1")
     ap.add_argument(
         "--exclude-match",
         nargs="*",
         default=None,
-        help="Excluye filas específicas. Formato: roi|direction, subj|roi|direction, roi|direction|td_ms o subj|roi|direction|td_ms.",
+        help="Exclude specific rows. Format: roi|direction, subj|roi|direction, roi|direction|td_ms, or subj|roi|direction|td_ms.",
     )
     ap.add_argument("--no-errorbars", action="store_true", help="Si se pasa, los plots de pseudohuber se generan sin barras/bandas de error.")
     ap.add_argument("--td-min-ms", type=float, default=0.0, help="Límite inferior del eje Td para los plots.")
     ap.add_argument("--td-max-ms", type=float, default=2000.0, help="Límite superior del eje Td para los plots.")
-    ap.add_argument("--c-fixed", type=float, default=None, help="Fija c en vez de ajustarlo.")
-    ap.add_argument("--c-min", type=float, default=0.0, help="Límite inferior para c si se ajusta.")
-    ap.add_argument("--c-max", type=float, default=float("inf"), help="Límite superior para c si se ajusta.")
-    ap.add_argument("--delta-fixed", type=float, default=None, help="Fija delta [ms] en vez de ajustarlo.")
-    ap.add_argument("--delta-min", type=float, default=1e-6, help="Límite inferior para delta [ms] si se ajusta.")
-    ap.add_argument("--delta-max", type=float, default=float("inf"), help="Límite superior para delta [ms] si se ajusta.")
-    ap.add_argument("--alpha-macro-fixed", type=float, default=None, help="Fija alpha_macro en pseudohuber_free.")
+    ap.add_argument("--c-fixed", type=float, default=None, help="Fix c instead of fitting it.")
+    ap.add_argument("--c-min", type=float, default=0.0, help="Lower bound for c when fitted.")
+    ap.add_argument("--c-max", type=float, default=float("inf"), help="Upper bound for c when fitted.")
+    ap.add_argument("--delta-fixed", type=float, default=None, help="Fix delta [ms] instead of fitting it.")
+    ap.add_argument("--delta-min", type=float, default=1e-6, help="Lower bound for delta [ms] when fitted.")
+    ap.add_argument("--delta-max", type=float, default=float("inf"), help="Upper bound for delta [ms] when fitted.")
+    ap.add_argument("--alpha-macro-fixed", type=float, default=None, help="Fix alpha_macro in pseudohuber_free.")
     ap.add_argument("--alpha-macro-min", type=float, default=0.1, help="Límite inferior para alpha_macro en pseudohuber_free.")
     ap.add_argument("--alpha-macro-max", type=float, default=0.3, help="Límite superior para alpha_macro en pseudohuber_free.")
     ap.add_argument("--summary-alpha", default=None, help="Ruta a summary_alpha_values.xlsx. Si no, no se usa salvo que el método lo requiera.")
@@ -199,7 +201,7 @@ def main() -> None:
     args.directions = _normalize_name_list(args.directions)
     args.rois = _normalize_name_list(args.rois)
     if float(args.td_max_ms) <= float(args.td_min_ms):
-        raise ValueError("--td-max-ms debe ser mayor que --td-min-ms.")
+        raise ValueError("--td-max-ms must be greater than --td-min-ms.")
 
     df_params = _load_df_params(args)
     spec = METHODS[args.method]

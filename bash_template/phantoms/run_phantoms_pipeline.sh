@@ -3,22 +3,24 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 RUN_SCRIPTS=(
 # "0.0-run_dicom2nifti.sh"
 # "0.1-run_make_gval_gvec.sh"
 # "0.2-prep_phantom_b0.sh"
 #   "0.3-copy_selected_files.sh"
-# "1-run_PHANTOM-denoised_signal_extraction.sh"
-  "2.0-run_process_all_results.sh" # starting from this step, results will be saved in analysis/phantoms
-  "2.1-run_plot_selected_nogse_signals.sh"
-  "2.2-run_fit_selected_nogse_signals.sh"
+"1-run_PHANTOM-denoised_signal_extraction.sh"
+"2.0-run_process_all_results.sh" # starting from this step, results will be saved in analysis/phantoms
+#   "2.1-run_plot_selected_nogse_signals.sh"
+#   "2.2-run_fit_selected_nogse_signals.sh"
 #   "3.1-run_make_contrast_selected.sh"
 #   "3.2-run_plot_all_ogse_contrast_vs_g.sh"
 #   "4.1-run_fit_ogse_signal_vs_bval.sh"
@@ -39,7 +41,9 @@ echo "============================================================"
 echo "Phantoms pipeline runner"
 echo "Script dir : $SCRIPT_DIR"
 echo "Project    : $PROJECT_ROOT"
+echo "Repo       : $REPO_ROOT"
 echo "PY         : $PY"
+echo "PYTHONPATH : $PYTHONPATH"
 echo "Log root   : $LOG_ROOT"
 echo "============================================================"
 

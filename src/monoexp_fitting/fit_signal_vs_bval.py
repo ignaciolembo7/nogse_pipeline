@@ -9,13 +9,15 @@ import numpy as np
 import pandas as pd
 
 from data_processing.schema import finalize_clean_dproj_long
+from fitting.core import CurveFitParameter
 from fitting.core import chi2 as _chi2
-from fitting.core import fit_curve_fit
+from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import rmse_log as _rmse_log
 from ogse_fitting.b_from_g import b_from_g
 from plottings.fit_plot_style import finish_fit_figure, highlight_fit_points, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.fit_params_schema import standardize_fit_params
+from data_processing.io import write_table_outputs
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 
@@ -39,10 +41,6 @@ VALID_G_TYPES = set(GTYPE_ALIASES)
 
 
 def monoexp(b: np.ndarray, M0: float, D0: float) -> np.ndarray:
-    return M0 * np.exp(-b * D0)
-
-
-def monoexp_M0fixed(b: np.ndarray, D0: float, *, M0: float) -> np.ndarray:
     return M0 * np.exp(-b * D0)
 
 
@@ -298,7 +296,7 @@ def _fit_prefix_monoexp(
             'fit_points': int(k),
             'n_fit': 0,
             'fit_mask': np.zeros(len(b), dtype=bool),
-            'msg': 'fit_points debe ser > 0.',
+            'msg': 'fit_points must be > 0.',
         }
 
     prefix_mask = np.zeros(len(b), dtype=bool)
@@ -322,43 +320,27 @@ def _fit_prefix_monoexp(
         return result
 
     try:
-        if free_M0:
-            p0 = [1.0, D0_init]
-            bounds = ([0.0, D0_init / 10], [100.0, 2 * D0_init])
-            fit = fit_curve_fit(
-                monoexp,
-                b_fit,
-                y_fit,
-                param_names=["M0", "D0_mm2_s"],
-                p0=p0,
-                bounds=bounds,
-                maxfev=40000,
-                method="curve_fit(M0,D0)",
-            )
-            M0_hat = float(fit.values["M0"])
-            D0_hat = float(fit.values["D0_mm2_s"])
-            M0_err = float(fit.errors.get("M0_err", np.nan))
-            D0_err = float(fit.errors.get("D0_err_mm2_s", np.nan))
-            method = fit.method
-        else:
-            f = lambda bb, D0: monoexp_M0fixed(bb, D0, M0=float(fix_M0))
-            p0 = [D0_init]
-            bounds = ([D0_init / 10], [2 * D0_init])
-            fit = fit_curve_fit(
-                f,
-                b_fit,
-                y_fit,
-                param_names=["D0_mm2_s"],
-                p0=p0,
-                bounds=bounds,
-                maxfev=40000,
-                method="curve_fit(D0) M0_fixed",
-            )
-            M0_hat = float(fix_M0)
-            D0_hat = float(fit.values["D0_mm2_s"])
-            M0_err = np.nan
-            D0_err = float(fit.errors.get("D0_err_mm2_s", np.nan))
-            method = fit.method
+        method_label = "curve_fit(M0,D0)" if free_M0 else "curve_fit(D0) M0_fixed"
+
+        def model_from_params(params: dict[str, float]) -> np.ndarray:
+            return monoexp(b_fit, float(params["M0"]), float(params["D0_mm2_s"]))
+
+        fit = fit_curve_fit_parameters(
+            model_from_params,
+            y_fit,
+            parameters=[
+                CurveFitParameter("M0", 1.0 if free_M0 else float(fix_M0), 0.0, 100.0, bool(free_M0)),
+                CurveFitParameter("D0_mm2_s", float(D0_init), D0_init / 10, 2 * D0_init, True),
+            ],
+            x=b_fit,
+            maxfev=40000,
+            method=method_label,
+        )
+        M0_hat = float(fit.values["M0"])
+        D0_hat = float(fit.values["D0_mm2_s"])
+        M0_err = float(fit.errors.get("M0_err", np.nan)) if free_M0 else np.nan
+        D0_err = float(fit.errors.get("D0_err_mm2_s", np.nan))
+        method = fit.method
     except Exception as exc:
         result['msg'] = f'Falló curve_fit: {exc}'
         return result
@@ -797,10 +779,8 @@ def run_fit_from_parquet(
     out_points_parquet = tables_dir / 'fit_points.parquet'
     out_points_xlsx = tables_dir / 'fit_points.xlsx'
 
-    fp.to_parquet(out_params_parquet, index=False)
-    fp.to_excel(out_params_xlsx, index=False)
-    outs.fit_table.to_parquet(out_points_parquet, index=False)
-    outs.fit_table.to_excel(out_points_xlsx, index=False)
+    write_table_outputs(fp, out_params_parquet, xlsx_path=out_params_xlsx)
+    write_table_outputs(outs.fit_table, out_points_parquet, xlsx_path=out_points_xlsx)
 
     if out_dproj_root is not None and not fp.empty:
         dproj_dir = Path(out_dproj_root) / sheet
@@ -809,7 +789,6 @@ def run_fit_from_parquet(
         if not dproj.empty:
             out_dproj_parquet = dproj_dir / f'{exp_id}.monoexp.Dproj.long.parquet'
             out_dproj_xlsx = dproj_dir / f'{exp_id}.monoexp.Dproj.long.xlsx'
-            dproj.to_parquet(out_dproj_parquet, index=False)
-            dproj.to_excel(out_dproj_xlsx, index=False)
+            write_table_outputs(dproj, out_dproj_parquet, xlsx_path=out_dproj_xlsx)
 
     return outs, exp_dir

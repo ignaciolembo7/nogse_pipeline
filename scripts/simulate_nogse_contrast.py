@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 import sys
 from pathlib import Path
 import hashlib
 import re
 
+from data_processing.io import write_table_outputs
 from simulations.nogse_contrast_sim import (
     SimSpec,
     list_models,
     load_module,
     simulate_contrast_long,
-    write_parquet,
     parse_kv,
 )
 
@@ -21,13 +23,13 @@ def _fmt(v):
     if isinstance(v, (int,)):
         return str(v)
     if isinstance(v, float):
-        s = f"{v:.12g}"  # compacto
-        s = s.replace(".", "p")  # 0.3 -> 0p3 (más filename-friendly)
+        s = f"{v:.12g}"  # Compact token.
+        s = s.replace(".", "p")  # 0.3 -> 0p3, which is more filename-friendly.
         return s
     return str(v)
 
 def _sanitize(s: str) -> str:
-    # caracteres inválidos en Windows + espacios
+    # Replace Windows-invalid characters and spaces.
     s = s.strip().replace(" ", "")
     return re.sub(r'[<>:"/\\|?*\n\r\t]+', "_", s)
 
@@ -47,7 +49,7 @@ def build_out_path(
     
     out_p = Path(out_arg)
 
-    # out puede ser un directorio o un archivo .parquet
+    # out can be either a directory or a .parquet file.
     if out_p.suffix.lower() == ".parquet":
         out_dir = out_p.parent
         prefix = out_p.stem
@@ -66,7 +68,7 @@ def build_out_path(
     parts.append(f"axes-{'-'.join(axes)}")
     parts.append(f"rois-{'-'.join(rois)}")
 
-    # IMPORTANT: incluir TODOS los kw y meta params en orden determinista
+    # IMPORTANT: include all kw and meta params in deterministic order.
     for k in sorted(model_kwargs.keys()):
         parts.append(f"{k}-{_fmt(model_kwargs[k])}")
     for k in sorted(meta_params.keys()):
@@ -76,7 +78,7 @@ def build_out_path(
     base = f"{model}__{tag}"
     base = _sanitize(base)
 
-    # evitar filenames gigantes: truncar y agregar hash
+    # Avoid huge filenames by truncating and appending a hash.
     maxlen = 180
     if len(base) > maxlen:
         h = hashlib.sha1(base.encode("utf-8")).hexdigest()[:10]
@@ -98,7 +100,7 @@ def main(argv: list[str]) -> int:
     )
 
     ap.add_argument("--model", type=str, help="Function name in the model module, e.g. NOGSE_contrast_vs_g_mixed")
-    ap.add_argument("--model-module", type=str, default="nogse_fitting.nogse_model_fitting", help="Python module name to import")
+    ap.add_argument("--model-module", type=str, default="nogse_models.nogse_model_fitting", help="Python module name to import")
 
     ap.add_argument("--model-path", type=str, default=None, help="Optional path to .py file (overrides --model-module)")
 
@@ -184,9 +186,8 @@ def main(argv: list[str]) -> int:
     )
 
     df = simulate_contrast_long(spec)
-    p = write_parquet(df, spec.out_path)
+    p = write_table_outputs(df, spec.out_path, csv_path=Path(spec.out_path).with_suffix(".csv"))
     csv_path = p.with_suffix(".csv")
-    df.to_csv(csv_path, index=False)
     print(f"[OK] wrote {p} (rows={len(df)})")
     print(f"[OK] wrote {csv_path}")
 

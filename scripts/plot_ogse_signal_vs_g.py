@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import repo_bootstrap  # noqa: F401
 from pathlib import Path
 import argparse
 

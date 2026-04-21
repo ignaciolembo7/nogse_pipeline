@@ -2,11 +2,13 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 from typing import List, Optional
 
-from data_processing_20220607_10_GONZANY.experiment_tables import (
+from data_processing.experiment_tables import (
     MetaVectors,
     format_name,
     make_tables_for_experiment,
@@ -52,7 +54,7 @@ def main() -> None:
         help="Python format template for the output filename. Fields: base, exp, d, Delta, Hz, bmax",
     )
 
-    # Meta vectors: user supplies one value per experiment, comma/space-separated.
+    # Metadata vectors: one value per experiment, comma/space-separated.
     p.add_argument("--d", type=str, default=None, help="Comma/space-separated vector with d per experiment.")
     p.add_argument("--Delta", type=str, default=None, help="Comma/space-separated vector with Delta per experiment.")
     p.add_argument("--Hz", type=str, default=None, help="Comma/space-separated vector with Hz per experiment.")
@@ -81,14 +83,12 @@ def main() -> None:
     stats = _parse_stats(args.stats)
 
     for i, (chunk, bvals) in enumerate(zip(chunks, bvals_lines), start=1):
-        # bmax computed from this experiment's bvals
+        # bmax is computed from this experiment's b-values.
         bmax = max(bvals) if bvals else None
         d = meta.d[i-1] if meta.d else None
         Delta = meta.Delta[i-1] if meta.Delta else None
         Hz = meta.Hz[i-1] if meta.Hz else None
         max_dur = meta.max_dur[i-1] if getattr(meta, "max_dur", None) else None
-
-
         tables = make_tables_for_experiment(chunk, bvals=bvals, stats=stats)
 
         fname = format_name(

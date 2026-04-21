@@ -9,6 +9,11 @@ import subprocess
 from pathlib import Path
 from typing import Iterable, Tuple
 
+try:
+    import repo_bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from . import repo_bootstrap  # noqa: F401
+
 import nibabel as nib
 import numpy as np
 

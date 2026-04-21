@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 from pathlib import Path
 import argparse
 import pandas as pd
 
+from data_processing.io import write_table_outputs
 from signal_rotation.rotation_tensor import rotate_signals_tensor
 
 
@@ -34,7 +37,7 @@ def main() -> None:
         "--dirs_txt",
         type=Path,
         default=None,
-        help="TXT Nx3 con direcciones (sin header). Si no se pasa, usa assets/dirs/dirs_{ndirs}.txt",
+        help="Nx3 TXT with directions and no header. Defaults to assets/dirs/dirs_{ndirs}.txt.",
     )
     ap.add_argument("--dirs_csv", type=Path, default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
@@ -59,10 +62,8 @@ def main() -> None:
     out_rot = exp_dir / f"{stem}.rot_tensor.long.parquet"
     out_dpr = exp_dir / f"{stem}.rot_tensor.Dproj.long.parquet"
 
-    res.rotated_signal_long.to_parquet(out_rot, index=False)
-    res.dproj_long.to_parquet(out_dpr, index=False)
-    res.rotated_signal_long.to_excel(out_rot.with_suffix(".xlsx"), index=False)
-    res.dproj_long.to_excel(out_dpr.with_suffix(".xlsx"), index=False)
+    write_table_outputs(res.rotated_signal_long, out_rot, xlsx_path=out_rot.with_suffix(".xlsx"))
+    write_table_outputs(res.dproj_long, out_dpr, xlsx_path=out_dpr.with_suffix(".xlsx"))
     
     print("Saved rotated signals:", out_rot)
     print("Saved Dproj:", out_dpr)

@@ -95,7 +95,7 @@ def _transform_x(
         return lcf_a
     if xvar == "tc":
         return tc_ms
-    raise ValueError(f"xvar no soportada: {xvar!r}. Esperaba una de {VALID_X_VARS}.")
+    raise ValueError(f"Unsupported xvar: {xvar!r}. Expected one of {VALID_X_VARS}.")
 
 
 def _peak_point_for_xvar(
@@ -149,7 +149,7 @@ def _validate_x_vars(x_vars: Sequence[str]) -> list[str]:
     out = [X_VAR_ALIASES.get(str(x), str(x)) for x in x_vars]
     invalid = [x for x in out if x not in VALID_X_VARS]
     if invalid:
-        raise ValueError(f"x_vars inválidas: {invalid}. Esperaba una de {VALID_X_VARS}.")
+            raise ValueError(f"Invalid x_vars: {invalid}. Expected one of {VALID_X_VARS}.")
     return list(dict.fromkeys(out))
 
 
@@ -161,7 +161,7 @@ def _normalize_x_lims(x_lims: dict[str, tuple[float, float]] | None) -> dict[str
     for raw_name, raw_lims in x_lims.items():
         name = X_VAR_ALIASES.get(str(raw_name), str(raw_name))
         if name not in VALID_X_VARS:
-            raise ValueError(f"x_lims contiene xvar inválida: {raw_name!r}. Esperaba una de {VALID_X_VARS}.")
+            raise ValueError(f"x_lims contains invalid xvar: {raw_name!r}. Expected one of {VALID_X_VARS}.")
         xmin, xmax = map(float, raw_lims)
         if not np.isfinite(xmin) or not np.isfinite(xmax) or xmax <= xmin:
             raise ValueError(f"x_lims inválido para {raw_name!r}: {(xmin, xmax)}")
@@ -199,7 +199,7 @@ def plot_contrast_tc_peak_panels(
     )
 
     if df.empty:
-        raise ValueError("No quedó ningún fit válido después de filtrar.")
+        raise ValueError("No valid fits remained after filtering.")
 
     if exclude_td_ms:
         td_vals = pd.to_numeric(df["td_ms"], errors="coerce")
@@ -208,7 +208,7 @@ def plot_contrast_tc_peak_panels(
             keep &= ~np.isclose(td_vals.to_numpy(dtype=float), float(td_excl), atol=1e-3, equal_nan=False)
         df = df.loc[keep].copy()
         if df.empty:
-            raise ValueError("No quedó ningún fit válido después de excluir td_ms.")
+            raise ValueError("No valid fits remained after excluding td_ms.")
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -275,12 +275,12 @@ def plot_contrast_tc_peak_panels(
                             contrast_df = _load_contrast_table_cached(contrast_path, cache)
                             df_group = _subset_group(contrast_df, row)
                             if df_group.empty:
-                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> grupo vacío")
+                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> empty group")
                                 continue
 
                             x_corr, y, G1, G2 = _extract_plot_arrays(df_group, row)
                             if x_corr.size == 0:
-                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> sin puntos finitos")
+                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> no finite points")
                                 continue
 
                             x_plot = _transform_x(
@@ -292,7 +292,7 @@ def plot_contrast_tc_peak_panels(
                             )
                             m_plot = np.isfinite(x_plot) & np.isfinite(y)
                             if not np.any(m_plot):
-                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} sin puntos válidos")
+                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} has no valid points")
                                 continue
                             x_data = x_plot[m_plot]
                             y_data = y[m_plot]
@@ -415,6 +415,6 @@ def plot_contrast_tc_peak_panels(
                 )
 
     if not outputs:
-        raise ValueError("No pude generar ninguna figura con los filtros actuales.")
+        raise ValueError("Could not generate any figure with the current filters.")
 
     return outputs

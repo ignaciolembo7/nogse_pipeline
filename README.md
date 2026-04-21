@@ -1,4 +1,4 @@
-# Project-Balseiro-Microstructure — DWI ROI Signal Extraction Pipeline
+# NOGSE Pipeline — DWI ROI Signal Extraction Pipeline
 
 This repository contains a server-side pipeline to:
 1) run FreeSurfer recon-all (per subject) to obtain structural segmentations,
@@ -52,4 +52,3 @@ FreeSurfer outputs:
 Example:
 ```bash
 bash scripts/run_freesurfer.sh
-

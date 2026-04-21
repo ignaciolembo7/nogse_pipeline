@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import repo_bootstrap  # noqa: F401
 from pathlib import Path
 import argparse
 import pandas as pd
@@ -11,7 +13,7 @@ def load_many(globs: list[str]) -> pd.DataFrame:
         for p in sorted(Path().glob(g)):
             parts.append(pd.read_parquet(p))
     if not parts:
-        raise FileNotFoundError("No encontré parquets con esos glob patterns.")
+        raise FileNotFoundError("No parquet files matched those glob patterns.")
     return pd.concat(parts, ignore_index=True)
 
 
@@ -33,9 +35,9 @@ def main():
     elif "param_N" in df.columns:
         n_col = "param_N"
     else:
-        raise ValueError("No encuentro columna N en el parquet.")
+        raise ValueError("Could not find column N in the parquet file.")
 
-    # filtro ROI + direcciones rotadas
+    # ROI and rotated-direction filters.
     df = df[(df["roi"] == args.roi) & (df["direction"].isin(args.directions))].copy()
 
     outdir = Path(args.out_root) / "rot_signal"

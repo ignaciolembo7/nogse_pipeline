@@ -22,6 +22,15 @@ class ParametricFit:
     raw_result: Any | None = field(default=None, repr=False, compare=False)
 
 
+@dataclass(frozen=True)
+class CurveFitParameter:
+    name: str
+    value: float
+    lower: float
+    upper: float
+    vary: bool = True
+
+
 def _as_float_array(values: Sequence[float] | np.ndarray) -> np.ndarray:
     return np.asarray(values, dtype=float)
 
@@ -140,6 +149,66 @@ def fit_curve_fit(
     )
 
 
+def fit_curve_fit_parameters(
+    model_from_params: Callable[[dict[str, float]], np.ndarray],
+    y: np.ndarray,
+    *,
+    parameters: Sequence[CurveFitParameter],
+    x: np.ndarray | None = None,
+    maxfev: int = 200000,
+    method: str = "scipy_curve_fit",
+    fixed_method: str = "fixed",
+) -> ParametricFit:
+    """Fit a curve by varying only the parameters marked as variable."""
+    y_arr = _as_float_array(y)
+    x_arr = np.zeros_like(y_arr) if x is None else _as_float_array(x)
+    params = list(parameters)
+    values = {p.name: float(p.value) for p in params}
+    variable = [p for p in params if p.vary]
+
+    if not variable:
+        yhat = _as_float_array(model_from_params(values))
+        return ParametricFit(
+            values=values,
+            errors={parameter_error_column(p.name): np.nan for p in params},
+            yhat=yhat,
+            rmse=rmse(y_arr, yhat),
+            chi2=chi2(y_arr, yhat),
+            r2=r2_score(y_arr, yhat),
+            method=str(fixed_method),
+        )
+
+    def wrapped_model(x_model: np.ndarray, *fit_values: float) -> np.ndarray:
+        del x_model
+        local_values = dict(values)
+        local_values.update({p.name: float(v) for p, v in zip(variable, fit_values)})
+        return _as_float_array(model_from_params(local_values))
+
+    fit = fit_curve_fit(
+        wrapped_model,
+        x_arr,
+        y_arr,
+        param_names=[p.name for p in variable],
+        p0=[p.value for p in variable],
+        bounds=([p.lower for p in variable], [p.upper for p in variable]),
+        maxfev=maxfev,
+        method=method,
+    )
+    values.update(fit.values)
+    errors = {parameter_error_column(p.name): np.nan for p in params if not p.vary}
+    errors.update(fit.errors)
+    return ParametricFit(
+        values=values,
+        errors=errors,
+        yhat=fit.yhat,
+        rmse=fit.rmse,
+        chi2=fit.chi2,
+        r2=fit.r2,
+        method=fit.method,
+        raw_result=fit.raw_result,
+    )
+
+
 def fit_least_squares(
     model: ModelFn,
     x: np.ndarray,
@@ -214,6 +283,27 @@ def fit_least_squares(
         method=str(method),
         raw_result=opt,
     )
+
+
+def least_squares_with_standard_errors(
+    fun: Callable[[np.ndarray], np.ndarray],
+    p0: Sequence[float],
+    bounds: tuple[Sequence[float], Sequence[float]],
+) -> tuple[np.ndarray, np.ndarray, Any]:
+    res = least_squares(fun, x0=p0, bounds=bounds)
+    p = np.asarray(res.x, dtype=float)
+    se = np.full_like(p, np.nan, dtype=float)
+    if res.jac is not None:
+        jac = np.asarray(res.jac, dtype=float)
+        dof = max(0, jac.shape[0] - jac.shape[1])
+        if dof > 0:
+            s2 = float(res.cost * 2 / dof)
+            try:
+                cov = np.linalg.inv(jac.T @ jac) * s2
+                se = np.sqrt(np.diag(cov))
+            except np.linalg.LinAlgError:
+                pass
+    return p, se, res
 
 
 def stderr_from_single_param_jacobian(

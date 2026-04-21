@@ -262,7 +262,7 @@ def compute_d0_monoexp_reference(
         ],
     )
     if not files:
-        raise FileNotFoundError(f'No encontré tablas monoexp bajo: {root.resolve()}')
+        raise FileNotFoundError(f'Could not find monoexp tables under: {root.resolve()}')
 
     blocks: list[pd.DataFrame] = []
     for f in files:
@@ -313,7 +313,7 @@ def compute_d0_monoexp_reference(
 
     out = pd.concat(blocks, ignore_index=True) if blocks else pd.DataFrame()
     if out.empty:
-        raise ValueError('No pude construir la referencia monoexp por experimento/td_ms. Revisá ROI, columnas y exp_fits_root.')
+        raise ValueError('Could not build the monoexp reference by experiment/td_ms. Check ROI, columns, and exp_fits_root.')
 
     out = out.groupby(['subj', 'sheet', 'roi', 'td_ms'], as_index=False).agg(
         D0_fit_monoexp=('D0_fit_monoexp', 'mean'),
@@ -345,7 +345,7 @@ def load_nogse_fit_d0(
         ],
     )
     if not files:
-        raise FileNotFoundError(f'No encontré contrast fit tables bajo: {p.resolve()}')
+        raise FileNotFoundError(f'Could not find contrast fit tables under: {p.resolve()}')
 
     blocks: list[pd.DataFrame] = []
     for f in files:
@@ -404,7 +404,7 @@ def load_nogse_fit_d0(
 
     out = pd.concat(blocks, ignore_index=True) if blocks else pd.DataFrame()
     if out.empty:
-        raise ValueError('No pude construir D0_fit_nogse. Revisá ruta, columnas, ROI y N_1/N_2.')
+        raise ValueError('Could not build D0_fit_nogse. Check the path, columns, ROI, and N_1/N_2.')
 
     out = out.groupby(['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2'], as_index=False).agg(
         D0_fit_nogse=('D0_fit_nogse', 'mean'),
@@ -436,7 +436,7 @@ def load_nogse_expected_keys(
         ],
     )
     if not files:
-        raise FileNotFoundError(f'No encontré contrast fit tables bajo: {p.resolve()}')
+        raise FileNotFoundError(f'Could not find contrast fit tables under: {p.resolve()}')
 
     blocks: list[pd.DataFrame] = []
     for f in files:
@@ -483,7 +483,7 @@ def load_nogse_expected_keys(
 
     out = pd.concat(blocks, ignore_index=True) if blocks else pd.DataFrame()
     if out.empty:
-        raise ValueError('No pude construir las claves esperadas del contraste NOGSE.')
+        raise ValueError('Could not build the expected NOGSE contrast keys.')
 
     out = out.groupby(['subj', 'sheet', 'direction', 'td_ms', 'N_1', 'N_2'], as_index=False).size()
     out = out.drop(columns=['size'])
@@ -497,8 +497,8 @@ def _format_missing_matches(missing: pd.DataFrame, monoexp_ref: pd.DataFrame) ->
     sample_missing = missing[['subj', 'sheet', 'roi', 'td_ms', 'direction', 'N_1', 'N_2']].drop_duplicates().head(10)
     sample_exp = monoexp_ref[['subj', 'sheet', 'roi', 'td_ms']].drop_duplicates().head(20)
     return (
-        'Faltan referencias monoexp para algunos fits de contraste.\n\n'
-        'Ejemplos faltantes:\n'
+        'Missing monoexp references for some contrast fits.\n\n'
+        'Missing examples:\n'
         f"{sample_missing.to_string(index=False)}\n\n"
         'Referencias monoexp disponibles (ejemplos):\n'
         f"{sample_exp.to_string(index=False)}"

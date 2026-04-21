@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 import re
 import pandas as pd
 
+from data_processing.io import write_table_outputs
 from ogse_fitting.contrast import make_contrast
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.strict_columns import find_unrecognized_column_names
+from tools.value_formatting import compact_unique_values, truthy_series
 
 KEY_COLS = ("stat", "roi", "direction", "b_step")
 
@@ -79,27 +83,8 @@ def _fmt_seq(x) -> str:
     return _sanitize(str(x))
 
 
-def _compact_values(values: list[object]) -> str:
-    text_values = [str(value) for value in values]
-    numeric = pd.to_numeric(pd.Series(values), errors="coerce")
-    if numeric.notna().all():
-        nums = sorted({float(value) for value in numeric.to_numpy(dtype=float)})
-        if all(float(value).is_integer() for value in nums):
-            ints = [int(value) for value in nums]
-            if ints and ints == list(range(ints[0], ints[-1] + 1)):
-                return f"{ints[0]}-{ints[-1]}"
-            return ",".join(str(value) for value in ints)
-        return ",".join(f"{value:g}" for value in nums)
-    return ",".join(text_values)
-
-
-def _truthy_series(series: pd.Series) -> bool:
-    values = series.dropna().astype(str).str.strip().str.lower()
-    return values.isin(["1", "true", "yes", "y", "on"]).any()
-
-
 def _has_oneg_marker(df: pd.DataFrame) -> bool:
-    return "one_g_per_sequence" in df.columns and _truthy_series(df["one_g_per_sequence"])
+    return "one_g_per_sequence" in df.columns and truthy_series(df["one_g_per_sequence"])
 
 
 def _sequence_number(df: pd.DataFrame):
@@ -121,7 +106,7 @@ def _sequence_label(df: pd.DataFrame, *, compact: bool = False) -> str:
     if compact and "sequence" in df.columns:
         values = pd.Series(df["sequence"]).dropna().unique().tolist()
         if values:
-            return _compact_values(values)
+            return compact_unique_values(values)
     return _fmt_seq(_sequence_number(df))
 
 
@@ -396,8 +381,7 @@ def main():
     tables_dir.mkdir(parents=True, exist_ok=True)
 
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
-    out.to_parquet(out_parquet, index=False)
-    out.to_excel(out_parquet.with_suffix(".xlsx"), index=False)
+    write_table_outputs(out, out_parquet, xlsx_path=out_parquet.with_suffix(".xlsx"))
 
     # Remove older duplicate outputs that used the pre-sequence naming scheme.
     if old_analysis_id != analysis_id:

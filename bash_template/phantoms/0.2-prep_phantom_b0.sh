@@ -10,7 +10,7 @@ EXP_PARENT="Data-NIFTI"
 OUT_ROOT_REL="Data-signals"
 CUT_TOKEN=""
 # Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
-DWI_VARIANT="all"
+DWI_VARIANT="none"
 # Reference mode:
 #   - mean: average all DWI volumes and write NII_mean.nii.gz + mean.nii.gz
 #   - b0  : extract only b=0 volumes and write NII_b0.nii.gz + b0_mean.nii.gz
@@ -22,7 +22,7 @@ REUSE_REFERENCE="0"
 
 usage() {
   echo "Usage:"
-  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh [options]"
+  echo "  bash nogse_pipeline/bash_template/phantoms/0.2-prep_phantom_b0.sh [options]"
   echo
   echo "Options:"
   echo "  --subject SUBJ     Subject/experiment folder name"
@@ -43,12 +43,12 @@ usage() {
   echo "  REUSE_REFERENCE=\"1\" -> reuse existing reference images"
   echo
   echo "Examples:"
-  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh"
+  echo "  bash nogse_pipeline/bash_template/phantoms/0.2-prep_phantom_b0.sh"
   echo
-  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh \\"
+  echo "  bash nogse_pipeline/bash_template/phantoms/0.2-prep_phantom_b0.sh \\"
   echo "    --subject 20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
   echo
-  echo "  bash nogse_pipeline/bash/phantoms/0.1-prep_phantom_b0.sh \\"
+  echo "  bash nogse_pipeline/bash_template/phantoms/0.2-prep_phantom_b0.sh \\"
   echo "    --subject 20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF \\"
   echo "    --exp-parent Data-NIFTI \\"
   echo "    --out-root Data-signals"

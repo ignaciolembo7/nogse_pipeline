@@ -55,7 +55,7 @@ def discover_fit_param_files(root: str | Path, pattern: str = "**/fit_params.par
         return [base]
     files = sorted(base.glob(pattern))
     if not files:
-        raise FileNotFoundError(f"No encontré fit_params con pattern={pattern!r} dentro de {base}")
+        raise FileNotFoundError(f"Could not find fit_params with pattern={pattern!r} under {base}")
     return files
 
 

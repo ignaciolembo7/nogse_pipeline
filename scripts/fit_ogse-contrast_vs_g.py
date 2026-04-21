@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 import re
@@ -8,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ogse_fitting.fit_ogse_contrast import fit_ogse_contrast_long, plot_fit_one_group
+from data_processing.io import write_table_outputs
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.strict_columns import raise_on_unrecognized_column_names
 
@@ -316,9 +319,12 @@ def main() -> None:
     )
 
     out_parquet = tables_dir / "fit_params.parquet"
-    fit_df.to_parquet(out_parquet, index=False)
-    fit_df.to_excel(out_parquet.with_suffix(".xlsx"), index=False)
-    fit_df.to_csv(tables_dir / "fit_params.csv", index=False)
+    write_table_outputs(
+        fit_df,
+        out_parquet,
+        xlsx_path=out_parquet.with_suffix(".xlsx"),
+        csv_path=tables_dir / "fit_params.csv",
+    )
 
     print("Saved fit table:", out_parquet)
 

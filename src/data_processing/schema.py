@@ -45,7 +45,7 @@ SIGNAL_LONG_PREFIX = [
     "gradient_axis_kind",
     "one_g_per_sequence",
     "value","value_norm","S0","source_file",
-    # tiempos canónicos
+    # Canonical timing columns.
     "max_dur_ms","tm_ms","td_ms",
     "Hz","N","G","TN","x","y","TE","TR","bmax",
     "protocol","sequence","group","type","sheet",
@@ -59,7 +59,7 @@ DPROJ_LONG_PREFIX = [
     "gradient_axis_kind",
     "one_g_per_sequence",
     "D_proj","source_file",
-    # tiempos canónicos
+    # Canonical timing columns.
     "max_dur_ms","tm_ms","td_ms",
     "Hz","N","G","TN","x","y","TE","TR","bmax",
     "protocol","sequence","group","type","sheet",

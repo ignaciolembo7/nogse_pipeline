@@ -19,7 +19,7 @@ EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260122-PHANTOM_NISO4/QUALITY_JACK_19800122T
 OUT_SUBJ_REL="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
 CUT_TOKEN=""
 # Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
-DWI_VARIANT="all"
+DWI_VARIANT="none"
 # Set to 1 only for acquisitions that must be collapsed into one mean image
 # and one signal row per sequence.
 USE_MEAN="1"

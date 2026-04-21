@@ -13,8 +13,6 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
-elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
-    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
@@ -27,7 +25,7 @@ DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 # OUTPUT_STEM_STRIP_TOKENS="${OUTPUT_STEM_STRIP_TOKENS:-}"
-OUTPUT_STEM_STRIP_TOKENS="20260122125354"
+OUTPUT_STEM_STRIP_TOKENS="20260122092639"
 
 # The matched row in DEFAULT_PARAMS must include a populated "subj" column.
 

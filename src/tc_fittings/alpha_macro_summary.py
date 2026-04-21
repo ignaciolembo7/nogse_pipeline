@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from data_processing.io import write_xlsx_csv_outputs
 from tools.brain_labels import infer_subj_label
 
 
@@ -45,7 +46,7 @@ def _select_bvalue_and_bstep(
     if len(bvalues) == 0:
         raise ValueError(f"No hay bvalues disponibles para {group_label}.")
     if selected_bstep is not None and selected_bstep < 1:
-        raise ValueError("selected_bstep debe ser >= 1.")
+        raise ValueError("selected_bstep must be >= 1.")
 
     ordered = np.sort(np.asarray(bvalues, dtype=float))
     if selected_bstep is None:
@@ -67,7 +68,7 @@ def _read_table(path: Path) -> pd.DataFrame:
         return pd.read_csv(path)
     if suffix in {".xlsx", ".xls"}:
         return pd.read_excel(path, sheet_name=0)
-    raise ValueError(f"Formato no soportado para {path}")
+    raise ValueError(f"Unsupported format for {path}")
 
 
 def discover_dproj_files(root: str | Path, pattern: str = "**/*.Dproj.long.parquet") -> list[Path]:
@@ -76,7 +77,7 @@ def discover_dproj_files(root: str | Path, pattern: str = "**/*.Dproj.long.parqu
         return [base]
     files = sorted(base.glob(pattern))
     if not files:
-        raise FileNotFoundError(f"No encontré archivos con pattern={pattern!r} dentro de {base}")
+        raise FileNotFoundError(f"Could not find files with pattern={pattern!r} under {base}")
     return files
 
 
@@ -119,7 +120,7 @@ def load_dproj_measurements(
         df = _read_table(path)
         missing = REQUIRED_DPROJ_COLUMNS - set(df.columns)
         if missing:
-            raise ValueError(f"En {path} faltan columnas requeridas: {sorted(missing)}")
+            raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
 
         out = df.copy()
         out["roi"] = _as_str(out["roi"])
@@ -318,9 +319,9 @@ def compute_alpha_macro_summary(
     direction_aliases: dict[str, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     if reference_D0 <= 0:
-        raise ValueError("reference_D0 debe ser > 0.")
+        raise ValueError("reference_D0 must be > 0.")
     if df_avg.empty:
-        raise ValueError("df_avg está vacío.")
+        raise ValueError("df_avg is empty.")
 
     rows: list[dict[str, object]] = []
     for (subj, roi, direction), sub in df_avg.groupby(["subj", "roi", "direction"], sort=True):
@@ -371,7 +372,7 @@ def compute_alpha_macro_summary(
 
     df_summary = pd.DataFrame(rows)
     if df_summary.empty:
-        raise ValueError("No pude construir alpha_macro: no hubo grupos válidos.")
+        raise ValueError("Could not build alpha_macro: there were no valid groups.")
 
     aliases = direction_aliases or dict(DEFAULT_DIRECTION_ALIASES)
     df_summary = _expand_direction_alias_rows(df_summary, aliases)
@@ -452,13 +453,9 @@ def write_alpha_macro_outputs(
     out_summary_xlsx: Path,
     out_avg_xlsx: Path | None = None,
 ) -> None:
-    out_summary_xlsx.parent.mkdir(parents=True, exist_ok=True)
-    df_summary.to_excel(out_summary_xlsx, index=False)
-    df_summary.to_csv(out_summary_xlsx.with_suffix(".csv"), index=False)
+    write_xlsx_csv_outputs(df_summary, out_summary_xlsx, csv_path=out_summary_xlsx.with_suffix(".csv"))
     if out_avg_xlsx is not None:
-        out_avg_xlsx.parent.mkdir(parents=True, exist_ok=True)
-        df_avg.to_excel(out_avg_xlsx, index=False)
-        df_avg.to_csv(out_avg_xlsx.with_suffix(".csv"), index=False)
+        write_xlsx_csv_outputs(df_avg, out_avg_xlsx, csv_path=out_avg_xlsx.with_suffix(".csv"))
 
 
 def ensure_list_or_none(values: Iterable[str] | None) -> list[str] | None:

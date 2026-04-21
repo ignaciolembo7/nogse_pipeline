@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    import repo_bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from . import repo_bootstrap  # noqa: F401
+
 """
 extract_roi_tables.py
 
@@ -27,6 +32,8 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 import nibabel as nib
+
+from data_processing.io import write_xlsx_sheets
 
 
 # ---------------------------------------------------------------------
@@ -462,10 +469,9 @@ def write_excel_like_matlab(tables: dict[str, pd.DataFrame], out_xlsx: Path) -> 
       mode -> mode
     """
     order = [("avg", "mean"), ("std", "std"), ("med", "median"), ("mad", "mad"), ("mode", "mode")]
-    out_xlsx.parent.mkdir(parents=True, exist_ok=True)
-
-    with pd.ExcelWriter(out_xlsx, engine="openpyxl") as w:
-        for sheet, key in order:
-            if key not in tables:
-                raise KeyError(f"Missing key '{key}' in tables dict. Available keys: {list(tables.keys())}")
-            tables[key].to_excel(w, sheet_name=sheet, index=False)
+    ordered_tables: dict[str, pd.DataFrame] = {}
+    for sheet, key in order:
+        if key not in tables:
+            raise KeyError(f"Missing key '{key}' in tables dict. Available keys: {list(tables.keys())}")
+        ordered_tables[sheet] = tables[key]
+    write_xlsx_sheets(ordered_tables, out_xlsx)

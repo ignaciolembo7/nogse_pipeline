@@ -11,25 +11,12 @@ import numpy as np
 import pandas as pd
 
 
-# --- Robust import for make_contrast: supports either "contrast.py" at repo root
-# --- or a packaged module (adjust if you have a specific package path).
 def _import_make_contrast():
     try:
-        # if you have it inside a package, prefer that here
-        # from nogse_table_tools.contrast import make_contrast
-        from contrast import make_contrast  # type: ignore
+        from ogse_fitting.contrast import make_contrast  # type: ignore
         return make_contrast
-    except Exception as e1:
-        try:
-            from ogse_fitting.contrast import make_contrast  # type: ignore
-            return make_contrast
-        except Exception as e2:
-            raise ImportError(
-                "Could not import make_contrast. Tried:\n"
-                "  - from contrast import make_contrast\n"
-                "  - from nogse_fitting.contrast import make_contrast\n"
-                "Fix: ensure contrast.py is importable (repo root) or adjust the import path."
-            ) from (e2 if e2 else e1)
+    except Exception as exc:
+        raise ImportError("Could not import ogse_fitting.contrast.make_contrast.") from exc
 
 
 def load_module(module_name: str, module_path: str | None = None):
@@ -37,8 +24,8 @@ def load_module(module_name: str, module_path: str | None = None):
     Load a python module either by import name (module_name) or from a file path (module_path).
 
     Robust behavior for this repo:
-      - If module_name is "nogse_model_fitting", try "nogse_fitting.nogse_model_fitting"
-      - If import fails, try to locate "<name>.py" under repo_root/src/nogse_fitting/
+      - If module_name is "nogse_model_fitting", try "nogse_models.nogse_model_fitting"
+      - If import fails, try to locate "<name>.py" under repo_root/src/nogse_models/
     """
     if module_path:
         p = Path(module_path)
@@ -57,10 +44,9 @@ def load_module(module_name: str, module_path: str | None = None):
         # --- 1) Shorthand mapping for this repo
         candidates: list[str] = []
         if module_name == "nogse_model_fitting":
-            candidates.append("nogse_fitting.nogse_model_fitting")
+            candidates.append("nogse_models.nogse_model_fitting")
         elif "." not in module_name:
-            # generic: try inside nogse_fitting.<name>
-            candidates.append(f"nogse_fitting.{module_name}")
+            candidates.append(f"nogse_models.{module_name}")
 
         for c in candidates:
             try:
@@ -75,7 +61,7 @@ def load_module(module_name: str, module_path: str | None = None):
         file_candidates = [
             repo_root / f"{base}.py",
             repo_root / "src" / f"{base}.py",
-            repo_root / "src" / "nogse_fitting" / f"{base}.py",
+            repo_root / "src" / "nogse_models" / f"{base}.py",
         ]
 
         for p in file_candidates:
@@ -180,7 +166,7 @@ def _split_kwargs_side(model_kwargs: dict[str, Any]) -> tuple[dict[str, Any], di
 @dataclass(frozen=True)
 class SimSpec:
     model_name: str
-    model_module: str = "nogse_model_fitting"
+    model_module: str = "nogse_models.nogse_model_fitting"
     model_module_path: str | None = None
 
     # Grid injection (e.g. G, Lc, bvalue, G1/G2, etc.)
@@ -325,10 +311,3 @@ def simulate_contrast_long(spec: SimSpec) -> pd.DataFrame:
     ).df
 
     return result
-
-
-def write_parquet(df: pd.DataFrame, out_path: str) -> Path:
-    p = Path(out_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(p, index=False)
-    return p

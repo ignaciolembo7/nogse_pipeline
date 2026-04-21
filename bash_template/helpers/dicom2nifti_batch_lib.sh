@@ -65,19 +65,10 @@ append_version() {
 resolve_default_project_root() {
   local repo_root="$1"
   local repo_parent
-  local shared_root
-  local project_candidate
 
   repo_parent="$(cd "$repo_root/.." && pwd)"
   if [[ -d "$repo_parent/Data-DICOM" ]]; then
     echo "$repo_parent"
-    return 0
-  fi
-
-  shared_root="$(cd "$repo_root/../../.." && pwd)"
-  project_candidate="$shared_root/Project-Balseiro-Microstructure"
-  if [[ -d "$project_candidate/Data-DICOM" ]]; then
-    echo "$project_candidate"
     return 0
   fi
 

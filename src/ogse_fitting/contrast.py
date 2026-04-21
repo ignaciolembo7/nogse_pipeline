@@ -15,7 +15,7 @@ def make_contrast(
     df_ref: pd.DataFrame,
     df_cmp: pd.DataFrame,
     *,
-    axes: tuple[str, ...] | None = ("long", "tra"),  # en tu pipeline esto son "directions"
+    axes: tuple[str, ...] | None = ("long", "tra"),  # These are "directions" in this pipeline.
     y_col: str = "value",
     y_norm_col: str = "value_norm",
     key_cols: tuple[str, ...] = ("stat", "roi", "direction", "b_step"),

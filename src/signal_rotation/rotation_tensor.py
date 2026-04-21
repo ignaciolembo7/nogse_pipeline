@@ -240,7 +240,7 @@ def rotate_signals_tensor(
             b0_template = d_b0.iloc[0].copy()
             S0 = float(pd.to_numeric(d_b0["value"], errors="coerce").mean())
         else:
-            raise ValueError("s0_mode debe ser 'dir1' o 'mean'.")
+            raise ValueError("s0_mode must be 'dir1' or 'mean'.")
 
         d_dir1_nz = d_roi[(d_roi["direction"] == 1) & (pd.to_numeric(d_roi["b_step"], errors="coerce") > 0)].copy()
         if d_dir1_nz.empty:
@@ -251,7 +251,7 @@ def rotate_signals_tensor(
         max_row = d_dir1_nz.loc[idx_maxb]
         g_max_for_lin = _first_finite(pd.Series([max_row.get("g_max", np.nan), max_row.get("g", np.nan)]))
         if not np.isfinite(g_max_for_lin):
-            raise ValueError(f"ROI={roi}: no pude inferir g_max para g_lin_max.")
+            raise ValueError(f"ROI={roi}: could not infer g_max for g_lin_max.")
 
         for direction_name in ROTATED_DIRECTION_ORDER:
             rotated_rows.append(

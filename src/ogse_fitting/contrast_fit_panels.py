@@ -63,7 +63,7 @@ def _resolve_contrast_parquet(
         return matches[0]
     if not matches:
         raise FileNotFoundError(
-            f"No encontré tabla de contraste para analysis_id={analysis_id!r} en {table_root}"
+            f"Could not find contrast table for analysis_id={analysis_id!r} in {table_root}"
         )
     raise FileNotFoundError(
         f"Encontré múltiples tablas para analysis_id={analysis_id!r} en {table_root}: "
@@ -105,7 +105,7 @@ def _extract_plot_arrays(df_group: pd.DataFrame, fit_row: pd.Series) -> tuple[np
 
     g1c, g2c = _gcols(gbase)
     if g1c not in df_group.columns or g2c not in df_group.columns:
-        raise KeyError(f"No encuentro columnas {g1c!r}/{g2c!r} en tabla de contraste.")
+        raise KeyError(f"Could not find columns {g1c!r}/{g2c!r} in the contrast table.")
 
     y = pd.to_numeric(df_group[y_eff], errors="coerce").to_numpy(dtype=float)
     G1 = pd.to_numeric(df_group[g1c], errors="coerce").to_numpy(dtype=float)
@@ -203,7 +203,7 @@ def plot_contrast_fit_panels(
     )
 
     if df.empty:
-        raise ValueError("No quedó ningún fit válido después de filtrar.")
+        raise ValueError("No valid fits remained after filtering.")
 
     if exclude_td_ms:
         td_vals = pd.to_numeric(df["td_ms"], errors="coerce")
@@ -212,7 +212,7 @@ def plot_contrast_fit_panels(
             keep &= ~np.isclose(td_vals.to_numpy(dtype=float), float(td_excl), atol=1e-3, equal_nan=False)
         df = df.loc[keep].copy()
         if df.empty:
-            raise ValueError("No quedó ningún fit válido después de excluir td_ms.")
+            raise ValueError("No valid fits remained after excluding td_ms.")
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -278,12 +278,12 @@ def plot_contrast_fit_panels(
                         contrast_df = _load_contrast_table_cached(contrast_path, cache)
                         df_group = _subset_group(contrast_df, row)
                         if df_group.empty:
-                            missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> grupo vacío")
+                            missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> empty group")
                             continue
 
                         x, y, G1, G2 = _extract_plot_arrays(df_group, row)
                         if x.size == 0:
-                            missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> sin puntos finitos")
+                            missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> no finite points")
                             continue
 
                         xs, ys = _build_fit_curve(row, G1, G2)
@@ -336,6 +336,6 @@ def plot_contrast_fit_panels(
             )
 
     if not outputs:
-        raise ValueError("No pude generar ninguna figura con los filtros actuales.")
+        raise ValueError("Could not generate any figure with the current filters.")
 
     return outputs
