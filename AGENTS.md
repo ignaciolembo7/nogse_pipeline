@@ -52,6 +52,16 @@ For any requested change, use this priority order:
 - The agent MUST NOT introduce alternative column names or duplicate schema variants for the same concept unless explicitly required.
 - Equivalent workflows MUST produce outputs in the same schema regardless of model or measurement naming.
 
+## Modularity and extensibility
+- Core logic MUST be kept modular and easy to locate.
+- Key operations such as fitting, model definition, parameter handling, output writing, and postprocessing SHOULD live in clearly named reusable functions or modules.
+- The agent SHOULD structure code so that adding a new model requires extending existing interfaces or registries, not duplicating an entire workflow.
+- Model-specific logic MUST be isolated from shared pipeline logic.
+- Shared preprocessing, fitting orchestration, and output formatting SHOULD remain centralized.
+- The agent MUST avoid embedding key logic in long scripts when it can be moved to reusable modules.
+- Functions and modules SHOULD have clear responsibilities and names that make the main computation path easy to inspect.
+- The repository SHOULD make it easy to identify where fits are implemented, where models are defined, and where outputs are standardized.
+
 ## Implementation preferences
 - Prefer small refactors that reduce duplication.
 - Centralize shared logic into reusable functions or modules.
