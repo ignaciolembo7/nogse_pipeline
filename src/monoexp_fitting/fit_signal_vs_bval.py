@@ -7,9 +7,12 @@ from typing import Optional, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
 
 from data_processing.schema import finalize_clean_dproj_long
+from fitting.core import chi2 as _chi2
+from fitting.core import fit_curve_fit
+from fitting.core import rmse as _rmse
+from fitting.core import rmse_log as _rmse_log
 from ogse_fitting.b_from_g import b_from_g
 from plottings.fit_plot_style import finish_fit_figure, highlight_fit_points, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.fit_params_schema import standardize_fit_params
@@ -228,20 +231,6 @@ def _ensure_keys_types(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _rmse(y: np.ndarray, yhat: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((y - yhat) ** 2)))
-
-
-def _chi2(y: np.ndarray, yhat: np.ndarray) -> float:
-    return float(np.sum((y - yhat) ** 2))
-
-
-def _rmse_log(y: np.ndarray, yhat: np.ndarray) -> float:
-    y_safe = np.clip(y, 1e-12, None)
-    yhat_safe = np.clip(yhat, 1e-12, None)
-    return float(np.sqrt(np.mean((np.log(y_safe) - np.log(yhat_safe)) ** 2)))
-
-
 def _normalize_g_type(g_type: str) -> str:
     raw = str(g_type).strip()
     if raw not in VALID_G_TYPES:
@@ -336,20 +325,40 @@ def _fit_prefix_monoexp(
         if free_M0:
             p0 = [1.0, D0_init]
             bounds = ([0.0, D0_init / 10], [100.0, 2 * D0_init])
-            popt, pcov = curve_fit(monoexp, b_fit, y_fit, p0=p0, bounds=bounds, maxfev=40000)
-            M0_hat, D0_hat = float(popt[0]), float(popt[1])
-            perr = np.sqrt(np.diag(pcov)) if pcov is not None else np.array([np.nan, np.nan])
-            M0_err, D0_err = float(perr[0]), float(perr[1])
-            method = 'curve_fit(M0,D0)'
+            fit = fit_curve_fit(
+                monoexp,
+                b_fit,
+                y_fit,
+                param_names=["M0", "D0_mm2_s"],
+                p0=p0,
+                bounds=bounds,
+                maxfev=40000,
+                method="curve_fit(M0,D0)",
+            )
+            M0_hat = float(fit.values["M0"])
+            D0_hat = float(fit.values["D0_mm2_s"])
+            M0_err = float(fit.errors.get("M0_err", np.nan))
+            D0_err = float(fit.errors.get("D0_err_mm2_s", np.nan))
+            method = fit.method
         else:
             f = lambda bb, D0: monoexp_M0fixed(bb, D0, M0=float(fix_M0))
             p0 = [D0_init]
             bounds = ([D0_init / 10], [2 * D0_init])
-            popt, pcov = curve_fit(f, b_fit, y_fit, p0=p0, bounds=bounds, maxfev=40000)
-            M0_hat, D0_hat = float(fix_M0), float(popt[0])
-            perr = np.sqrt(np.diag(pcov)) if pcov is not None else np.array([np.nan])
-            M0_err, D0_err = np.nan, float(perr[0])
-            method = 'curve_fit(D0) M0_fixed'
+            fit = fit_curve_fit(
+                f,
+                b_fit,
+                y_fit,
+                param_names=["D0_mm2_s"],
+                p0=p0,
+                bounds=bounds,
+                maxfev=40000,
+                method="curve_fit(D0) M0_fixed",
+            )
+            M0_hat = float(fix_M0)
+            D0_hat = float(fit.values["D0_mm2_s"])
+            M0_err = np.nan
+            D0_err = float(fit.errors.get("D0_err_mm2_s", np.nan))
+            method = fit.method
     except Exception as exc:
         result['msg'] = f'Falló curve_fit: {exc}'
         return result

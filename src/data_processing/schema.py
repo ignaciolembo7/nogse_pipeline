@@ -13,6 +13,7 @@ CLEAN_SIGNAL_LONG_COLUMNS = [
     "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
     "g", "g_max", "g_lin_max", "g_thorsten",
     "gradient_axis_kind",
+    "one_g_per_sequence",
     "value", "value_norm", "S0",
     "source_file",
     "subj",
@@ -27,6 +28,7 @@ CLEAN_DPROJ_LONG_COLUMNS = [
     "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
     "g", "g_max", "g_lin_max", "g_thorsten",
     "gradient_axis_kind",
+    "one_g_per_sequence",
     "D_proj",
     "source_file",
     "subj",
@@ -41,6 +43,7 @@ SIGNAL_LONG_PREFIX = [
     "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten",
     "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
+    "one_g_per_sequence",
     "value","value_norm","S0","source_file",
     # tiempos canónicos
     "max_dur_ms","tm_ms","td_ms",
@@ -54,6 +57,7 @@ DPROJ_LONG_PREFIX = [
     "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten",
     "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
+    "one_g_per_sequence",
     "D_proj","source_file",
     # tiempos canónicos
     "max_dur_ms","tm_ms","td_ms",

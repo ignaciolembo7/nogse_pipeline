@@ -6,8 +6,12 @@ from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit, minimize_scalar
+from scipy.optimize import minimize_scalar
 
+from fitting.core import chi2 as _chi2
+from fitting.core import fit_curve_fit
+from fitting.core import rmse as _rmse
+from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
 from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
@@ -64,6 +68,36 @@ def _unique_scalar(series: pd.Series, *, name: str, required: bool = False) -> A
     return u[0]
 
 
+def _compact_values(values: list[object]) -> str:
+    text_values = [str(value) for value in values]
+    numeric = pd.to_numeric(pd.Series(values), errors="coerce")
+    if numeric.notna().all():
+        nums = sorted({float(value) for value in numeric.to_numpy(dtype=float)})
+        if all(float(value).is_integer() for value in nums):
+            ints = [int(value) for value in nums]
+            if ints and ints == list(range(ints[0], ints[-1] + 1)):
+                return f"{ints[0]}-{ints[-1]}"
+            return ",".join(str(value) for value in ints)
+        return ",".join(f"{value:g}" for value in nums)
+    return ",".join(text_values)
+
+
+def _scalar_or_compact_values(series: pd.Series, *, name: str, required: bool = False) -> Any:
+    values = series.dropna().unique().tolist()
+    if len(values) == 0:
+        if required:
+            raise ValueError(f"Could not infer '{name}': column is empty or all-NaN.")
+        return None
+    if len(values) == 1:
+        return values[0]
+    return _compact_values(values)
+
+
+def _truthy_series(series: pd.Series) -> bool:
+    values = series.dropna().astype(str).str.strip().str.lower()
+    return values.isin(["1", "true", "yes", "y", "on"]).any()
+
+
 def _normalize_gbase(gbase: str) -> str:
     """
     Validate canonical gradient-base names.
@@ -91,38 +125,6 @@ def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
     if b == "g_thorsten":
         return np.sqrt(2.0) * np.abs(arr)
     return arr
-
-
-def _rmse(y: np.ndarray, yhat: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((y - yhat) ** 2)))
-
-
-def _chi2(y: np.ndarray, yhat: np.ndarray) -> float:
-    return float(np.sum((y - yhat) ** 2))
-
-
-def _stderr_from_single_param_jacobian(
-    y: np.ndarray,
-    yhat: np.ndarray,
-    jac: np.ndarray,
-    *,
-    n_params: int = 1,
-) -> float | None:
-    if y.size == 0 or yhat.size != y.size or jac.size != y.size:
-        return None
-    if not np.all(np.isfinite(y)) or not np.all(np.isfinite(yhat)) or not np.all(np.isfinite(jac)):
-        return None
-    dof = int(y.size) - int(n_params)
-    if dof <= 0:
-        return None
-    sse = float(np.sum((y - yhat) ** 2))
-    jtj = float(np.sum(jac ** 2))
-    if not np.isfinite(sse) or not np.isfinite(jtj) or jtj <= 0.0:
-        return None
-    var = sse / (float(dof) * jtj)
-    if not np.isfinite(var) or var < 0.0:
-        return None
-    return float(np.sqrt(var))
 
 
 def _analysis_id_from_source_file(source_file: str | None) -> str:
@@ -281,19 +283,11 @@ def _fit_free(
     M0_value: float,
     D0_value: float,
 ) -> tuple[float, float, float, float, str, float | None, float | None]:
-    # try:
-    #     from scipy.optimize import curve_fit  # type: ignore
-    # except Exception:
-    #     return _fit_free_numpy_bruteforce(
-    #         td, G1, G2, N1, N2, y,
-    #         M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value,
-    #     )
-
     if not M0_vary and not D0_vary:
         yhat = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0_value, D0_value)
         return float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "fixed", None, None
 
-    # bounds razonables alrededor del guess
+    # Keep D0 bounds centered around the user-provided seed.
     D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
 
     if M0_vary and D0_vary:
@@ -301,10 +295,24 @@ def _fit_free(
             return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, D0)
         p0 = [float(M0_value), float(D0_value)]
         bounds = ([0.0, D_lo], [2.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
-        yhat = f(None, *popt)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-        return float(popt[0]), float(popt[1]), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1])
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["M0", "D0_m2_ms"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=400000,
+        )
+        return (
+            float(fit.values["M0"]),
+            float(fit.values["D0_m2_ms"]),
+            fit.rmse,
+            fit.chi2,
+            fit.method,
+            float(fit.errors.get("M0_err", np.nan)),
+            float(fit.errors.get("D0_err_m2_ms", np.nan)),
+        )
 
     if (not M0_vary) and D0_vary:
         def f_log(log_D0: float) -> float:
@@ -357,11 +365,24 @@ def _fit_free(
         return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, float(D0_value))
     p0 = [float(M0_value)]
     bounds = ([0.0], [2.0])
-    popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
-    yhat = f(None, *popt)
-    M0 = float(popt[0])
-    M0_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-    return M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", M0_err, None
+    fit = fit_curve_fit(
+        f,
+        np.zeros_like(y),
+        y,
+        param_names=["M0"],
+        p0=p0,
+        bounds=bounds,
+        maxfev=400000,
+    )
+    return (
+        float(fit.values["M0"]),
+        float(D0_value),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("M0_err", np.nan)),
+        None,
+    )
 
 def _fit_tort(
     td: float,
@@ -384,13 +405,26 @@ def _fit_tort(
 
         p0 = [0.7, float(M0_value), float(D0_value)]
         bounds = ([0.0, 0.0, D_lo], [2.0, 5.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
-        yhat = f(None, *popt)
-        rmse = _rmse(y, yhat)
-        chi2 = _chi2(y, yhat)
-        alpha, M0, D0 = map(float, popt)
-        return alpha, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["alpha", "M0", "D0_m2_ms"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=600000,
+        )
+        return (
+            float(fit.values["alpha"]),
+            float(fit.values["M0"]),
+            float(fit.values["D0_m2_ms"]),
+            fit.rmse,
+            fit.chi2,
+            fit.method,
+            float(fit.errors.get("alpha_err", np.nan)),
+            float(fit.errors.get("M0_err", np.nan)),
+            float(fit.errors.get("D0_err_m2_ms", np.nan)),
+        )
 
     if (not M0_vary) and (not D0_vary):
         def f(_dummy, alpha):
@@ -398,11 +432,16 @@ def _fit_tort(
 
         p0 = [0.7]
         bounds = ([0.0], [2.0])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        yhat = f(None, *popt)
-        alpha = float(popt[0])
-        alpha_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-        return alpha, float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", alpha_err, None, None
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["alpha"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=600000,
+        )
+        return float(fit.values["alpha"]), float(M0_value), float(D0_value), fit.rmse, fit.chi2, fit.method, float(fit.errors.get("alpha_err", np.nan)), None, None
 
     if (not M0_vary) and D0_vary:
         def f(_dummy, alpha, D0):
@@ -410,22 +449,52 @@ def _fit_tort(
 
         p0 = [0.7, float(D0_value)]
         bounds = ([0.0, D_lo], [2.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-        yhat = f(None, *popt)
-        alpha, D0 = map(float, popt)
-        return alpha, float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), None, float(perr[1])
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["alpha", "D0_m2_ms"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=600000,
+        )
+        return (
+            float(fit.values["alpha"]),
+            float(M0_value),
+            float(fit.values["D0_m2_ms"]),
+            fit.rmse,
+            fit.chi2,
+            fit.method,
+            float(fit.errors.get("alpha_err", np.nan)),
+            None,
+            float(fit.errors.get("D0_err_m2_ms", np.nan)),
+        )
 
     def f(_dummy, alpha, M0):
         return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, float(D0_value))
 
     p0 = [0.7, float(M0_value)]
     bounds = ([0.0, 0.0], [2.0, 5.0])
-    popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-    yhat = f(None, *popt)
-    alpha, M0 = map(float, popt)
-    return alpha, M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1]), None
+    fit = fit_curve_fit(
+        f,
+        np.zeros_like(y),
+        y,
+        param_names=["alpha", "M0"],
+        p0=p0,
+        bounds=bounds,
+        maxfev=600000,
+    )
+    return (
+        float(fit.values["alpha"]),
+        float(fit.values["M0"]),
+        float(D0_value),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("alpha_err", np.nan)),
+        float(fit.errors.get("M0_err", np.nan)),
+        None,
+    )
 
 
 def _best_tc_seed_rest(
@@ -495,13 +564,26 @@ def _fit_rest(
 
         p0 = [float(tc_seed), float(M0_value), float(D0_value)]
         bounds = ([tc_lo, 0.0, D_lo], [tc_hi, 5.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
-        yhat = f(None, *popt)
-        rmse = _rmse(y, yhat)
-        chi2 = _chi2(y, yhat)
-        tc, M0, D0 = map(float, popt)
-        return tc, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["tc_ms", "M0", "D0_m2_ms"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=600000,
+        )
+        return (
+            float(fit.values["tc_ms"]),
+            float(fit.values["M0"]),
+            float(fit.values["D0_m2_ms"]),
+            fit.rmse,
+            fit.chi2,
+            fit.method,
+            float(fit.errors.get("tc_err_ms", np.nan)),
+            float(fit.errors.get("M0_err", np.nan)),
+            float(fit.errors.get("D0_err_m2_ms", np.nan)),
+        )
 
     if (not M0_vary) and (not D0_vary):
         def f(_dummy, tc):
@@ -509,11 +591,16 @@ def _fit_rest(
 
         p0 = [float(tc_seed)]
         bounds = ([tc_lo], [tc_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        yhat = f(None, *popt)
-        tc = float(popt[0])
-        tc_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-        return tc, float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", tc_err, None, None
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["tc_ms"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=600000,
+        )
+        return float(fit.values["tc_ms"]), float(M0_value), float(D0_value), fit.rmse, fit.chi2, fit.method, float(fit.errors.get("tc_err_ms", np.nan)), None, None
 
     if (not M0_vary) and D0_vary:
         def f(_dummy, tc, D0):
@@ -521,22 +608,52 @@ def _fit_rest(
 
         p0 = [float(tc_seed), float(D0_value)]
         bounds = ([tc_lo, D_lo], [tc_hi, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-        yhat = f(None, *popt)
-        tc, D0 = map(float, popt)
-        return tc, float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), None, float(perr[1])
+        fit = fit_curve_fit(
+            f,
+            np.zeros_like(y),
+            y,
+            param_names=["tc_ms", "D0_m2_ms"],
+            p0=p0,
+            bounds=bounds,
+            maxfev=600000,
+        )
+        return (
+            float(fit.values["tc_ms"]),
+            float(M0_value),
+            float(fit.values["D0_m2_ms"]),
+            fit.rmse,
+            fit.chi2,
+            fit.method,
+            float(fit.errors.get("tc_err_ms", np.nan)),
+            None,
+            float(fit.errors.get("D0_err_m2_ms", np.nan)),
+        )
 
     def f(_dummy, tc, M0):
         return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, float(D0_value))
 
     p0 = [float(tc_seed), float(M0_value)]
     bounds = ([tc_lo, 0.0], [tc_hi, 5.0])
-    popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-    yhat = f(None, *popt)
-    tc, M0 = map(float, popt)
-    return tc, M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1]), None
+    fit = fit_curve_fit(
+        f,
+        np.zeros_like(y),
+        y,
+        param_names=["tc_ms", "M0"],
+        p0=p0,
+        bounds=bounds,
+        maxfev=600000,
+    )
+    return (
+        float(fit.values["tc_ms"]),
+        float(fit.values["M0"]),
+        float(D0_value),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("tc_err_ms", np.nan)),
+        float(fit.errors.get("M0_err", np.nan)),
+        None,
+    )
 
 # -----------------------------
 # Public API
@@ -564,6 +681,7 @@ class FitRow:
     bmax_1: float | None
     protocol_1: str | None
     sequence_1: str | None
+    one_g_per_sequence_1: bool | None
     sheet_1: str | None
 
     # sequence 2 params
@@ -579,6 +697,7 @@ class FitRow:
     bmax_2: float | None
     protocol_2: str | None
     sequence_2: str | None
+    one_g_per_sequence_2: bool | None
     sheet_2: str | None
 
     # fit config
@@ -654,6 +773,7 @@ def fit_ogse_contrast_long(
     peak_grid_n: int = 1000,
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
+    oneg: bool = False,
 ) -> pd.DataFrame:
     """
     Fit a long-form contrast table.
@@ -719,6 +839,28 @@ def fit_ogse_contrast_long(
                 return None
             return str(v)
 
+        def _get_bool(col: str) -> bool | None:
+            if col not in gg.columns:
+                return None
+            if pd.Series(gg[col]).dropna().empty:
+                return None
+            return bool(_truthy_series(gg[col]))
+
+        one_g_per_sequence_1 = _get_bool("one_g_per_sequence_1")
+        one_g_per_sequence_2 = _get_bool("one_g_per_sequence_2")
+        allow_sequence_ranges = bool(oneg or one_g_per_sequence_1 or one_g_per_sequence_2)
+
+        def _get_sequence(col: str) -> str | None:
+            if col not in gg.columns:
+                return None
+            if allow_sequence_ranges:
+                v = _scalar_or_compact_values(gg[col], name=col, required=False)
+            else:
+                v = _unique_scalar(gg[col], name=col, required=False)
+            if v is None:
+                return None
+            return str(v)
+
         n_1 = int(round(float(_unique_scalar(gg["N_1"], name="N_1", required=True))))
         n_2 = int(round(float(_unique_scalar(gg["N_2"], name="N_2", required=True))))
 
@@ -732,7 +874,7 @@ def fit_ogse_contrast_long(
         TR_1 = _get_float("TR_1")
         bmax_1 = _get_float("bmax_1")
         protocol_1 = _get_str("protocol_1")
-        sequence_1 = _get_str("sequence_1")
+        sequence_1 = _get_sequence("sequence_1")
         sheet_1 = _get_str("sheet_1")
 
         max_dur_ms_2 = _get_float("max_dur_ms_2")
@@ -745,7 +887,7 @@ def fit_ogse_contrast_long(
         TR_2 = _get_float("TR_2")
         bmax_2 = _get_float("bmax_2")
         protocol_2 = _get_str("protocol_2")
-        sequence_2 = _get_str("sequence_2")
+        sequence_2 = _get_sequence("sequence_2")
         sheet_2 = _get_str("sheet_2")
 
         # timing summary for fitting internals: prefer override > td_ms_1/2 > compute from side 1
@@ -806,6 +948,7 @@ def fit_ogse_contrast_long(
                     bmax_1=bmax_1,
                     protocol_1=protocol_1,
                     sequence_1=sequence_1,
+                    one_g_per_sequence_1=one_g_per_sequence_1,
                     sheet_1=sheet_1,
                     max_dur_ms_2=max_dur_ms_2,
                     tm_ms_2=tm_ms_2,
@@ -819,6 +962,7 @@ def fit_ogse_contrast_long(
                     bmax_2=bmax_2,
                     protocol_2=protocol_2,
                     sequence_2=sequence_2,
+                    one_g_per_sequence_2=one_g_per_sequence_2,
                     sheet_2=sheet_2,
                     model=model,
                     ycol=ycol,
@@ -871,6 +1015,7 @@ def fit_ogse_contrast_long(
             bmax_1=bmax_1,
             protocol_1=protocol_1,
             sequence_1=sequence_1,
+            one_g_per_sequence_1=one_g_per_sequence_1,
             sheet_1=sheet_1,
             max_dur_ms_2=max_dur_ms_2,
             tm_ms_2=tm_ms_2,
@@ -884,6 +1029,7 @@ def fit_ogse_contrast_long(
             bmax_2=bmax_2,
             protocol_2=protocol_2,
             sequence_2=sequence_2,
+            one_g_per_sequence_2=one_g_per_sequence_2,
             sheet_2=sheet_2,
             model=model,
             ycol=ycol,

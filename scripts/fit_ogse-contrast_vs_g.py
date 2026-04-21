@@ -162,6 +162,7 @@ def main() -> None:
     ap.add_argument("--subjs", nargs="*", default=None, help="Filter subjects/phantoms. Use ALL to keep all of them.")
     ap.add_argument("--rois", nargs="*", default=None, help="Filter ROIs. Use ALL to keep all of them.")
     ap.add_argument("--stat", default="avg", help="Filter the stat column. Use ALL to skip this filter.")
+    ap.add_argument("--oneg", action="store_true", help="Allow one-g-per-sequence contrast tables with sequence ranges.")
 
     ap.add_argument("--out_root", required=True)
     ap.add_argument("--no_plots", action="store_true")
@@ -311,6 +312,7 @@ def main() -> None:
         peak_grid_n=int(args.peak_grid_n),
         peak_D0_fix=float(args.peak_D0_fix),
         peak_gamma=float(args.peak_gamma),
+        oneg=bool(args.oneg),
     )
 
     out_parquet = tables_dir / "fit_params.parquet"

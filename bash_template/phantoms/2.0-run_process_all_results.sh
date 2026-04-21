@@ -26,6 +26,8 @@ DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
+# OUTPUT_STEM_STRIP_TOKENS="${OUTPUT_STEM_STRIP_TOKENS:-}"
+OUTPUT_STEM_STRIP_TOKENS="20260122125354"
 
 # The matched row in DEFAULT_PARAMS must include a populated "subj" column.
 
@@ -51,6 +53,14 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+PROCESS_ARGS=()
+if [[ -n "$OUTPUT_STEM_STRIP_TOKENS" ]]; then
+    read -r -a strip_tokens <<< "$OUTPUT_STEM_STRIP_TOKENS"
+    for token in "${strip_tokens[@]}"; do
+        PROCESS_ARGS+=(--strip-output-token "$token")
+    done
+fi
+
 total=0
 ok=0
 failed=0
@@ -65,7 +75,7 @@ while read -r file; do
     echo "Processing: $seq_name"
     echo "  File: $file"
 
-    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR"; then
+    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR" "${PROCESS_ARGS[@]}"; then
         ok=$((ok + 1))
         echo "  OK: $seq_name"
     else
