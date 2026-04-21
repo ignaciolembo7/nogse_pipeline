@@ -73,3 +73,10 @@ For any requested change, use this priority order:
 - Optimize for auditability, debuggability, maintainability, and explicit modular code.
 - Reduce parallel code paths.
 - Equivalent inputs MUST produce outputs with the same schema and structure regardless of model or measurement naming.
+
+## Output and logic preservation
+- Refactors MUST preserve the existing computational logic and output values unless a change is explicitly requested.
+- The agent MUST NOT change numerical behavior, fitting logic, parameter meaning, default values, output semantics, or processing order as part of cleanup, modularization, deduplication, or architectural refactoring.
+- Structural improvements MUST preserve scientific and pipeline behavior.
+- If logic centralization is performed, the refactor MUST reproduce the same outputs for equivalent inputs.
+- Any intentional change to scientific logic or output values MUST be explicitly justified and MUST NOT be introduced implicitly during cleanup.
