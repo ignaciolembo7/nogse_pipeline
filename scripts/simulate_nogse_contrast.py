@@ -94,13 +94,13 @@ def build_out_path(
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         description=(
-            "Simulate NOGSE/OGSE contrast curves using a model function from nogse_model_fitting.py "
+            "Simulate NOGSE/OGSE contrast curves using a model function from model_fitting.py "
             "and output a table in the exact format produced by contrast.make_contrast()."
         )
     )
 
     ap.add_argument("--model", type=str, help="Function name in the model module, e.g. NOGSE_contrast_vs_g_mixed")
-    ap.add_argument("--model-module", type=str, default="nogse_models.nogse_model_fitting", help="Python module name to import")
+    ap.add_argument("--model-module", type=str, default="models.model_fitting", help="Python module name to import")
 
     ap.add_argument("--model-path", type=str, default=None, help="Optional path to .py file (overrides --model-module)")
 

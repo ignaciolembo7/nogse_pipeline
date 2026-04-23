@@ -188,11 +188,12 @@ def build_ogse_signal_fit_label(fit_row: dict[str, object]) -> str:
 
 def plot_ogse_signal_fit(
     *,
-    b: np.ndarray,
+    x: np.ndarray,
     y: np.ndarray,
     fit_row: dict[str, object],
     out_png: Path,
     ycol: str,
+    x_label: str,
     fit_points: int,
     fit_x: np.ndarray | None,
     fit_y: np.ndarray | None,
@@ -217,21 +218,21 @@ def plot_ogse_signal_fit(
     k = max(0, int(fit_points))
     fit_label = build_ogse_signal_fit_label(fit_row)
     render_xy_plot(
-        x=np.asarray(b, dtype=float),
+        x=np.asarray(x, dtype=float),
         y=np.asarray(y, dtype=float),
         out_png=out_png,
         title=(
             f"OGSE signal fit | ROI={roi} | direction={direction} | "
             f"{fit_label} | td_ms={td_txt} | N={n_txt}"
         ),
-        xlabel="bvalue (s/mm^2)",
+        xlabel=str(x_label),
         ylabel=ycol,
         data_label="data",
         connect_data=False,
         fit_x=None if fit_x is None else np.asarray(fit_x, dtype=float),
         fit_y=None if fit_y is None else np.asarray(fit_y, dtype=float),
         fit_label=fit_label,
-        highlight_x=np.asarray(b[:k], dtype=float) if k > 0 else None,
+        highlight_x=np.asarray(x[:k], dtype=float) if k > 0 else None,
         highlight_y=np.asarray(y[:k], dtype=float) if k > 0 else None,
         highlight_label=f"fit first {k}",
         text_lines=text_lines,

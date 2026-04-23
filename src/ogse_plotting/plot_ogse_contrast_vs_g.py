@@ -73,7 +73,7 @@ def plot_contrast_fit(
     fit_y: np.ndarray | None,
     fit_row: dict[str, object],
     out_png: Path,
-    gbase: str,
+    x_label: str,
     ycol: str,
     family_label: str,
 ) -> None:
@@ -98,7 +98,7 @@ def plot_contrast_fit(
             f"ROI={roi} | direction={direction} | "
             f"model={display_model} | td_ms={td_txt} | N{n1_txt}-N{n2_txt}"
         ),
-        xlabel=f"{gbase}_1 (mT/m)",
+        xlabel=str(x_label),
         ylabel=ycol,
         data_label="data",
         connect_data=False,

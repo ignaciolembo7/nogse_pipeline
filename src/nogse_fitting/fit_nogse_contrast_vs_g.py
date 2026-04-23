@@ -8,12 +8,21 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
+from fitting.b_from_g import (
+    axes_share_gradient_family,
+    axis_from_gradient,
+    build_axis_bundle,
+    default_plot_axis_for_fit,
+    gradient_base_for_axis,
+    normalize_axis_base,
+    split_axis_side,
+)
 from fitting.core import CurveFitParameter
 from fitting.core import chi2 as _chi2
 from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
-from nogse_models.nogse_model_fitting import (
+from models.model_fitting import (
     NOGSE_contrast_vs_g_free,
     NOGSE_contrast_vs_g_rest,
     NOGSE_contrast_vs_g_tort,
@@ -27,6 +36,7 @@ from tools.value_formatting import scalar_or_compact_series, truthy_series
 
 KEY_COLS = ("roi", "direction", "b_step")
 VALID_GBASES = {"g", "g_max", "g_lin_max", "g_thorsten"}
+GAMMA_DEFAULT = 267.5221900
 
 
 def _require_cols(df: pd.DataFrame, cols: Iterable[str], *, label: str) -> None:
@@ -72,12 +82,7 @@ def _analysis_id_from_source_file(source_file: str | None) -> str:
 
 
 def _normalize_gbase(gbase: str) -> str:
-    b = str(gbase).strip()
-    if b.endswith("_1") or b.endswith("_2"):
-        b = b[:-2]
-    if b not in VALID_GBASES:
-        raise ValueError(f"fit_nogse_contrast_vs_g: unrecognized gbase {gbase!r}. Allowed values: {sorted(VALID_GBASES)}.")
-    return b
+    return gradient_base_for_axis(gbase)
 
 
 def _gcol(df: pd.DataFrame, gbase: str, *, side: int = 1) -> str:
@@ -121,6 +126,22 @@ def _fit_row_correction_pair(fit_row: dict[str, Any] | pd.Series) -> tuple[float
     if pd.notna(f1) and pd.notna(f2):
         return _coerce_correction_pair((f1, f2))
     return 1.0, 1.0
+
+
+def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None) -> str:
+    resolved_fit = normalize_axis_base(fit_axis)
+    if plot_axis is None:
+        return default_plot_axis_for_fit(resolved_fit, side=1)
+
+    plot_base, plot_side = split_axis_side(plot_axis)
+    if plot_side not in (None, 1):
+        raise ValueError("nogse_contrast_vs_g only supports plotting the side-1 axis.")
+    if not axes_share_gradient_family(resolved_fit, plot_base):
+        raise ValueError(
+            "plot_xcol must stay in the same gradient family as gbase. "
+            f"Received gbase={fit_axis!r}, plot_xcol={plot_axis!r}."
+        )
+    return f"{plot_base}_1"
 
 
 @dataclass(frozen=True)
@@ -583,6 +604,7 @@ def fit_nogse_contrast_long(
     *,
     model: str = "free",
     gbase: str = "g_lin_max",
+    plot_xcol: str | None = None,
     ycol: str = "value_norm",
     directions: list[str] | None = None,
     rois: list[str] | None = None,
@@ -631,13 +653,9 @@ def fit_nogse_contrast_long(
     if stat_keep is not None and "stat" in df.columns and str(stat_keep).upper() != "ALL":
         df = df[df["stat"].astype(str) == str(stat_keep)].copy()
 
-    gcol = _gcol(df, gbase, side=1)
-    g2col: str | None = None
-    try:
-        g2col = _gcol(df, gbase, side=2)
-    except KeyError:
-        g2col = None
-    _require_cols(df, [gcol, "N_1"], label=f"nogse_contrast_long (gbase={gbase})")
+    fit_axis = normalize_axis_base(gbase)
+    plot_axis = _resolve_plot_axis(fit_axis=fit_axis, plot_axis=plot_xcol)
+    _require_cols(df, ["N_1"], label=f"nogse_contrast_long (gbase={gbase})")
 
     group_cols = ["roi", "direction"] + (["stat"] if "stat" in df.columns else [])
     rows: list[FitRow] = []
@@ -735,32 +753,64 @@ def fit_nogse_contrast_long(
         if subj is None or not str(subj).strip():
             subj = infer_subj_label(sheet, source_name=source_file)
 
-        y = pd.to_numeric(gg[ycol], errors="coerce").to_numpy(dtype=float)
-        G = pd.to_numeric(gg[gcol], errors="coerce").to_numpy(dtype=float)
-        G = _maybe_scale_g_thorsten(gbase, G)
-        G2_raw_arr = None
-        if g2col is not None:
-            G2_raw_arr = _maybe_scale_g_thorsten(gbase, pd.to_numeric(gg[g2col], errors="coerce").to_numpy(dtype=float))
+        f_corr_1, f_corr_2 = _coerce_correction_pair(f_by_direction.get(str(direction), 1.0) if f_by_direction else 1.0)
+        fit_bundle = build_axis_bundle(
+            gg,
+            axis=fit_axis,
+            side=1,
+            correction_factor=float(f_corr_1),
+            gamma=GAMMA_DEFAULT,
+            N=n_1,
+            delta_ms=delta_ms_1,
+            Delta_app_ms=Delta_app_ms_1,
+        )
+        plot_bundle = build_axis_bundle(
+            gg,
+            axis=plot_axis,
+            correction_factor=float(f_corr_1),
+            gamma=GAMMA_DEFAULT,
+            N=n_1,
+            delta_ms=delta_ms_1,
+            Delta_app_ms=Delta_app_ms_1,
+        )
 
-        m = np.isfinite(y) & np.isfinite(G)
-        y, G = y[m], G[m]
-        if G2_raw_arr is not None:
-            G2_raw_arr = G2_raw_arr[m]
+        side2_bundle = None
+        try:
+            side2_bundle = build_axis_bundle(
+                gg,
+                axis=fit_axis,
+                side=2,
+                correction_factor=float(f_corr_2),
+                gamma=GAMMA_DEFAULT,
+                N=n_2,
+                delta_ms=delta_ms_2,
+                Delta_app_ms=Delta_app_ms_2,
+            )
+        except (KeyError, ValueError):
+            side2_bundle = None
+
+        y = pd.to_numeric(gg[ycol], errors="coerce").to_numpy(dtype=float)
+        G_corr = fit_bundle.gradient_corr
+        G_raw = fit_bundle.gradient_raw
+        G2_corr = side2_bundle.gradient_corr if side2_bundle is not None else None
+        G2_raw_arr = side2_bundle.gradient_raw if side2_bundle is not None else None
+        x_plot = plot_bundle.axis_corr
+
+        m = np.isfinite(y) & np.isfinite(G_corr) & np.isfinite(x_plot)
+        y, G_corr, G_raw, x_plot = y[m], G_corr[m], G_raw[m], x_plot[m]
+        if G2_corr is not None and G2_raw_arr is not None:
+            G2_corr, G2_raw_arr = G2_corr[m], G2_raw_arr[m]
         n_points = int(len(y))
 
-        f_corr_1, f_corr_2 = _coerce_correction_pair(f_by_direction.get(str(direction), 1.0) if f_by_direction else 1.0)
-        G_corr = G * f_corr_1
-        G2_corr = G2_raw_arr * f_corr_2 if G2_raw_arr is not None else None
-
         if sort_by_x and n_points > 0:
-            order = np.argsort(G_corr)
-            y, G_corr, G = y[order], G_corr[order], G[order]
+            order = np.argsort(x_plot)
+            y, G_corr, G_raw, x_plot = y[order], G_corr[order], G_raw[order], x_plot[order]
             if G2_corr is not None and G2_raw_arr is not None:
                 G2_corr, G2_raw_arr = G2_corr[order], G2_raw_arr[order]
 
         if n_fit is not None:
             k = int(n_fit)
-            y, G_corr, G = y[:k], G_corr[:k], G[:k]
+            y, G_corr, G_raw, x_plot = y[:k], G_corr[:k], G_raw[:k], x_plot[:k]
             if G2_corr is not None and G2_raw_arr is not None:
                 G2_corr, G2_raw_arr = G2_corr[:k], G2_raw_arr[:k]
 
@@ -803,7 +853,9 @@ def fit_nogse_contrast_long(
             sheet_2=sheet_2,
             model=model,
             ycol=ycol,
-            gbase=_normalize_gbase(gbase),
+            gbase=_normalize_gbase(fit_axis),
+            fit_xcol=str(fit_axis),
+            plot_xcol=str(plot_axis),
             xplot="1",
             n_points=n_points,
             n_fit=n_fit_used,
@@ -867,20 +919,42 @@ def plot_nogse_contrast_fit_one_group(
     if ycol not in df_group.columns:
         raise KeyError(f"nogse_plot_group: missing ycol {ycol!r}. Columns={list(df_group.columns)}")
 
-    gcol = _gcol(df_group, gbase, side=1)
     y = pd.to_numeric(df_group[ycol], errors="coerce").to_numpy(dtype=float).copy()
-    G = pd.to_numeric(df_group[gcol], errors="coerce").to_numpy(dtype=float).copy()
-    G = _maybe_scale_g_thorsten(gbase, G)
-
     f_corr_1, _f_corr_2 = _fit_row_correction_pair(fit_row)
-    G = G * f_corr_1
-    m = np.isfinite(y) & np.isfinite(G)
-    y, G = y[m], G[m]
-
     td_val = fit_row.get("td_ms")
     td = float(td_val) if td_val is not None else 0.0
     n_value = int(fit_row.get("N_1"))
     model = str(fit_row.get("model", "free"))
+    fit_axis = str(fit_row.get("fit_xcol", gbase))
+    plot_axis = str(fit_row.get("plot_xcol", default_plot_axis_for_fit(fit_axis, side=1)))
+    delta_ms_1 = fit_row.get("delta_ms_1")
+    Delta_app_ms_1 = fit_row.get("Delta_app_ms_1")
+
+    fit_bundle = build_axis_bundle(
+        df_group,
+        axis=fit_axis,
+        side=1,
+        correction_factor=float(f_corr_1),
+        gamma=GAMMA_DEFAULT,
+        N=float(n_value),
+        delta_ms=None if pd.isna(delta_ms_1) else float(delta_ms_1),
+        Delta_app_ms=None if pd.isna(Delta_app_ms_1) else float(Delta_app_ms_1),
+    )
+    plot_bundle = build_axis_bundle(
+        df_group,
+        axis=plot_axis,
+        side=1,
+        correction_factor=float(f_corr_1),
+        gamma=GAMMA_DEFAULT,
+        N=float(n_value),
+        delta_ms=None if pd.isna(delta_ms_1) else float(delta_ms_1),
+        Delta_app_ms=None if pd.isna(Delta_app_ms_1) else float(Delta_app_ms_1),
+    )
+
+    G = fit_bundle.gradient_corr
+    x_plot = plot_bundle.axis_corr
+    m = np.isfinite(y) & np.isfinite(G) & np.isfinite(x_plot)
+    y, G, x_plot = y[m], G[m], x_plot[m]
 
     Gmax = float(np.nanmax(G)) if len(G) else 0.0
     Gs = np.linspace(0, Gmax, 250)
@@ -908,13 +982,24 @@ def plot_nogse_contrast_fit_one_group(
         )
 
     plot_nogse_contrast_fit(
-        x=np.asarray(G, dtype=float),
+        x=np.asarray(x_plot, dtype=float),
         y=np.asarray(y, dtype=float),
-        fit_x=np.asarray(Gs, dtype=float) if ys is not None else None,
+        fit_x=(
+            axis_from_gradient(
+                np.asarray(Gs, dtype=float),
+                axis=plot_axis,
+                N=float(n_value),
+                gamma=GAMMA_DEFAULT,
+                delta_ms=None if pd.isna(delta_ms_1) else float(delta_ms_1),
+                Delta_app_ms=None if pd.isna(Delta_app_ms_1) else float(Delta_app_ms_1),
+            )
+            if ys is not None
+            else None
+        ),
         fit_y=np.asarray(ys, dtype=float) if ys is not None else None,
         fit_row=fit_row,
         out_png=out_png,
-        gbase=_normalize_gbase(gbase),
+        x_label=str(plot_axis),
         ycol=ycol,
     )
 

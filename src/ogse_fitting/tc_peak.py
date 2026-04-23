@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
+from models.model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
 from ogse_fitting.fit_ogse_contrast_vs_g import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
 
 @dataclass(frozen=True)

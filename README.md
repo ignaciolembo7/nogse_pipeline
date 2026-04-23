@@ -8,7 +8,7 @@ This repository contains the end-to-end analysis pipeline used here for brain an
 - contrast-model fits (`free`, `tort`, `rest`),
 - grouped `t_c` summaries and final `t_c`-vs-`t_d` fits.
 
-The detailed scientific walkthrough now lives in [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md).
+The detailed scientific walkthrough now lives in [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md), including an expanded explanation of gradient correction, the `b ~ g^2` scaling logic, and short code snippets for the key pipeline steps.
 
 ## What the pipeline does
 
@@ -60,7 +60,7 @@ The main batch runners are:
   - `src/ogse_fitting/*`
   - `src/nogse_fitting/*`
 - physical model formulas:
-  - `src/nogse_models/nogse_model_fitting.py`
+  - `src/models/model_fitting.py`
 - correction and final summaries:
   - `scripts/make_grad_correction_table.py`
   - `scripts/make_alpha_macro_summary.py`

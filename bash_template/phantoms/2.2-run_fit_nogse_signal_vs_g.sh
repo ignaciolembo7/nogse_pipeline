@@ -30,7 +30,6 @@ CORR_TD_MS="${CORR_TD_MS:-}"
 CORR_SHEET="${CORR_SHEET:-}"
 CORR_N1="${CORR_N1:-}"
 CORR_N2="${CORR_N2:-}"
-GRAD_CORR_POWER="${GRAD_CORR_POWER:-1.0}"
 ROOT_SUFFIX=""
 if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
     ROOT_SUFFIX="_corr"
@@ -130,7 +129,6 @@ if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
         --apply_grad_corr
         --corr_xlsx "$CORR_XLSX"
         --corr_roi "$CORR_ROI"
-        --grad_corr_power "$GRAD_CORR_POWER"
     )
     if [[ -n "${CORR_TD_MS// }" ]]; then
         corr_args+=(--corr_td_ms "$CORR_TD_MS")

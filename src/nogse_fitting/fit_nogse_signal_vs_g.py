@@ -8,11 +8,18 @@ from typing import Callable, Sequence
 import numpy as np
 import pandas as pd
 
+from fitting.b_from_g import (
+    VALID_AXIS_BASES,
+    axes_share_gradient_family,
+    axis_from_gradient,
+    build_axis_bundle,
+    normalize_axis_base,
+)
 from fitting.core import chi2 as fit_chi2
 from fitting.core import fit_least_squares
 from fitting.core import r2_score, rmse as fit_rmse
 from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_group
-from nogse_models.nogse_model_fitting import M_nogse_free
+from models.model_fitting import M_nogse_free
 from tools.fit_params_schema import standardize_fit_params
 from data_processing.io import write_table_outputs
 from tools.value_formatting import scalar_or_compact_column
@@ -52,6 +59,7 @@ SIGNAL_MODELS: dict[str, SignalModelSpec] = {
     ),
 }
 VALID_MODELS = set(SIGNAL_MODELS)
+GAMMA_DEFAULT = 267.5221900
 
 
 def analysis_id_from_path(path: Path) -> str:
@@ -146,6 +154,19 @@ def validate_log_bounds(name: str, bounds: tuple[float, float]) -> None:
     lower, _upper = bounds
     if lower <= 0:
         raise ValueError(f"{name} lower bound must be positive when fitting in log-space: {lower}")
+
+
+def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None) -> str:
+    resolved_fit = normalize_axis_base(fit_axis)
+    if plot_axis is None:
+        return resolved_fit
+    resolved_plot = normalize_axis_base(plot_axis)
+    if not axes_share_gradient_family(resolved_fit, resolved_plot):
+        raise ValueError(
+            "plot_xcol must stay in the same gradient family as xcol. "
+            f"Received xcol={fit_axis!r}, plot_xcol={plot_axis!r}."
+        )
+    return resolved_plot
 
 
 def _build_model(
@@ -334,6 +355,7 @@ def fit_nogse_signal_long(
     *,
     model: str,
     xcol: str = "g",
+    plot_xcol: str | None = None,
     ycol: str = "value_norm",
     stat_keep: str = "avg",
     rois: Sequence[str] | None = None,
@@ -343,7 +365,6 @@ def fit_nogse_signal_long(
     m0_bounds: tuple[float, float] = (0.0, np.inf),
     d0_bounds: tuple[float, float] = (1e-16, np.inf),
     f_by_direction: Mapping[str, float] | None = None,
-    grad_corr_power: float = 1.0,
     source_file: str | None = None,
     analysis_id: str | None = None,
     outdir_plots: Path | None = None,
@@ -369,6 +390,9 @@ def fit_nogse_signal_long(
     if avg_df.empty:
         raise ValueError("No data remains after ROI/direction filtering.")
 
+    fit_axis = normalize_axis_base(xcol)
+    plot_axis = _resolve_plot_axis(fit_axis=fit_axis, plot_axis=plot_xcol)
+
     fit_rows: list[dict[str, object]] = []
     for (roi, direction), group in avg_df.groupby(["roi", "direction"], sort=False):
         group_fit = group.copy()
@@ -380,17 +404,58 @@ def fit_nogse_signal_long(
             ].copy()
 
         f_corr = float(f_by_direction.get(str(direction), 1.0)) if f_by_direction else 1.0
-        grad_corr_scale = float(f_corr) ** float(grad_corr_power)
-        if xcol in group_fit.columns and np.isfinite(grad_corr_scale):
-            group_fit[xcol] = pd.to_numeric(group_fit[xcol], errors="coerce") * grad_corr_scale
-        if std_group is not None and xcol in std_group.columns and np.isfinite(grad_corr_scale):
-            std_group[xcol] = pd.to_numeric(std_group[xcol], errors="coerce") * grad_corr_scale
+        n_value = float(_unique_scalar(group_fit, "N", required=True))
+        delta_ms = _unique_scalar(group_fit, "delta_ms", required=False)
+        Delta_app_ms = _unique_scalar(group_fit, "Delta_app_ms", required=False)
+
+        fit_bundle = build_axis_bundle(
+            group_fit,
+            axis=fit_axis,
+            correction_factor=float(f_corr),
+            gamma=GAMMA_DEFAULT,
+            N=n_value,
+            delta_ms=None if delta_ms is None else float(delta_ms),
+            Delta_app_ms=None if Delta_app_ms is None else float(Delta_app_ms),
+        )
+        plot_bundle = build_axis_bundle(
+            group_fit,
+            axis=plot_axis,
+            correction_factor=float(f_corr),
+            gamma=GAMMA_DEFAULT,
+            N=n_value,
+            delta_ms=None if delta_ms is None else float(delta_ms),
+            Delta_app_ms=None if Delta_app_ms is None else float(Delta_app_ms),
+        )
+        group_fit["__fit_x__"] = fit_bundle.gradient_corr
+        group_fit[plot_axis] = plot_bundle.axis_corr
+
+        if std_group is not None:
+            std_fit_bundle = build_axis_bundle(
+                std_group,
+                axis=fit_axis,
+                correction_factor=float(f_corr),
+                gamma=GAMMA_DEFAULT,
+                N=n_value,
+                delta_ms=None if delta_ms is None else float(delta_ms),
+                Delta_app_ms=None if Delta_app_ms is None else float(Delta_app_ms),
+            )
+            std_plot_bundle = build_axis_bundle(
+                std_group,
+                axis=plot_axis,
+                correction_factor=float(f_corr),
+                gamma=GAMMA_DEFAULT,
+                N=n_value,
+                delta_ms=None if delta_ms is None else float(delta_ms),
+                Delta_app_ms=None if Delta_app_ms is None else float(Delta_app_ms),
+            )
+            std_group["__fit_x__"] = std_fit_bundle.gradient_corr
+            std_group[plot_axis] = std_plot_bundle.axis_corr
 
         fit_row, x_data, y_data, fit_curve = fit_one_group(
             group_fit,
             std_group,
             model_name=model,
-            xcol=xcol,
+            xcol="__fit_x__",
             ycol=ycol,
             fix_m0=fix_m0,
             fix_d0=fix_d0,
@@ -398,7 +463,8 @@ def fit_nogse_signal_long(
             d0_bounds=d0_bounds,
         )
         fit_row["f_corr"] = float(f_corr)
-        fit_row["grad_corr_scale"] = float(grad_corr_scale)
+        fit_row["xcol"] = str(fit_axis)
+        fit_row["plot_xcol"] = str(plot_axis)
 
         for col in [
             "subj",
@@ -439,18 +505,27 @@ def fit_nogse_signal_long(
         fit_rows.append(fit_row)
 
         if outdir_plots is not None:
+            fit_curve_plot = fit_curve.copy()
+            fit_curve_plot[:, 0] = axis_from_gradient(
+                fit_curve[:, 0],
+                axis=plot_axis,
+                N=n_value,
+                gamma=GAMMA_DEFAULT,
+                delta_ms=None if delta_ms is None else float(delta_ms),
+                Delta_app_ms=None if Delta_app_ms is None else float(Delta_app_ms),
+            )
             signal_type = _unique_scalar(group, "type", required=False)
             title = f"{analysis_id} | roi={roi} | direction={direction} | type={signal_type} | model={model}"
             out_png = outdir_plots / f"{analysis_id}.roi-{roi}.dir-{direction}.{model}.png"
             plot_fit_one_group(
                 group_fit,
                 std_group,
-                xcol=xcol,
+                xcol=plot_axis,
                 ycol=ycol,
                 fit_row=fit_row,
-                x_data=x_data,
+                x_data=plot_bundle.axis_corr,
                 y_data=y_data,
-                fit_curve=fit_curve,
+                fit_curve=fit_curve_plot,
                 out_png=out_png,
                 title=title,
             )
@@ -468,6 +543,7 @@ def run_fit_from_parquet(
     model: str,
     out_root: str | Path,
     xcol: str = "g",
+    plot_xcol: str | None = None,
     ycol: str = "value_norm",
     stat_keep: str = "avg",
     rois: Sequence[str] | None = None,
@@ -477,7 +553,6 @@ def run_fit_from_parquet(
     m0_bounds: tuple[float, float] = (0.0, np.inf),
     d0_bounds: tuple[float, float] = (1e-16, np.inf),
     f_by_direction: Mapping[str, float] | None = None,
-    grad_corr_power: float = 1.0,
     append_model_subdir: bool = True,
 ) -> tuple[FitOutputs, Path]:
     p = Path(parquet_path)
@@ -493,6 +568,7 @@ def run_fit_from_parquet(
         df,
         model=model,
         xcol=xcol,
+        plot_xcol=plot_xcol,
         ycol=ycol,
         stat_keep=stat_keep,
         rois=rois,
@@ -502,7 +578,6 @@ def run_fit_from_parquet(
         m0_bounds=m0_bounds,
         d0_bounds=d0_bounds,
         f_by_direction=f_by_direction,
-        grad_corr_power=grad_corr_power,
         source_file=p.name,
         analysis_id=analysis_id,
         outdir_plots=out_dir,

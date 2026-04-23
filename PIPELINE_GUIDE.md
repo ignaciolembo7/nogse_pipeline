@@ -35,7 +35,7 @@ The implementation is driven mainly by:
 - contrast construction: `scripts/make_contrast.py`, `src/fitting/contrast.py`
 - signal rotation: `scripts/rotate_ogse_tensor.py`, `src/signal_rotation/rotation_tensor.py`
 - signal and contrast fitting: `src/ogse_fitting/*`, `src/nogse_fitting/*`
-- physical model formulas: `src/nogse_models/nogse_model_fitting.py`
+- physical model formulas: `src/models/model_fitting.py`
 - final `t_c` vs `t_d` fitting: `scripts/run_tc_vs_td.py`, `src/tc_fittings/tc_td_pseudohuber.py`
 
 ## High-level overview
@@ -92,6 +92,22 @@ Why this is needed:
 - it makes different acquisitions comparable,
 - it lets later models focus on attenuation shape rather than absolute image intensity.
 
+The repository implements this explicitly by estimating `S0` from the `b_step == 0`
+rows inside each `(stat, roi, direction)` group:
+
+```python
+s0 = (
+    out.loc[out["b_step"] == 0]
+    .groupby(["stat", "roi", "direction"], as_index=False)["value"]
+    .mean()
+    .rename(columns={"value": "S0"})
+)
+out["value_norm"] = out["value"] / out["S0"]
+out.loc[(out["b_step"] == 0) & out["S0"].notna(), "value_norm"] = 1.0
+```
+
+Code reference: `scripts/process_one_results.py`, `_add_S0_and_value_norm`.
+
 ### Converting gradient amplitude into `b`-value
 
 Many later steps work on a `b`-value axis even when the acquisition was organized by gradient amplitude. The repository uses:
@@ -137,6 +153,19 @@ The important scientific point is that the pipeline treats contrast as a derived
 
 - which side was acquisition 1 and which was acquisition 2,
 - each side's `N`, `Hz`, `sequence`, `source_file`, and gradient axis.
+
+The core implementation is intentionally minimal:
+
+```python
+merged["value"] = merged[f"{y_col}_1"] - merged[f"{y_col}_2"]
+
+if have_norm:
+    merged["value_norm"] = merged[f"{y_norm_col}_1"] - merged[f"{y_norm_col}_2"]
+else:
+    merged["value_norm"] = (merged[f"{y_col}_1"] / merged["S0_1"]) - (merged[f"{y_col}_2"] / merged["S0_2"])
+```
+
+Code reference: `src/fitting/contrast.py`, `make_contrast`.
 
 ## Brain pipeline
 
@@ -419,7 +448,7 @@ D_proj = n^T D n
 - `scripts/make_contrast.py`
 - `src/fitting/contrast.py`
 
-### Stage 8: OGSE monoexponential signal fitting and macro-scale summaries
+### Stage 8: OGSE free-signal fitting and macro-scale summaries
 
 **What goes in**
 
@@ -427,7 +456,7 @@ D_proj = n^T D n
 
 **What happens conceptually**
 
-- each ROI/direction curve is fitted with a monoexponential attenuation model;
+- each ROI/direction curve is fitted with the centralized OGSE free-signal model `M_ogse_free`;
 - the fit can use either a fixed number of lowest-`b` points or an automatically selected prefix of the curve;
 - from the fitted attenuation, the pipeline produces:
   - `D0`
@@ -437,7 +466,7 @@ D_proj = n^T D n
 
 **What comes out**
 
-- monoexponential fit tables
+- OGSE free-signal fit tables
 - `Dproj` tables
 - `D`-vs-`Delta_app` plots
 - `summary_alpha_values.xlsx`
@@ -449,13 +478,29 @@ D_proj = n^T D n
 
 **Key physical or mathematical idea**
 
-The fitted model is:
+The implemented signal model is:
 
 ```text
-S(b) = M0 * exp(-b * D0)
+S(G) = M_ogse_free(TE, G, N, TE/N, M0, D0)
 ```
 
-The automatic prefix selection stops when adding another point worsens `rmse_log` beyond a tolerance, so the fit stays in the part of the curve that remains approximately monoexponential.
+In the centralized model module this is:
+
+```python
+def M_ogse_free(TE, G, N, x, M0, D0):
+    y = TE - (N - 1) * x
+    return M0 * np.exp(-1.0 / 12 * g**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
+```
+
+For the single-curve OGSE signal fits in this repository, the fitter evaluates
+that model at `x = TE/N`, using the corrected gradient axis directly. Because
+the exponent is still proportional to `G^2`, these fits continue to provide the
+same kind of reference diffusivity scale used later in the correction and
+summary stages.
+
+The automatic prefix selection still stops when adding another point worsens
+`rmse_log` beyond a tolerance, so the fit remains in the low-attenuation part
+of the OGSE curve that is intended to define the reference `D0`.
 
 **Code**
 
@@ -498,7 +543,7 @@ For brains, the practical sequence is:
 
 **Key physical or mathematical idea**
 
-The model formulas come from `src/nogse_models/nogse_model_fitting.py`. In the repository’s naming:
+The model formulas come from `src/models/model_fitting.py`. In the repository’s naming:
 
 - `free` uses unrestricted diffusion with effective diffusivity `D0`,
 - `tort` scales the free-diffusion contribution by `alpha`,
@@ -516,13 +561,13 @@ Peak metrics are then converted to characteristic length and time scales using t
 - `bash_template/brains/6.1-run_fit_rest_all_ogse_contrast_vs_g_corr.sh`
 - `src/ogse_fitting/fit_ogse_contrast_vs_g.py`
 - `src/nogse_fitting/fit_nogse_contrast_vs_g.py`
-- `src/nogse_models/nogse_model_fitting.py`
+- `src/models/model_fitting.py`
 
 ### Stage 10: Gradient correction
 
 **What goes in**
 
-- OGSE monoexponential `D0` fits from a reference ROI
+- OGSE reference `D0` fits computed from signal curves in a reference ROI
 - free-model contrast fits from the same reference ROI
 
 **What happens conceptually**
@@ -537,7 +582,265 @@ ratio_side = D0_fit_nogse_side / D0_fit_monoexp
 correction_factor_side = sqrt(ratio_side)
 ```
 
-Because `b` scales as `g^2`, correcting gradient amplitude by a factor `f` implies a `b`-axis scaling of `f^2`, which is exactly how the later fitting scripts use these factors.
+The table is built explicitly as:
+
+```python
+out['ratio_1'] = out['D0_fit_nogse_1'] / out['D0_fit_monoexp']
+out['ratio_2'] = out['D0_fit_nogse_2'] / out['D0_fit_monoexp']
+out['correction_factor_1'] = np.sqrt(out['ratio_1'])
+out['correction_factor_2'] = np.sqrt(out['ratio_2'])
+```
+
+Code reference: `src/ogse_fitting/make_grad_correction_table.py`.
+
+#### Why the square root appears
+
+Here the reference `D0` fit means the Stage 8 OGSE signal fit
+
+```text
+S(b) = M0 * exp(-b * D0)
+```
+
+applied to OGSE signal curves. It is a reference `D0` estimate, not a separate
+contrast-model family.
+
+The repository uses
+
+```text
+b = C * g^2
+```
+
+with
+
+```text
+C = N * gamma^2 * delta^2 * Delta_app / 1e9
+```
+
+implemented in `src/fitting/b_from_g.py` as:
+
+```python
+return N * (gamma**2) * (delta_ms**2) * delta_app_ms * (g**2) / 1e9
+```
+
+If the effective gradient is `g_eff = f * g_nom`, then
+
+```text
+b_eff = C * g_eff^2 = f^2 * b_nom
+```
+
+so a monoexponential fit performed on the wrong `b` axis absorbs the error into
+an apparent diffusivity
+
+```text
+D_app = f^2 * D_true
+```
+
+which gives
+
+```text
+f = sqrt(D_app / D_true)
+```
+
+and, in the correction table,
+
+```text
+f = sqrt(D0_fit_nogse_side / D0_fit_monoexp)
+```
+
+That square root is therefore the conversion from a diffusivity mismatch to a
+gradient-amplitude correction.
+
+#### Shared correction flow used by the four `*_vs_g` fitters
+
+After the correction factors are computed, the four fitters now follow one
+common rule:
+
+1. choose a gradient family (`g`, `g_lin_max`, `g_thorsten`, or the
+   corresponding `bvalue` representation),
+2. apply correction on the gradient first,
+3. derive the corrected `b` axis from that corrected gradient if a `bvalue`
+   axis is requested,
+4. use those corrected variables consistently for fitting and plotting.
+
+That shared logic is centralized in `src/fitting/b_from_g.py`:
+
+```python
+gradient_raw = extract_gradient_array(df, axis=axis_base, side=resolved_side)
+gradient_corr = gradient_raw * float(f_corr)
+
+if axis_uses_bvalue(axis_base):
+    bvalue_corr = bvalue_from_gradient(
+        gradient_corr,
+        axis=axis_base,
+        N=N,
+        gamma=gamma,
+        delta_ms=delta_ms,
+        Delta_app_ms=Delta_app_ms,
+    )
+
+axis_corr = bvalue_corr if axis_uses_bvalue(axis_base) else gradient_corr
+```
+
+The important design consequence is that the code no longer has a separate
+"effective `b`" correction path inside these four fitters. A corrected `b`
+axis exists only as the `b` value implied by a corrected gradient.
+
+#### How each fitter now works
+
+##### `ogse_signal_vs_g`
+
+- User choice:
+  - fit variable: `g_type`
+  - plotting variable: `plot_xcol`
+  - corrected vs uncorrected mode: `--apply_grad_corr` / `--no_grad_corr`
+- Internal fit variable:
+  - the corrected gradient `g_corr`, because the model evaluation now calls the
+    centralized `M_ogse_free`
+  - the corresponding `b(g_corr)` representation is still derived from that
+    same corrected gradient for reporting, point selection, and downstream
+    diffusivity summaries
+- Internal plot variable:
+  - `plot_xcol`, built from the same corrected gradient family
+
+Key code:
+
+```python
+fit_bundle = build_axis_bundle(...)
+plot_bundle = build_axis_bundle(...)
+yhat = M_ogse_free(td_ms, fit_bundle.gradient_corr, N, td_ms / N, M0, D0)
+```
+
+Code reference:
+
+- `scripts/fit_ogse_signal_vs_g.py`
+- `src/ogse_fitting/fit_ogse_signal_vs_g.py`
+
+##### `nogse_signal_vs_g`
+
+- User choice:
+  - fit variable: `xcol`
+  - plotting variable: `plot_xcol`
+  - corrected vs uncorrected mode: `--apply_grad_corr` / `--no_grad_corr`
+- Internal fit variable:
+  - the corrected gradient `g_corr`, because `M_nogse_free` is parameterized in
+    gradient, not in `b`
+- Internal plot variable:
+  - `plot_xcol`, which may be either a corrected gradient axis or a corrected
+    `bvalue` axis derived from the same `g_corr`
+
+The implementation makes that explicit by building the corrected axis bundle,
+then passing the corrected gradient to the model:
+
+```python
+fit_bundle = build_axis_bundle(...)
+group_fit["__fit_x__"] = fit_bundle.gradient_corr
+fit_row, x_data, y_data, fit_curve = fit_one_group(..., xcol="__fit_x__")
+```
+
+So even when the requested axis family is written as `bvalue`, the model is
+still evaluated on the physically relevant corrected gradient, and the matching
+corrected `b` representation is used only as an axis representation when needed.
+
+Code reference:
+
+- `scripts/fit_nogse_signal_vs_g.py`
+- `src/nogse_fitting/fit_nogse_signal_vs_g.py`
+
+##### `ogse_contrast_vs_g`
+
+- User choice:
+  - fit variable family: `gbase`
+  - plotting variable: `plot_xcol` such as `g_1`, `g_thorsten_2`,
+    `bvalue_1`, or `bvalue_thorsten_2`
+  - corrected vs uncorrected mode: `--apply_grad_corr` / `--no_grad_corr`
+- Internal fit variables:
+  - corrected side-1 gradient `G1_corr`
+  - corrected side-2 gradient `G2_corr`
+- Internal plot variable:
+  - the side selected by `plot_xcol`, expressed either as corrected gradient or
+    as corrected `b` derived from that side’s corrected gradient
+
+Key code:
+
+```python
+fit_bundle_1 = build_axis_bundle(..., side=1, correction_factor=f_corr_1)
+fit_bundle_2 = build_axis_bundle(..., side=2, correction_factor=f_corr_2)
+plot_bundle = build_axis_bundle(..., axis=plot_axis, side=plot_side, ...)
+```
+
+This is still a two-side fit physically, but both sides now use the same
+gradient-first correction flow as the signal fits.
+
+Code reference:
+
+- `scripts/fit_ogse_contrast_vs_g.py`
+- `src/ogse_fitting/fit_ogse_contrast_vs_g.py`
+
+##### `nogse_contrast_vs_g`
+
+- User choice:
+  - fit variable family: `gbase`
+  - plotting variable: `plot_xcol` on side 1
+  - corrected vs uncorrected mode: `--apply_grad_corr` / `--no_grad_corr`
+- Internal fit variable:
+  - corrected side-1 gradient `G_corr`, because the NOGSE contrast model is
+    parameterized in a single gradient axis
+- Internal plot variable:
+  - corrected side-1 `plot_xcol`, which may be either gradient or derived
+    `bvalue`
+
+The fitter still keeps side-2 metadata and side-2 correction factors because
+they are needed for provenance and for the correction-table logic, but the
+model itself remains a side-1-gradient model.
+
+Code reference:
+
+- `scripts/fit_nogse_contrast_vs_g.py`
+- `src/nogse_fitting/fit_nogse_contrast_vs_g.py`
+
+#### How fitting and plotting variables are recorded
+
+The fit tables now make the chosen axes explicit:
+
+- `ogse_signal_vs_g`: `g_type` and `plot_xcol`
+- `nogse_signal_vs_g`: `xcol` and `plot_xcol`
+- `ogse_contrast_vs_g`: `fit_xcol`, `plot_xcol`, plus legacy `gbase` and `xplot`
+- `nogse_contrast_vs_g`: `fit_xcol`, `plot_xcol`, plus legacy `gbase` and `xplot`
+
+This keeps the user-visible choice simple while preserving compatibility with
+older downstream code that still expects `gbase` and `xplot`.
+
+#### How the repository knows which factor to use in each case
+
+There are two lookup patterns in `src/fitting/gradient_correction.py`.
+
+For contrast fits, the correction table is filtered by ROI, `td_ms`, and
+optionally `N_1`, `N_2`, then returned as a pair per direction:
+
+```python
+if factor_mode == "per_side":
+    out = {
+        str(row["direction"]): (
+            float(row["correction_factor_1"]),
+            float(row["correction_factor_2"]),
+        )
+        for _, row in c.iterrows()
+    }
+```
+
+For single-signal fits, the lookup is stricter: it tries to match the signal to
+side 1 or side 2 using the original `signal_source_file` and/or `N`, so a
+single curve receives the factor belonging to its own side:
+
+```python
+source_match = bool(source_key) and row_source_key == source_key
+n_match = spec.signal_n is not None and np.isfinite(n_val) and int(round(float(n_val))) == int(spec.signal_n)
+if source_match or n_match:
+    side_candidates.append(side)
+```
+
+This is why the current pipeline can support side-specific correction robustly
+without confusing the two acquisitions that formed a contrast.
 
 **What comes out**
 
@@ -551,11 +854,17 @@ Because `b` scales as `g^2`, correcting gradient amplitude by a factor `f` impli
 
 - the correction is not a generic intensity normalization;
 - it is specifically a recalibration of the effective gradient axis using a physically interpretable reference ROI.
+- the same correction law is used for brains and phantoms; what changes is mainly the reference ROI and whether the downstream model uses corrected `b(g_corr)` or corrected `g_corr` directly.
 
 **Code**
 
 - `scripts/make_grad_correction_table.py`
 - `src/ogse_fitting/make_grad_correction_table.py`
+- `src/fitting/b_from_g.py`
+- `src/ogse_fitting/fit_ogse_signal_vs_g.py`
+- `src/nogse_fitting/fit_nogse_signal_vs_g.py`
+- `src/ogse_fitting/fit_ogse_contrast_vs_g.py`
+- `src/nogse_fitting/fit_nogse_contrast_vs_g.py`
 
 ### Stage 11: Grouped `t_c` summaries and `t_c` vs `t_d` fitting
 
@@ -738,13 +1047,13 @@ Important entry points are:
 
 **Key physical or mathematical idea**
 
-- the model formulas come from `src/nogse_models/nogse_model_fitting.py`, with `M_nogse_free` as the core signal model.
+- the model formulas come from `src/models/model_fitting.py`, with `M_nogse_free` as the core signal model.
 
 **Code**
 
 - `bash_template/phantoms/2.2-run_fit_nogse_signal_vs_g.sh`
 - `src/nogse_fitting/fit_nogse_signal_vs_g.py`
-- `src/nogse_models/nogse_model_fitting.py`
+- `src/models/model_fitting.py`
 
 ### Stage 5: Phantom contrast construction
 
@@ -783,6 +1092,7 @@ Important entry points are:
 
 - the same `free`, `tort`, and `rest` contrast model families are applied as in the brain workflow;
 - the phantom branch typically uses the water ROI as the reference ROI for correction.
+- when gradient correction is enabled, the same side-specific factors described in the brain workflow are used here too; the difference is that the reference ROI is usually `water` rather than `Syringe`.
 
 **What comes out**
 
@@ -859,6 +1169,7 @@ This design matters scientifically because it means the pipelines share:
 - Contrasts are always built as differences between matched curves.
 - The same physical model families (`free`, `tort`, `rest`) are fitted to contrasts.
 - The same gradient-correction and `t_c`-vs-`t_d` machinery is reused.
+- The same mathematical rule links gradient correction to diffusivity mismatch: `f = sqrt(D0_side / D0_ref)`.
 
 ### What is different
 
@@ -869,6 +1180,7 @@ This design matters scientifically because it means the pipelines share:
 - The reference ROI for gradient correction is typically:
   - `Syringe` in brains
   - `water` in phantoms
+- In OGSE signal fits the correction is usually consumed through the derived `b` axis, while phantom/NOGSE direct-`g` fits often consume it directly on the `g` axis.
 
 ## Code references for the main steps
 
@@ -882,7 +1194,7 @@ This design matters scientifically because it means the pipelines share:
 | OGSE signal fit | `scripts/fit_ogse_signal_vs_g.py` | `scripts/fit_ogse_signal_vs_g.py` | `src/ogse_fitting/fit_ogse_signal_vs_g.py` |
 | NOGSE signal fit | not the main brain branch | `scripts/fit_nogse_signal_vs_g.py` | `src/nogse_fitting/fit_nogse_signal_vs_g.py` |
 | Contrast fits | `scripts/fit_ogse_contrast_vs_g.py`, `scripts/fit_nogse_contrast_vs_g.py` | same | `src/ogse_fitting/fit_ogse_contrast_vs_g.py`, `src/nogse_fitting/fit_nogse_contrast_vs_g.py` |
-| Physical model formulas | same | same | `src/nogse_models/nogse_model_fitting.py` |
+| Physical model formulas | same | same | `src/models/model_fitting.py` |
 | Gradient correction | `scripts/make_grad_correction_table.py` | `scripts/make_grad_correction_table.py` | `src/ogse_fitting/make_grad_correction_table.py`, `src/fitting/gradient_correction.py` |
 | Final `t_c` vs `t_d` stage | `scripts/run_tc_pipeline.py`, `scripts/run_tc_vs_td.py` | same | `src/tc_fittings/*` |
 

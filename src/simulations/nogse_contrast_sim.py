@@ -24,8 +24,8 @@ def load_module(module_name: str, module_path: str | None = None):
     Load a python module either by import name (module_name) or from a file path (module_path).
 
     Robust behavior for this repo:
-      - If module_name is "nogse_model_fitting", try "nogse_models.nogse_model_fitting"
-      - If import fails, try to locate "<name>.py" under repo_root/src/nogse_models/
+      - If module_name is "model_fitting", try "models.model_fitting"
+      - If import fails, try to locate "<name>.py" under repo_root/src/models/
     """
     if module_path:
         p = Path(module_path)
@@ -43,10 +43,10 @@ def load_module(module_name: str, module_path: str | None = None):
     except ModuleNotFoundError as e:
         # --- 1) Shorthand mapping for this repo
         candidates: list[str] = []
-        if module_name == "nogse_model_fitting":
-            candidates.append("nogse_models.nogse_model_fitting")
+        if module_name == "model_fitting":
+            candidates.append("models.model_fitting")
         elif "." not in module_name:
-            candidates.append(f"nogse_models.{module_name}")
+            candidates.append(f"models.{module_name}")
 
         for c in candidates:
             try:
@@ -61,7 +61,7 @@ def load_module(module_name: str, module_path: str | None = None):
         file_candidates = [
             repo_root / f"{base}.py",
             repo_root / "src" / f"{base}.py",
-            repo_root / "src" / "nogse_models" / f"{base}.py",
+            repo_root / "src" / "models" / f"{base}.py",
         ]
 
         for p in file_candidates:
@@ -79,7 +79,7 @@ def load_module(module_name: str, module_path: str | None = None):
 
 def list_models(mod) -> list[str]:
     """
-    List candidate model functions in nogse_model_fitting.py.
+    List candidate model functions in model_fitting.py.
     Default: show contrast models (NOGSE/OGSE/PGSE) but you can still call any function by name.
     """
     names = []
@@ -166,7 +166,7 @@ def _split_kwargs_side(model_kwargs: dict[str, Any]) -> tuple[dict[str, Any], di
 @dataclass(frozen=True)
 class SimSpec:
     model_name: str
-    model_module: str = "nogse_models.nogse_model_fitting"
+    model_module: str = "models.model_fitting"
     model_module_path: str | None = None
 
     # Grid injection (e.g. G, Lc, bvalue, G1/G2, etc.)

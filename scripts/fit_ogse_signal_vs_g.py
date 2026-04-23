@@ -129,11 +129,11 @@ def main() -> None:
     ap.add_argument("--ycol", default="value_norm", choices=sorted(VALID_YCOLS))
 
     fit_group = ap.add_mutually_exclusive_group()
-    fit_group.add_argument("--fit_points", type=int, default=None, help="Fixed number of points to use in the monoexponential fit.")
+    fit_group.add_argument("--fit_points", type=int, default=None, help="Fixed number of points to use in the OGSE free-signal fit.")
     fit_group.add_argument(
         "--auto_fit_points",
         action="store_true",
-        help="Automatically select how many initial points best match the monoexponential model.",
+        help="Automatically select how many initial points best match the OGSE free-signal model.",
     )
     ap.add_argument("--auto_fit_tol", type=float, default=0.05, help="Relative tolerance used by the automatic mode when adding a new point.")
     ap.add_argument("--auto_fit_err_floor", type=float, default=0.005, help="Absolute floor for rmse_log before comparing consecutive k values.")
@@ -141,6 +141,7 @@ def main() -> None:
     ap.add_argument("--auto_fit_max_points", type=int, default=9, help="Last k value tested by the automatic mode.")
 
     ap.add_argument("--g_type", default="bvalue", choices=VALID_G_TYPES)
+    ap.add_argument("--plot_xcol", default=None, choices=VALID_G_TYPES)
     ap.add_argument("--gamma", type=float, default=267.5221900)
     ap.add_argument("--td_ms", type=float, default=None)
     ap.add_argument("--N", type=float, default=None)
@@ -153,7 +154,7 @@ def main() -> None:
     ap.add_argument(
         "--out_dproj_root",
         default=None,
-        help="Optional root where a synthetic *.Dproj.long.parquet table is written from monoexp D0 fits.",
+        help="Optional root where a synthetic *.Dproj.long.parquet table is written from the fitted OGSE reference D0 values.",
     )
     ap.add_argument("--stat", default="avg")
 
@@ -165,7 +166,6 @@ def main() -> None:
     ap.add_argument("--corr_td_ms", type=float, default=None)
     ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
     ap.add_argument("--corr_sheet", default=None)
-    ap.add_argument("--grad_corr_power", type=float, default=2.0)
     args = ap.parse_args()
 
     validate_experiment_model(EXPERIMENT, args.model)
@@ -239,7 +239,7 @@ def main() -> None:
         out_root=args.out_root,
         out_dproj_root=args.out_dproj_root,
         f_by_direction=f_by_direction,
-        b_corr_power=float(args.grad_corr_power),
+        plot_xcol=args.plot_xcol,
     )
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from fitting.b_from_g import VALID_AXIS_BASES
 from fitting.experiments import experiment_models, validate_experiment_model
 from fitting.gradient_correction import (
     CorrectionLookupSpec,
@@ -28,11 +29,13 @@ def _analysis_id_from_path(p: Path) -> str:
 
 
 def main() -> None:
+    plot_axis_choices = sorted({*VALID_AXIS_BASES, *[f"{axis}_1" for axis in VALID_AXIS_BASES]})
     ap = argparse.ArgumentParser()
     ap.add_argument("contrast_parquet", type=Path, help="Input long-form contrast parquet produced by make_contrast.py")
 
     ap.add_argument("--model", required=True, choices=sorted(experiment_models("nogse_contrast_vs_g")))
-    ap.add_argument("--gbase", default="g_lin_max", help="Gradient base: g, g_lin_max, or g_thorsten")
+    ap.add_argument("--gbase", default="g_lin_max", choices=sorted(VALID_AXIS_BASES))
+    ap.add_argument("--plot_xcol", default=None, choices=plot_axis_choices)
     ap.add_argument("--ycol", default="value_norm", help="Signal column: value or value_norm")
 
     ap.add_argument("--directions", nargs="*", default=None, help="Filter by direction values, for example: 1 2 3 or long tra")
@@ -179,6 +182,7 @@ def main() -> None:
         df,
         model=args.model,
         gbase=args.gbase,
+        plot_xcol=args.plot_xcol,
         ycol=args.ycol,
         directions=directions,
         rois=rois,

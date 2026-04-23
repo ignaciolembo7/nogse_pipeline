@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from fitting.b_from_g import VALID_AXIS_BASES
 from fitting.experiments import experiment_models, split_all_or_values, validate_experiment_model
 from fitting.gradient_correction import (
     SignalCorrectionLookupSpec,
@@ -70,7 +71,8 @@ def main() -> None:
     ap.add_argument("signal_parquet", type=Path)
     ap.add_argument("--model", required=True, choices=sorted(experiment_models(EXPERIMENT)))
     ap.add_argument("--out_root", required=True, type=Path)
-    ap.add_argument("--xcol", default="g")
+    ap.add_argument("--xcol", default="g", choices=sorted(VALID_AXIS_BASES))
+    ap.add_argument("--plot_xcol", default=None, choices=sorted(VALID_AXIS_BASES))
     ap.add_argument("--ycol", default="value_norm")
     ap.add_argument("--stat", default="avg")
     ap.add_argument("--rois", nargs="*", default=None)
@@ -95,7 +97,6 @@ def main() -> None:
     ap.add_argument("--corr_td_ms", type=float, default=None)
     ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
     ap.add_argument("--corr_sheet", default=None)
-    ap.add_argument("--grad_corr_power", type=float, default=1.0)
     args = ap.parse_args()
 
     validate_experiment_model(EXPERIMENT, args.model)
@@ -130,6 +131,7 @@ def main() -> None:
         model=args.model,
         out_root=args.out_root,
         xcol=args.xcol,
+        plot_xcol=args.plot_xcol,
         ycol=args.ycol,
         stat_keep=args.stat,
         rois=split_all_or_values(args.rois),
@@ -139,7 +141,6 @@ def main() -> None:
         m0_bounds=m0_bounds,
         d0_bounds=d0_bounds,
         f_by_direction=f_by_direction,
-        grad_corr_power=float(args.grad_corr_power),
         append_model_subdir=False,
     )
 

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit, minimize_scalar
 
-from nogse_models.nogse_model_fitting import M_nogse_free
+from models.model_fitting import M_nogse_free
 
 
 # ---------------------------

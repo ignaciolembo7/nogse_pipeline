@@ -91,17 +91,51 @@ def NOGSE_contrast_vs_ad(Lc, Ld, n, alpha, D0): # Lc and Ld are inverted, and al
 
 ######################
 
+def M_ogse_free(TE, G, N, x, M0, D0):
+
+    g = 267.52218744 # ms**-1 mT**-1
+    #[D0] = m2/ms
+
+    x = np.array(x)
+    TE = np.array(TE)
+    N = np.array(N)
+    G = np.array(G)
+
+
+    y = TE - (N-1) * x
+
+    return M0*np.exp(-1.0/12 * g**2 * G**2 * D0 * ((N-1) * x**3 + y**3))
+
+def M_ogse_rest(TE, G, N, x, tc, M0, D0):
+
+    g = 267.52218744 # ms**-1 mT**-1
+    #[D0] = m2/ms
+
+    x = np.array(x)
+    TE = np.array(TE)
+    N = np.array(N)
+    G = np.array(G)
+
+    y = TE - (N-1) * x
+
+    bSE=g*G*np.sqrt(D0*tc)
+
+    return M0 * np.exp(-bSE ** 2 * tc ** 2 * (4 * np.exp(-y / tc / 2) - np.exp(-y / tc) - 3 + y / tc)) * np.exp(-bSE ** 2 * tc ** 2 * ((N - 1) * x / tc + (-1) ** (N - 1) * np.exp(-(N - 1) * x / tc) + 1 - 2 * N - 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2 + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) * ((N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + N - 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2)) * np.exp(2 * tc ** 2 * ((np.exp((-y + 2 * x) / tc / 2) + np.exp((x - 2 * y) / tc / 2) - np.exp((x - y) / tc) / 2 - np.exp(-y / tc) / 2 + np.exp(x / tc / 2) + np.exp(-y / tc / 2) - np.exp(x / tc) / 2 - 0.1e1 / 0.2e1) * (-1) ** (2 * N) + 2 * (-1) ** (1 + N) * np.exp(-(2 * N * x - 3 * x + y) / tc / 2) + (np.exp(((3 - 2 * N) * x - 2 * y) / tc / 2) - np.exp((-N * x + 2 * x - y) / tc) / 2 + np.exp(-(2 * N * x - 4 * x + y) / tc / 2) + np.exp(-(2 * N * x - 2 * x + y) / tc / 2) - np.exp((-N * x + x - y) / tc) / 2 + np.exp(-x * (-3 + 2 * N) / tc / 2) - np.exp(-x * (N - 2) / tc) / 2 - np.exp(-(N - 1) * x / tc) / 2) * (-1) ** N + 2 * (-1) ** (1 + 2 * N) * np.exp((x - y) / tc / 2)) * bSE ** 2 / (np.exp(x / tc) + 1))
+
+def M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0): # alpha is 1/alpha
+    return M0 * M_nogse_free(TE, G, N, x, 1, alpha*D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1-alpha)*D0)
+
 def OGSE_contrast_vs_g_free(TE, G1, G2, N1, N2, M0, D0):
-    return M_nogse_free(TE, G1, N1, TE/N1, M0, D0) - M_nogse_free(TE, G2, N2, TE/N2, M0, D0)
+    return M_ogse_free(TE, G1, N1, TE/N1, M0, D0) - M_ogse_free(TE, G2, N2, TE/N2, M0, D0)
 
 def OGSE_contrast_vs_g_rest(TE, G1, G2, N1, N2, tc, M0, D0):
-    return M_nogse_rest(TE, G1, N1, TE/N1, tc, M0, D0) - M_nogse_rest(TE, G2, N2, TE/N2, tc, M0, D0)
+    return M_ogse_rest(TE, G1, N1, TE/N1, tc, M0, D0) - M_ogse_rest(TE, G2, N2, TE/N2, tc, M0, D0)
 
 def OGSE_contrast_vs_g_tort(TE, G1, G2, N1, N2, alpha, M0, D0):
-    return M_nogse_free(TE, G1, N1, TE/N1, M0, alpha*D0) - M_nogse_free(TE, G2, N2, TE/N2, M0, alpha*D0)
+    return M_ogse_free(TE, G1, N1, TE/N1, M0, alpha*D0) - M_ogse_free(TE, G2, N2, TE/N2, M0, alpha*D0)
 
 def OGSE_contrast_vs_g_mixed(TE, G1, G2, N1, N2, tc, alpha, M0, D0):
-    return M_nogse_mixed(TE, G1, N1, TE/N1, tc, alpha, M0, D0) - M_nogse_mixed(TE, G2, N2, TE/N2, tc, alpha, M0, D0)
+    return M_ogse_mixed(TE, G1, N1, TE/N1, tc, alpha, M0, D0) - M_ogse_mixed(TE, G2, N2, TE/N2, tc, alpha, M0, D0)
 
 ######################
 
