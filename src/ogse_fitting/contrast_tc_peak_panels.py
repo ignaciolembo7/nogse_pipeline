@@ -20,6 +20,7 @@ from ogse_fitting.contrast_fit_panels import (
     _sanitize_token,
     _subset_group,
 )
+from ogse_fitting.fit_ogse_contrast import _fit_row_correction_pair
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 
@@ -28,7 +29,8 @@ X_VAR_ALIASES = {"Lcf": "lcf_a"}
 
 
 def _active_raw_x(active_corr: np.ndarray, fit_row: pd.Series) -> np.ndarray:
-    f_corr = float(fit_row.get("f_corr", 1.0) or 1.0)
+    f_corr_1, f_corr_2 = _fit_row_correction_pair(fit_row)
+    f_corr = f_corr_1 if str(fit_row.get("xplot", "1")) == "1" else f_corr_2
     if not np.isfinite(f_corr) or f_corr == 0.0:
         return np.full_like(active_corr, np.nan, dtype=float)
     return np.asarray(active_corr, dtype=float) / f_corr

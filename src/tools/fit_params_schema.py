@@ -99,6 +99,8 @@ NOGSE_CONTRAST_COLS = [
     'gbase',
     'xplot',
     'f_corr',
+    'f_corr_1',
+    'f_corr_2',
     'peak_method',
     'peak_grid_n',
     'g1_max_raw_mTm',

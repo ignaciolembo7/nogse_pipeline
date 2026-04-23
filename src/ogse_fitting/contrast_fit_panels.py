@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ogse_fitting.fit_ogse_contrast import _gcols, _maybe_scale_g_thorsten, _model_yhat
+from ogse_fitting.fit_ogse_contrast import _fit_row_correction_pair, _gcols, _maybe_scale_g_thorsten, _model_yhat
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 
@@ -114,9 +114,9 @@ def _extract_plot_arrays(df_group: pd.DataFrame, fit_row: pd.Series) -> tuple[np
     G1 = _maybe_scale_g_thorsten(gbase, G1)
     G2 = _maybe_scale_g_thorsten(gbase, G2)
 
-    f_corr = float(fit_row.get("f_corr", 1.0) or 1.0)
-    G1 = G1 * f_corr
-    G2 = G2 * f_corr
+    f_corr_1, f_corr_2 = _fit_row_correction_pair(fit_row)
+    G1 = G1 * f_corr_1
+    G2 = G2 * f_corr_2
 
     m = np.isfinite(y) & np.isfinite(G1) & np.isfinite(G2)
     y, G1, G2 = y[m], G1[m], G2[m]

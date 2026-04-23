@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
-from ogse_fitting.fit_ogse_contrast import _gcols, _maybe_scale_g_thorsten
+from ogse_fitting.fit_ogse_contrast import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
 
 @dataclass(frozen=True)
 class PeakResult:
@@ -84,6 +84,8 @@ def peak_from_data_group(
     ycol: str,
     xplot: str = "1",
     f_corr: float = 1.0,
+    f_corr_1: float | None = None,
+    f_corr_2: float | None = None,
     smooth: bool = True,
     smooth_window: int = 7,
     smooth_poly: int = 2,
@@ -99,8 +101,12 @@ def peak_from_data_group(
     G1 = pd.to_numeric(df_group[g1c], errors="coerce").to_numpy(float)
     G2 = pd.to_numeric(df_group[g2c], errors="coerce").to_numpy(float)
 
-    G1 = _maybe_scale_g_thorsten(gbase, G1) * float(f_corr)
-    G2 = _maybe_scale_g_thorsten(gbase, G2) * float(f_corr)
+    f1, f2 = _coerce_correction_pair((
+        f_corr if f_corr_1 is None else f_corr_1,
+        f_corr if f_corr_2 is None else f_corr_2,
+    ))
+    G1 = _maybe_scale_g_thorsten(gbase, G1) * f1
+    G2 = _maybe_scale_g_thorsten(gbase, G2) * f2
 
     m = np.isfinite(y) & np.isfinite(G1) & np.isfinite(G2)
     y, G1, G2 = y[m], G1[m], G2[m]

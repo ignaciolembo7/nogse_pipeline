@@ -65,7 +65,8 @@ def _infer_td_ms(df: pd.DataFrame, analysis_id: str, override: float | None) -> 
 def _read_corr_table(path: Path) -> pd.DataFrame:
     """
     Strict reader for the correction table.
-    Required columns: direction, roi, td_ms, correction_factor, N_1, N_2.
+    Required columns: direction, roi, td_ms, N_1, N_2, and either
+    correction_factor or correction_factor_1/correction_factor_2.
     """
     # Prefer the explicit "grad_correction" sheet when present.
     xls = pd.ExcelFile(path, engine="openpyxl")
@@ -82,10 +83,19 @@ def _read_corr_table(path: Path) -> pd.DataFrame:
     if rename:
         corr = corr.rename(columns=rename)
 
-    required = {"roi", "direction", "td_ms", "correction_factor", "N_1", "N_2"}
+    if "correction_factor" in corr.columns:
+        if "correction_factor_1" not in corr.columns:
+            corr["correction_factor_1"] = corr["correction_factor"]
+        if "correction_factor_2" not in corr.columns:
+            corr["correction_factor_2"] = corr["correction_factor"]
+
+    required = {"roi", "direction", "td_ms", "N_1", "N_2"}
     missing = required - set(corr.columns)
     if missing:
         raise ValueError(f"Invalid correction table. Missing required columns: {sorted(missing)}")
+    factor_missing = {"correction_factor_1", "correction_factor_2"} - set(corr.columns)
+    if factor_missing:
+        raise ValueError(f"Invalid correction table. Missing correction columns: {sorted(factor_missing)}")
 
     corr["direction"] = corr["direction"].astype(str)
     corr["roi"] = corr["roi"].astype(str).str.strip()
@@ -93,12 +103,18 @@ def _read_corr_table(path: Path) -> pd.DataFrame:
         corr["sheet"] = corr["sheet"].map(canonical_sheet_name)
 
     corr["td_ms"] = pd.to_numeric(corr["td_ms"], errors="coerce")
-    corr["correction_factor"] = pd.to_numeric(corr["correction_factor"], errors="coerce")
+    corr["correction_factor_1"] = pd.to_numeric(corr["correction_factor_1"], errors="coerce")
+    corr["correction_factor_2"] = pd.to_numeric(corr["correction_factor_2"], errors="coerce")
+    if "correction_factor" in corr.columns:
+        corr["correction_factor"] = pd.to_numeric(corr["correction_factor"], errors="coerce")
+    else:
+        corr["correction_factor"] = np.sqrt(corr["correction_factor_1"] * corr["correction_factor_2"])
     corr["N_1"] = pd.to_numeric(corr["N_1"], errors="coerce")
     corr["N_2"] = pd.to_numeric(corr["N_2"], errors="coerce")
     corr = corr[
         np.isfinite(corr["td_ms"])
-        & np.isfinite(corr["correction_factor"])
+        & np.isfinite(corr["correction_factor_1"])
+        & np.isfinite(corr["correction_factor_2"])
         & np.isfinite(corr["N_1"])
         & np.isfinite(corr["N_2"])
     ].copy()
@@ -114,7 +130,7 @@ def _build_f_by_direction(
     sheet: str | None = None,
     n1: int | None = None,
     n2: int | None = None,
-) -> dict[str, float]:
+) -> dict[str, tuple[float, float]]:
     c = corr[corr["roi"].astype(str) == str(roi_ref).strip()].copy()
 
     # If the correction table has a sheet column, filter it to avoid mixing datasets.
@@ -139,10 +155,12 @@ def _build_f_by_direction(
         extra = f" and {'; '.join(extra_parts)}" if extra_parts else ""
         raise ValueError(f"No correction factors were found for roi={roi_ref}{extra} and td_ms={td_ms:.3f} (tol={tol_ms}).")
 
-    # If duplicates exist, average them.
-    c = c.groupby("direction", as_index=False)["correction_factor"].mean()
+    c = c.groupby("direction", as_index=False)[["correction_factor_1", "correction_factor_2"]].mean()
 
-    out = {str(d): float(f) for d, f in zip(c["direction"], c["correction_factor"])}
+    out = {
+        str(row["direction"]): (float(row["correction_factor_1"]), float(row["correction_factor_2"]))
+        for _, row in c.iterrows()
+    }
     if not out:
         raise ValueError("The filtered correction table did not produce any valid factors.")
     return out

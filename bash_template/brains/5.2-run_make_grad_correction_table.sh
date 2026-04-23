@@ -11,6 +11,7 @@ PY="${PY:-python}"
 MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
 ROI="Syringe"
+MONOEXP_REF_NS=(1 4 8)
 EXP_FITS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated"
 NOGSE_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit-free_ogse-contrast-rotated"
 OUT_XLSX="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/grad_correction_rotated/Syringe.grad_correction_rotated.xlsx"
@@ -37,6 +38,7 @@ mkdir -p "$(dirname "$OUT_CSV")"
 echo "============================================================"
 echo "Dataset       : brains"
 echo "ROI           : $ROI"
+echo "Monoexp Ns    : ${MONOEXP_REF_NS[*]}"
 echo "Monoexp root  : $EXP_FITS_ROOT"
 echo "NOGSE root    : $NOGSE_ROOT"
 echo "Output XLSX   : $OUT_XLSX"
@@ -46,6 +48,7 @@ echo "Output CSV    : $OUT_CSV"
     --roi "$ROI" \
     --exp-fits-root "$EXP_FITS_ROOT" \
     --nogse-root "$NOGSE_ROOT" \
+    --monoexp-ref-Ns "${MONOEXP_REF_NS[@]}" \
     --out-xlsx "$OUT_XLSX" \
     --out-csv "$OUT_CSV"
 

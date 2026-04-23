@@ -22,6 +22,7 @@ PY="${PY:-$DEFAULT_PY}"
 MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
 ROI="water"
+MONOEXP_REF_NS=(1 4 8)
 EXP_FITS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal"
 NOGSE_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit-free_ogse-contrast"
 OUT_XLSX="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.xlsx"
@@ -58,6 +59,7 @@ mkdir -p "$(dirname "$OUT_CSV")"
 echo "============================================================"
 echo "Dataset       : phantoms"
 echo "ROI           : $ROI"
+echo "Monoexp Ns    : ${MONOEXP_REF_NS[*]}"
 echo "Monoexp root  : $EXP_FITS_ROOT"
 echo "NOGSE root    : $NOGSE_ROOT"
 echo "Output XLSX   : $OUT_XLSX"
@@ -67,6 +69,7 @@ echo "Output CSV    : $OUT_CSV"
     --roi "$ROI" \
     --exp-fits-root "$EXP_FITS_ROOT" \
     --nogse-root "$NOGSE_ROOT" \
+    --monoexp-ref-Ns "${MONOEXP_REF_NS[@]}" \
     --out-xlsx "$OUT_XLSX" \
     --out-csv "$OUT_CSV"
 

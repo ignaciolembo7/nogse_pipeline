@@ -95,6 +95,8 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
         "tc_peak_ms",
         "signal_peak",
         "f_corr",
+        "f_corr_1",
+        "f_corr_2",
         "peak_fraction",
     ]
     for col in numeric_cols:

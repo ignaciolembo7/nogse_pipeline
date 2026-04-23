@@ -93,6 +93,32 @@ def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
     return arr
 
 
+def _coerce_correction_pair(value: Any) -> tuple[float, float]:
+    if value is None:
+        return 1.0, 1.0
+
+    if isinstance(value, (tuple, list, np.ndarray, pd.Series)) and len(value) >= 2:
+        f1 = float(value[0])
+        f2 = float(value[1])
+    else:
+        f1 = float(value)
+        f2 = f1
+
+    if not np.isfinite(f1) or f1 <= 0:
+        f1 = 1.0
+    if not np.isfinite(f2) or f2 <= 0:
+        f2 = 1.0
+    return f1, f2
+
+
+def _fit_row_correction_pair(fit_row: dict[str, Any] | pd.Series) -> tuple[float, float]:
+    f1 = fit_row.get("f_corr_1", np.nan)
+    f2 = fit_row.get("f_corr_2", np.nan)
+    if pd.notna(f1) and pd.notna(f2):
+        return _coerce_correction_pair((f1, f2))
+    return _coerce_correction_pair(fit_row.get("f_corr", 1.0))
+
+
 def _rmse(y: np.ndarray, yhat: np.ndarray) -> float:
     return float(np.sqrt(np.mean((y - yhat) ** 2)))
 
@@ -205,6 +231,8 @@ def _compute_peak_metrics(
     g1_max_corr: float,
     g2_max_corr: float,
     f_corr: float,
+    f_corr_1: float,
+    f_corr_2: float,
     xplot: str,
     peak_grid_n: int,
     peak_D0_fix: float,
@@ -229,11 +257,16 @@ def _compute_peak_metrics(
     g2_peak_corr = float(G2[i_peak])
     y_peak = float(y[i_peak])
 
-    f_val = float(f_corr) if np.isfinite(f_corr) and float(f_corr) != 0.0 else np.nan
-    g1_peak_raw = float(g1_peak_corr / f_val) if np.isfinite(f_val) else np.nan
-    g2_peak_raw = float(g2_peak_corr / f_val) if np.isfinite(f_val) else np.nan
-    g1_max_raw = float(g1_max_corr / f_val) if np.isfinite(f_val) else np.nan
-    g2_max_raw = float(g2_max_corr / f_val) if np.isfinite(f_val) else np.nan
+    f1, f2 = _coerce_correction_pair((
+        f_corr if f_corr_1 is None else f_corr_1,
+        f_corr if f_corr_2 is None else f_corr_2,
+    ))
+    f1_val = f1 if np.isfinite(f1) and f1 != 0.0 else np.nan
+    f2_val = f2 if np.isfinite(f2) and f2 != 0.0 else np.nan
+    g1_peak_raw = float(g1_peak_corr / f1_val) if np.isfinite(f1_val) else np.nan
+    g2_peak_raw = float(g2_peak_corr / f2_val) if np.isfinite(f2_val) else np.nan
+    g1_max_raw = float(g1_max_corr / f1_val) if np.isfinite(f1_val) else np.nan
+    g2_max_raw = float(g2_max_corr / f2_val) if np.isfinite(f2_val) else np.nan
 
     x_is_1 = str(xplot) == "1"
     x_peak_corr = g1_peak_corr if x_is_1 else g2_peak_corr
@@ -589,6 +622,8 @@ class FitRow:
     n_points: int
     n_fit: int
     f_corr: float
+    f_corr_1: float
+    f_corr_2: float
 
     # peak / maxima
     peak_method: str | None = None
@@ -640,7 +675,7 @@ def fit_ogse_contrast_long(
     xplot: str = "1",
     n_fit: int | None = None,
     sort_by_x: bool = True,
-    f_by_direction: dict[str, float] | None = None,
+    f_by_direction: dict[str, float | tuple[float, float]] | None = None,
     td_override_ms: float | None = None,
     td_tol_ms: float = 1e-3,
     M0_vary: bool = True,
@@ -827,16 +862,18 @@ def fit_ogse_contrast_long(
                     n_points=n_points,
                     n_fit=n_points,
                     f_corr=1.0,
+                    f_corr_1=1.0,
+                    f_corr_2=1.0,
                     ok=False,
                     msg="Empty group or td_ms could not be inferred.",
                 )
             )
             continue
 
-        # correction factor by direction (string key)
-        f_corr = float(f_by_direction.get(str(direction), 1.0)) if f_by_direction else 1.0
-        G1 = G1 * f_corr
-        G2 = G2 * f_corr
+        f_corr_1, f_corr_2 = _coerce_correction_pair(f_by_direction.get(str(direction), 1.0) if f_by_direction else 1.0)
+        f_corr = float(np.sqrt(f_corr_1 * f_corr_2))
+        G1 = G1 * f_corr_1
+        G2 = G2 * f_corr_2
 
         # sort by x for fitting stability
         if sort_by_x:
@@ -892,6 +929,8 @@ def fit_ogse_contrast_long(
             n_points=n_points,
             n_fit=n_fit_used,
             f_corr=f_corr,
+            f_corr_1=f_corr_1,
+            f_corr_2=f_corr_2,
         )
 
         try:
@@ -909,6 +948,8 @@ def fit_ogse_contrast_long(
                     g1_max_corr=float(np.nanmax(G1)),
                     g2_max_corr=float(np.nanmax(G2)),
                     f_corr=float(f_corr),
+                    f_corr_1=float(f_corr_1),
+                    f_corr_2=float(f_corr_2),
                     xplot=str(xplot),
                     peak_grid_n=int(peak_grid_n),
                     peak_D0_fix=float(peak_D0_fix),
@@ -942,6 +983,8 @@ def fit_ogse_contrast_long(
                     g1_max_corr=float(np.nanmax(G1)),
                     g2_max_corr=float(np.nanmax(G2)),
                     f_corr=float(f_corr),
+                    f_corr_1=float(f_corr_1),
+                    f_corr_2=float(f_corr_2),
                     xplot=str(xplot),
                     peak_grid_n=int(peak_grid_n),
                     peak_D0_fix=float(peak_D0_fix),
@@ -977,6 +1020,8 @@ def fit_ogse_contrast_long(
                     g1_max_corr=float(np.nanmax(G1)),
                     g2_max_corr=float(np.nanmax(G2)),
                     f_corr=float(f_corr),
+                    f_corr_1=float(f_corr_1),
+                    f_corr_2=float(f_corr_2),
                     xplot=str(xplot),
                     peak_grid_n=int(peak_grid_n),
                     peak_D0_fix=float(peak_D0_fix),
@@ -1037,9 +1082,9 @@ def plot_fit_one_group(
     G1 = _maybe_scale_g_thorsten(gbase, G1)
     G2 = _maybe_scale_g_thorsten(gbase, G2)
 
-    f_corr = float(fit_row.get("f_corr", 1.0) or 1.0)
-    G1 = G1 * f_corr
-    G2 = G2 * f_corr
+    f_corr_1, f_corr_2 = _fit_row_correction_pair(fit_row)
+    G1 = G1 * f_corr_1
+    G2 = G2 * f_corr_2
     m = np.isfinite(y) & np.isfinite(G1) & np.isfinite(G2)
     y, G1, G2 = y[m], G1[m], G2[m]
 
