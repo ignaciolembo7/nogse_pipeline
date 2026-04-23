@@ -122,7 +122,7 @@ def _fit_row_correction_pair(fit_row: dict[str, Any] | pd.Series) -> tuple[float
     f2 = fit_row.get("f_corr_2", np.nan)
     if pd.notna(f1) and pd.notna(f2):
         return _coerce_correction_pair((f1, f2))
-    return _coerce_correction_pair(fit_row.get("f_corr", 1.0))
+    return 1.0, 1.0
 
 
 def _analysis_id_from_source_file(source_file: str | None) -> str:
@@ -270,7 +270,6 @@ def _compute_peak_metrics(
     fit_row: dict[str, Any],
     g1_max_corr: float,
     g2_max_corr: float,
-    f_corr: float,
     f_corr_1: float,
     f_corr_2: float,
     xplot: str,
@@ -297,12 +296,8 @@ def _compute_peak_metrics(
     g2_peak_corr = float(G2[i_peak])
     y_peak = float(y[i_peak])
 
-    f1, f2 = _coerce_correction_pair((
-        f_corr if f_corr_1 is None else f_corr_1,
-        f_corr if f_corr_2 is None else f_corr_2,
-    ))
-    f1_val = f1 if np.isfinite(f1) and f1 != 0.0 else np.nan
-    f2_val = f2 if np.isfinite(f2) and f2 != 0.0 else np.nan
+    f1_val = f_corr_1 if np.isfinite(f_corr_1) and f_corr_1 != 0.0 else np.nan
+    f2_val = f_corr_2 if np.isfinite(f_corr_2) and f_corr_2 != 0.0 else np.nan
     g1_peak_raw = float(g1_peak_corr / f1_val) if np.isfinite(f1_val) else np.nan
     g2_peak_raw = float(g2_peak_corr / f2_val) if np.isfinite(f2_val) else np.nan
     g1_max_raw = float(g1_max_corr / f1_val) if np.isfinite(f1_val) else np.nan
@@ -964,7 +959,7 @@ def fit_ogse_contrast_long(
                     xplot=str(xplot),
                     n_points=n_points,
                     n_fit=n_points,
-                    f_corr=1.0,
+                    f_corr=np.nan,
                     f_corr_1=1.0,
                     f_corr_2=1.0,
                     ok=False,
@@ -974,7 +969,6 @@ def fit_ogse_contrast_long(
             continue
 
         f_corr_1, f_corr_2 = _coerce_correction_pair(f_by_direction.get(str(direction), 1.0) if f_by_direction else 1.0)
-        f_corr = float(np.sqrt(f_corr_1 * f_corr_2))
         G1 = G1 * f_corr_1
         G2 = G2 * f_corr_2
 
@@ -1033,7 +1027,7 @@ def fit_ogse_contrast_long(
             xplot=str(xplot),
             n_points=n_points,
             n_fit=n_fit_used,
-            f_corr=f_corr,
+            f_corr=np.nan,
             f_corr_1=f_corr_1,
             f_corr_2=f_corr_2,
         )
@@ -1061,7 +1055,6 @@ def fit_ogse_contrast_long(
                 fit_row=fit_values,
                 g1_max_corr=float(np.nanmax(G1)),
                 g2_max_corr=float(np.nanmax(G2)),
-                f_corr=float(f_corr),
                 f_corr_1=float(f_corr_1),
                 f_corr_2=float(f_corr_2),
                 xplot=str(xplot),
