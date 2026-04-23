@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import Literal, Union
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,17 @@ class CorrectionLookupSpec:
     sheet: str | None = None
     n1: int | None = None
     n2: int | None = None
+
+
+@dataclass(frozen=True)
+class SignalCorrectionLookupSpec:
+    roi_ref: str
+    td_ms: float
+    signal_n: int | None = None
+    tol_ms: float = 1e-3
+    sheet: str | None = None
+    signal_source_file: str | None = None
+    preferred_side: Literal[1, 2] | None = None
 
 
 def unique_float(df: pd.DataFrame, col: str) -> float | None:
@@ -78,8 +89,8 @@ def infer_td_ms(
 def read_correction_table(path: str | Path) -> pd.DataFrame:
     """
     Strict reader for gradient correction tables.
-    Required columns: direction, roi, td_ms, N_1, N_2, and either
-    correction_factor or correction_factor_1/correction_factor_2.
+    Required columns: direction, roi, td_ms, N_1, N_2,
+    correction_factor_1, and correction_factor_2.
     """
     path = Path(path)
     xls = pd.ExcelFile(path, engine="openpyxl")
@@ -88,17 +99,15 @@ def read_correction_table(path: str | Path) -> pd.DataFrame:
 
     raise_on_unrecognized_column_names(corr.columns, context=f"read_correction_table({path})")
 
-    rename = {}
-    if "correction factor" in corr.columns and "correction_factor" not in corr.columns:
-        rename["correction factor"] = "correction_factor"
-    if rename:
-        corr = corr.rename(columns=rename)
-
-    if "correction_factor" in corr.columns:
-        if "correction_factor_1" not in corr.columns:
-            corr["correction_factor_1"] = corr["correction_factor"]
-        if "correction_factor_2" not in corr.columns:
-            corr["correction_factor_2"] = corr["correction_factor"]
+    if (
+        ("correction factor" in corr.columns or "correction_factor" in corr.columns)
+        and not {"correction_factor_1", "correction_factor_2"}.issubset(corr.columns)
+    ):
+        raise ValueError(
+            "Legacy correction tables with a single correction_factor are no longer supported. "
+            "Regenerate the table with the new side-specific pipeline so it includes "
+            "correction_factor_1 and correction_factor_2."
+        )
 
     required = {"roi", "direction", "td_ms", "N_1", "N_2"}
     missing = required - set(corr.columns)
@@ -116,10 +125,6 @@ def read_correction_table(path: str | Path) -> pd.DataFrame:
     corr["td_ms"] = pd.to_numeric(corr["td_ms"], errors="coerce")
     corr["correction_factor_1"] = pd.to_numeric(corr["correction_factor_1"], errors="coerce")
     corr["correction_factor_2"] = pd.to_numeric(corr["correction_factor_2"], errors="coerce")
-    if "correction_factor" in corr.columns:
-        corr["correction_factor"] = pd.to_numeric(corr["correction_factor"], errors="coerce")
-    else:
-        corr["correction_factor"] = np.sqrt(corr["correction_factor_1"] * corr["correction_factor_2"])
     corr["N_1"] = pd.to_numeric(corr["N_1"], errors="coerce")
     corr["N_2"] = pd.to_numeric(corr["N_2"], errors="coerce")
     corr = corr[
@@ -136,6 +141,7 @@ def build_direction_factors(
     corr: pd.DataFrame,
     *,
     spec: CorrectionLookupSpec,
+    factor_mode: Literal["side_1", "side_2", "per_side"] = "per_side",
 ) -> dict[str, Union[float, tuple[float, float]]]:
     c = corr[corr["roi"].astype(str) == str(spec.roi_ref).strip()].copy()
 
@@ -172,7 +178,7 @@ def build_direction_factors(
         )
 
     # If duplicates exist, average them.
-    if {"correction_factor_1", "correction_factor_2"}.issubset(c.columns):
+    if factor_mode == "per_side":
         c = c.groupby("direction", as_index=False)[["correction_factor_1", "correction_factor_2"]].mean()
         out = {
             str(row["direction"]): (
@@ -181,9 +187,108 @@ def build_direction_factors(
             )
             for _, row in c.iterrows()
         }
+    elif factor_mode == "side_1":
+        c = c.groupby("direction", as_index=False)["correction_factor_1"].mean()
+        out = {str(d): float(f) for d, f in zip(c["direction"], c["correction_factor_1"])}
     else:
-        c = c.groupby("direction", as_index=False)["correction_factor"].mean()
-        out = {str(d): float(f) for d, f in zip(c["direction"], c["correction_factor"])}
+        c = c.groupby("direction", as_index=False)["correction_factor_2"].mean()
+        out = {str(d): float(f) for d, f in zip(c["direction"], c["correction_factor_2"])}
     if not out:
         raise ValueError("The filtered correction table did not produce any valid factors.")
     return out
+
+
+def _source_key(text: str | None) -> str:
+    if text is None:
+        return ""
+    name = Path(str(text)).name.strip()
+    lower = name.lower()
+    if lower.endswith(".long.parquet"):
+        return name[: -len(".long.parquet")]
+    if lower.endswith(".parquet"):
+        return name[: -len(".parquet")]
+    return Path(name).stem
+
+
+def build_signal_direction_factors(
+    corr: pd.DataFrame,
+    *,
+    spec: SignalCorrectionLookupSpec,
+) -> dict[str, float]:
+    c = corr[corr["roi"].astype(str) == str(spec.roi_ref).strip()].copy()
+
+    if spec.sheet is not None and "sheet" in c.columns:
+        sheet_key = canonical_sheet_name(spec.sheet)
+        c = c[c["sheet"] == sheet_key].copy()
+
+    c = c[
+        np.isclose(
+            pd.to_numeric(c["td_ms"], errors="coerce").to_numpy(dtype=float),
+            float(spec.td_ms),
+            rtol=0.0,
+            atol=float(spec.tol_ms),
+        )
+    ].copy()
+
+    if c.empty:
+        raise ValueError(
+            f"No signal correction factors were found for roi={spec.roi_ref} "
+            f"and td_ms={float(spec.td_ms):.3f} (tol={spec.tol_ms})."
+        )
+
+    source_key = _source_key(spec.signal_source_file)
+    matched_rows: list[dict[str, object]] = []
+    for _, row in c.iterrows():
+        side_candidates: list[int] = []
+        if spec.preferred_side is not None:
+            side_candidates = [int(spec.preferred_side)]
+        else:
+            for side in (1, 2):
+                file_col = f"signal_source_file_{side}"
+                n_col = f"N_{side}"
+                row_source_key = _source_key(row.get(file_col))
+                n_val = pd.to_numeric(pd.Series([row.get(n_col)]), errors="coerce").iloc[0]
+                source_match = bool(source_key) and row_source_key == source_key
+                n_match = spec.signal_n is not None and np.isfinite(n_val) and int(round(float(n_val))) == int(spec.signal_n)
+                if source_match or n_match:
+                    side_candidates.append(side)
+
+        for side in side_candidates:
+            factor_col = f"correction_factor_{side}"
+            factor = pd.to_numeric(pd.Series([row.get(factor_col)]), errors="coerce").iloc[0]
+            if not np.isfinite(factor):
+                continue
+            matched_rows.append(
+                {
+                    "direction": str(row["direction"]),
+                    "side": int(side),
+                    "factor": float(factor),
+                }
+            )
+
+    if not matched_rows:
+        extra = []
+        if source_key:
+            extra.append(f"signal_source_file={source_key}")
+        if spec.signal_n is not None:
+            extra.append(f"N={int(spec.signal_n)}")
+        if spec.preferred_side is not None:
+            extra.append(f"preferred_side={int(spec.preferred_side)}")
+        detail = f" ({', '.join(extra)})" if extra else ""
+        raise ValueError(
+            "Could not match any side-specific correction factor for the requested signal"
+            f"{detail}. The new pipeline only supports per-signal side-specific correction."
+        )
+
+    matches = pd.DataFrame(matched_rows)
+    side_counts = matches.groupby("direction")["side"].nunique()
+    ambiguous = side_counts[side_counts > 1]
+    if not ambiguous.empty:
+        raise ValueError(
+            "Ambiguous side-specific correction lookup for some directions. "
+            "The signal could not be matched to a unique side in the correction table: "
+            f"{sorted(ambiguous.index.astype(str).tolist())}"
+        )
+
+    out = matches.groupby("direction", as_index=False)["factor"].mean()
+    return {str(d): float(f) for d, f in zip(out["direction"], out["factor"])}

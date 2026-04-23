@@ -456,102 +456,6 @@ def compute_d0_monoexp_reference(
     return out
 
 
-# ---------------------------
-# NOGSE contrast D0
-# ---------------------------
-def load_nogse_fit_d0(
-    nogse_root_or_file: str | Path,
-    *,
-    roi: str,
-    stat_keep: str = 'avg',
-    cmap: ColumnMap = ColumnMap(),
-    nogse_scale: float = 1.0,
-    canonicalize_sheet: bool = True,
-) -> pd.DataFrame:
-    p = Path(nogse_root_or_file)
-    files = _discover_files(
-        p,
-        patterns=[
-            '*.fit_*.parquet',
-            'fit_params*.parquet', 'fit_params*.csv', 'fit_params*.xlsx', 'fit_params*.xls',
-            '*.fit_params.parquet', '*.fit_params.csv', '*.fit_params.xlsx', '*.fit_params.xls',
-        ],
-    )
-    if not files:
-        raise FileNotFoundError(f'Could not find contrast fit tables under: {p.resolve()}')
-
-    blocks: list[pd.DataFrame] = []
-    for f in files:
-        df = _read_table(f)
-        if df.empty:
-            continue
-
-        exp_id = _infer_exp_id(f)
-        if 'fit_kind' in df.columns:
-            df = df[df['fit_kind'].astype(str).isin(['ogse_contrast', 'nogse_contrast'])].copy()
-        if 'ok' in df.columns:
-            df = df[df['ok'].fillna(False).astype(bool)].copy()
-        if 'model' in df.columns:
-            model = df['model'].astype(str).str.lower()
-            if (model == 'free').any():
-                df = df[model == 'free'].copy()
-
-        roi_col = cmap.roi_col if cmap.roi_col in df.columns else _pick_existing(df, ['roi'])
-        dir_col = cmap.dir_col if cmap.dir_col in df.columns else _pick_existing(df, ['direction'])
-        td_col = cmap.td_col if cmap.td_col in df.columns else _pick_existing(df, ['td_ms', 'td_ms_1'])
-        d0_col = cmap.d0_col if cmap.d0_col in df.columns else _pick_existing(df, ['D0_m2_ms', 'D0_mm2_s', 'D0'])
-        d0_err_col = cmap.d0_err_col if cmap.d0_err_col in df.columns else _pick_existing(df, ['D0_err_m2_ms', 'D0_err_mm2_s', 'D0_err'])
-        n1_col = cmap.n1_col if cmap.n1_col in df.columns else None
-        n2_col = cmap.n2_col if cmap.n2_col in df.columns else None
-
-        if roi_col is None or dir_col is None or d0_col is None or n1_col is None or n2_col is None:
-            continue
-
-        sub = df.copy()
-        sub = sub[sub[roi_col].astype(str).str.strip() == str(roi).strip()].copy()
-        sub = _filter_stat(sub, stat_col=cmap.stat_col, stat_keep=stat_keep)
-        if sub.empty:
-            continue
-
-        if td_col is not None:
-            sub['td_ms'] = pd.to_numeric(sub[td_col], errors='coerce')
-        else:
-            sub['td_ms'] = _infer_td_ms(sub)
-
-        sub['subj'] = _infer_subj_from_df_or_id(sub, exp_id, source_path=f)
-        sub['sheet'] = _infer_sheet_from_df_or_id(sub, exp_id, canonicalize=canonicalize_sheet, source_path=f)
-        sub['roi'] = sub[roi_col].astype(str).str.strip()
-        sub['direction'] = sub[dir_col].astype(str)
-        sub['N_1'] = pd.to_numeric(sub[n1_col], errors='coerce')
-        sub['N_2'] = pd.to_numeric(sub[n2_col], errors='coerce')
-        sub['D0_fit_nogse'] = _convert_d0_to_m2_ms(sub[d0_col], source_col=d0_col, mm2s_scale=1e-9) * float(nogse_scale)
-        if d0_err_col is not None:
-            sub['D0_fit_nogse_fiterr'] = _convert_d0_to_m2_ms(sub[d0_err_col], source_col=d0_err_col, mm2s_scale=1e-9) * abs(float(nogse_scale))
-        else:
-            sub['D0_fit_nogse_fiterr'] = np.nan
-
-        keep = sub[['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse', 'D0_fit_nogse_fiterr']].copy()
-        keep = keep.dropna(subset=['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'D0_fit_nogse'])
-        if not keep.empty:
-            blocks.append(keep)
-
-    out = pd.concat(blocks, ignore_index=True) if blocks else pd.DataFrame()
-    if out.empty:
-        raise ValueError('Could not build D0_fit_nogse. Check the path, columns, ROI, and N_1/N_2.')
-
-    out = out.groupby(['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2'], as_index=False).agg(
-        D0_fit_nogse=('D0_fit_nogse', 'mean'),
-        D0_fit_nogse_std=('D0_fit_nogse', 'std'),
-        D0_fit_nogse_fiterr=('D0_fit_nogse_fiterr', 'mean'),
-        n_nogse=('D0_fit_nogse', 'size'),
-    )
-    out['D0_fit_nogse_std'] = pd.to_numeric(out['D0_fit_nogse_std'], errors='coerce')
-    out['D0_fit_nogse_fiterr'] = pd.to_numeric(out['D0_fit_nogse_fiterr'], errors='coerce')
-    out['D0_fit_nogse_std'] = out['D0_fit_nogse_std'].fillna(out['D0_fit_nogse_fiterr'])
-    out = out.drop(columns=['D0_fit_nogse_fiterr'])
-    return out
-
-
 def load_nogse_expected_keys(
     nogse_root_or_file: str | Path,
     *,
@@ -1096,44 +1000,6 @@ def plot_ogse_signal_correction_fits(
     return outputs
 
 
-# ---------------------------
-# Matching + correction factor
-# ---------------------------
-def _format_missing_matches(missing: pd.DataFrame, monoexp_ref: pd.DataFrame) -> str:
-    sample_missing = missing[['subj', 'sheet', 'roi', 'td_ms', 'direction', 'N_1', 'N_2']].drop_duplicates().head(10)
-    sample_exp_cols = [c for c in ['subj', 'sheet', 'roi', 'direction', 'source_key', 'td_ms', 'N'] if c in monoexp_ref.columns]
-    sample_exp = monoexp_ref[sample_exp_cols].drop_duplicates().head(20)
-    return (
-        'Missing monoexp references for some contrast fits.\n\n'
-        'Missing examples:\n'
-        f"{sample_missing.to_string(index=False)}\n\n"
-        'Referencias monoexp disponibles (ejemplos):\n'
-        f"{sample_exp.to_string(index=False)}"
-    )
-
-
-def _propagate_correction_std(row: pd.Series) -> float:
-    corr = row.get('correction_factor', np.nan)
-    if not np.isfinite(corr) or corr <= 0:
-        return np.nan
-
-    rel_var = 0.0
-    used = False
-    for mean_col, std_col in [
-        ('D0_fit_nogse', 'D0_fit_nogse_std'),
-        ('D0_fit_monoexp', 'D0_fit_monoexp_std'),
-    ]:
-        mean_v = row.get(mean_col, np.nan)
-        std_v = row.get(std_col, np.nan)
-        if np.isfinite(mean_v) and mean_v > 0 and np.isfinite(std_v) and std_v >= 0:
-            rel_var += (float(std_v) / float(mean_v)) ** 2
-            used = True
-
-    if not used:
-        return np.nan
-    return float(0.5 * corr * np.sqrt(rel_var))
-
-
 def _propagate_correction_std_side(row: pd.Series, side: int) -> float:
     corr = row.get(f'correction_factor_{side}', np.nan)
     if not np.isfinite(corr) or corr <= 0:
@@ -1379,11 +1245,8 @@ def _build_side_specific_table(
     out['ratio_2'] = out['D0_fit_nogse_2'] / out['D0_fit_monoexp']
     out['correction_factor_1'] = np.sqrt(out['ratio_1'])
     out['correction_factor_2'] = np.sqrt(out['ratio_2'])
-    out['correction_factor'] = np.sqrt(out['correction_factor_1'] * out['correction_factor_2'])
-    out['ratio'] = np.sqrt(out['ratio_1'] * out['ratio_2'])
     out['correction_factor_1_std'] = out.apply(lambda row: _propagate_correction_std_side(row, 1), axis=1)
     out['correction_factor_2_std'] = out.apply(lambda row: _propagate_correction_std_side(row, 2), axis=1)
-    out['correction_factor_std'] = np.nan
     out['correction_source'] = 'ogse_signal_free_per_side'
     out['correction_pool_n'] = 1
 
@@ -1398,10 +1261,10 @@ def _build_side_specific_table(
         'D0_fit_monoexp_1', 'D0_fit_monoexp_2',
         'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
         'monoexp_ref_Ns', 'monoexp_ref_N_count', 'monoexp_ref_source_files',
-        'ratio_1', 'ratio_2', 'ratio',
+        'ratio_1', 'ratio_2',
         'correction_factor_1', 'correction_factor_1_std',
         'correction_factor_2', 'correction_factor_2_std',
-        'correction_factor', 'correction_factor_std', 'correction_source', 'correction_pool_n',
+        'correction_source', 'correction_pool_n',
     ]
     cols = [c for c in cols if c in out.columns]
     return out[cols].sort_values(
@@ -1506,13 +1369,6 @@ def _add_side_specific_pooled_rows(
                 row[factor_std_col] = float(_num_col(donors, factor_std_col).mean())
             row[f'ratio_{side}'] = float(row[factor_col] ** 2) if np.isfinite(float(row[factor_col])) else np.nan
 
-        row['ratio'] = float(np.sqrt(row['ratio_1'] * row['ratio_2'])) if np.isfinite(row['ratio_1']) and np.isfinite(row['ratio_2']) else np.nan
-        row['correction_factor'] = (
-            float(np.sqrt(row['correction_factor_1'] * row['correction_factor_2']))
-            if np.isfinite(row['correction_factor_1']) and np.isfinite(row['correction_factor_2'])
-            else np.nan
-        )
-        row['correction_factor_std'] = np.nan
         pooled_rows.append(row)
 
     if not pooled_rows:
@@ -1520,170 +1376,6 @@ def _add_side_specific_pooled_rows(
 
     out = pd.concat([out, pd.DataFrame(pooled_rows)], ignore_index=True, sort=False)
     return out.sort_values(['subj', 'sheet', 'td_ms', 'N_1', 'N_2', 'direction'], kind='stable').reset_index(drop=True)
-
-
-def _legacy_contrast_outputs(
-    *,
-    monoexp_ref: pd.DataFrame,
-    nogse_root_or_file: str | Path,
-    roi: str,
-    stat_keep: str,
-    cmap: ColumnMap,
-    nogse_scale: float,
-    tol_ms: float,
-    canonicalize_sheet: bool,
-    monoexp_ref_Ns: Iterable[int] | None,
-) -> GradCorrectionOutputs:
-    nogse = load_nogse_fit_d0(
-        nogse_root_or_file,
-        roi=roi,
-        stat_keep=stat_keep,
-        cmap=cmap,
-        nogse_scale=nogse_scale,
-        canonicalize_sheet=canonicalize_sheet,
-    )
-
-    monoexp_ref = monoexp_ref.copy()
-    nogse = nogse.copy()
-    monoexp_ref['_td_key'] = _td_key_from_series(monoexp_ref['td_ms'], tol_ms)
-    selected_Ns = _normalize_monoexp_ref_Ns(monoexp_ref_Ns)
-    if selected_Ns is not None:
-        monoexp_ref['_N_key'] = _int_key_from_series(monoexp_ref['N'])
-        monoexp_ref = monoexp_ref[monoexp_ref['_N_key'].isin(list(selected_Ns))].copy()
-    legacy_ref = monoexp_ref.groupby(['subj', 'sheet', 'roi', 'direction', '_td_key'], as_index=False).agg(
-        td_ms=('td_ms', 'mean'),
-        D0_fit_monoexp=('D0_fit_monoexp', 'mean'),
-        D0_fit_monoexp_std=('D0_fit_monoexp', 'std'),
-        n_monoexp=('D0_fit_monoexp', 'size'),
-        monoexp_ref_Ns=('N', _join_unique_ints),
-        monoexp_ref_N_count=('N', _count_unique_ints),
-    )
-    nogse['_td_key'] = _td_key_from_series(nogse['td_ms'], tol_ms)
-
-    out = nogse.merge(
-        legacy_ref[[
-            'subj', 'sheet', 'roi', 'direction', '_td_key',
-            'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
-            'monoexp_ref_Ns', 'monoexp_ref_N_count',
-        ]],
-        on=['subj', 'sheet', 'roi', 'direction', '_td_key'],
-        how='left',
-    )
-
-    missing = out[out['D0_fit_monoexp'].isna()].copy()
-    if selected_Ns is not None:
-        missing = pd.concat(
-            [
-                missing,
-                out[pd.to_numeric(out['monoexp_ref_N_count'], errors='coerce') < len(selected_Ns)].copy(),
-            ],
-            ignore_index=True,
-        ).drop_duplicates()
-    if not missing.empty:
-        raise ValueError(_format_missing_matches(missing, legacy_ref))
-
-    out['ratio'] = out['D0_fit_nogse'] / out['D0_fit_monoexp']
-    out['correction_factor'] = np.sqrt(out['ratio'])
-    out['correction_factor_std'] = out.apply(_propagate_correction_std, axis=1)
-    out['correction_factor_1'] = out['correction_factor']
-    out['correction_factor_2'] = out['correction_factor']
-    out['correction_factor_1_std'] = out['correction_factor_std']
-    out['correction_factor_2_std'] = out['correction_factor_std']
-    out['correction_source'] = 'legacy_contrast_free_shared'
-    out['correction_pool_n'] = 1
-
-    expected_keys = load_nogse_expected_keys(
-        nogse_root_or_file,
-        stat_keep=stat_keep,
-        cmap=cmap,
-        canonicalize_sheet=canonicalize_sheet,
-    )
-    key_cols = ['subj', 'sheet', 'direction', '_td_key', 'N_1', 'N_2']
-    expected_keys = expected_keys.copy()
-    expected_keys['_td_key'] = _td_key_from_series(expected_keys['td_ms'], tol_ms)
-    existing_keys = out[key_cols].drop_duplicates().copy()
-    missing_keys = expected_keys.merge(existing_keys, on=key_cols, how='left', indicator=True)
-    missing_keys = missing_keys[missing_keys['_merge'] == 'left_only'].drop(columns=['_merge'])
-
-    pooled_rows: list[dict[str, float | int | str]] = []
-    donor_match_cols = ['_td_key', 'direction', 'N_1', 'N_2']
-    for _, miss in missing_keys.iterrows():
-        donors = out.copy()
-        for c in donor_match_cols:
-            donors = donors[donors[c] == miss[c]]
-        if donors.empty:
-            continue
-
-        d0_nogse_mean = float(pd.to_numeric(donors['D0_fit_nogse'], errors='coerce').mean())
-        d0_monoexp_mean = float(pd.to_numeric(donors['D0_fit_monoexp'], errors='coerce').mean())
-        d0_nogse_std = float(pd.to_numeric(donors['D0_fit_nogse'], errors='coerce').std())
-        d0_monoexp_std = float(pd.to_numeric(donors['D0_fit_monoexp'], errors='coerce').std())
-        if not np.isfinite(d0_nogse_std):
-            d0_nogse_std = float(pd.to_numeric(donors['D0_fit_nogse_std'], errors='coerce').mean())
-        if not np.isfinite(d0_monoexp_std):
-            d0_monoexp_std = float(pd.to_numeric(donors['D0_fit_monoexp_std'], errors='coerce').mean())
-
-        corr_vals = pd.to_numeric(donors['correction_factor'], errors='coerce').dropna()
-        corr_mean = float(corr_vals.mean()) if not corr_vals.empty else np.nan
-        corr_std = float(corr_vals.std()) if len(corr_vals) > 1 else np.nan
-        if not np.isfinite(corr_std):
-            corr_std = float(pd.to_numeric(donors['correction_factor_std'], errors='coerce').mean())
-
-        ratio = np.nan
-        if np.isfinite(corr_mean):
-            ratio = float(corr_mean ** 2)
-        elif np.isfinite(d0_nogse_mean) and np.isfinite(d0_monoexp_mean) and d0_monoexp_mean > 0:
-            ratio = float(d0_nogse_mean / d0_monoexp_mean)
-            corr_mean = float(np.sqrt(ratio))
-
-        pooled_rows.append(
-            {
-                'subj': str(miss['subj']),
-                'sheet': str(miss['sheet']),
-                'roi': str(roi),
-                'direction': str(miss['direction']),
-                'td_ms': float(miss['td_ms']),
-                'N_1': float(miss['N_1']),
-                'N_2': float(miss['N_2']),
-                'D0_fit_nogse': d0_nogse_mean,
-                'D0_fit_nogse_std': d0_nogse_std,
-                'n_nogse': int(len(donors)),
-                'D0_fit_monoexp': d0_monoexp_mean,
-                'D0_fit_monoexp_std': d0_monoexp_std,
-                'n_monoexp': int(len(donors)),
-                'monoexp_ref_Ns': _join_unique_strings(donors['monoexp_ref_Ns']) if 'monoexp_ref_Ns' in donors.columns else '',
-                'monoexp_ref_N_count': int(pd.to_numeric(donors['monoexp_ref_N_count'], errors='coerce').max())
-                if 'monoexp_ref_N_count' in donors.columns and np.isfinite(pd.to_numeric(donors['monoexp_ref_N_count'], errors='coerce').max())
-                else np.nan,
-                'ratio': ratio,
-                'correction_factor': corr_mean,
-                'correction_factor_std': corr_std,
-                'correction_factor_1': corr_mean,
-                'correction_factor_1_std': corr_std,
-                'correction_factor_2': corr_mean,
-                'correction_factor_2_std': corr_std,
-                'correction_source': 'legacy_pooled_average',
-                'correction_pool_n': int(len(donors)),
-                '_td_key': miss['_td_key'],
-            }
-        )
-
-    if pooled_rows:
-        out = pd.concat([out, pd.DataFrame(pooled_rows)], ignore_index=True, sort=False)
-
-    cols = [
-        'subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2',
-        'D0_fit_nogse', 'D0_fit_nogse_std', 'n_nogse',
-        'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
-        'monoexp_ref_Ns', 'monoexp_ref_N_count',
-        'ratio', 'correction_factor', 'correction_factor_std',
-        'correction_factor_1', 'correction_factor_1_std',
-        'correction_factor_2', 'correction_factor_2_std',
-        'correction_source', 'correction_pool_n',
-    ]
-    cols = [c for c in cols if c in out.columns]
-    out = out[cols].sort_values(['subj', 'sheet', 'td_ms', 'N_1', 'N_2', 'direction'], kind='stable').reset_index(drop=True)
-    return GradCorrectionOutputs(grad_correction=out, ogse_signal_fits=pd.DataFrame())
 
 
 def make_grad_correction_outputs(
@@ -1720,16 +1412,12 @@ def make_grad_correction_outputs(
 
     contrast_root = Path(contrast_data_root_or_file) if contrast_data_root_or_file is not None else _infer_contrast_data_root(nogse_root_or_file)
     if contrast_root is None or not contrast_root.exists():
-        return _legacy_contrast_outputs(
-            monoexp_ref=monoexp_ref,
-            nogse_root_or_file=nogse_root_or_file,
-            roi=roi,
-            stat_keep=stat_keep,
-            cmap=cmap,
-            nogse_scale=nogse_scale,
-            tol_ms=tol_ms,
-            canonicalize_sheet=canonicalize_sheet,
-            monoexp_ref_Ns=monoexp_ref_Ns,
+        requested = Path(contrast_data_root_or_file) if contrast_data_root_or_file is not None else None
+        missing_root = requested if requested is not None else Path(str(nogse_root_or_file))
+        raise FileNotFoundError(
+            "The new gradient-correction pipeline requires the side-specific contrast tables (*.long.parquet). "
+            "Legacy correction-factor tables are no longer supported. "
+            f"Could not resolve a valid contrast-data root from: {missing_root}"
         )
 
     raw_fits = load_nogse_signal_free_fits(

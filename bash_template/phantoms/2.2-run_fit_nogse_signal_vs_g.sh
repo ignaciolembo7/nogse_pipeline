@@ -138,12 +138,6 @@ if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
     if [[ -n "${CORR_SHEET// }" ]]; then
         corr_args+=(--corr_sheet "$CORR_SHEET")
     fi
-    if [[ -n "${CORR_N1// }" ]]; then
-        corr_args+=(--corr_n1 "$CORR_N1")
-    fi
-    if [[ -n "${CORR_N2// }" ]]; then
-        corr_args+=(--corr_n2 "$CORR_N2")
-    fi
 fi
 
 total=0

@@ -130,6 +130,7 @@ def main() -> None:
                 n1=n1_hint,
                 n2=n2_hint,
             ),
+            factor_mode="per_side",
         )
 
     # M0 flags

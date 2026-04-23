@@ -9,8 +9,8 @@ import pandas as pd
 
 from fitting.experiments import experiment_models, split_all_or_values, validate_experiment_model
 from fitting.gradient_correction import (
-    CorrectionLookupSpec,
-    build_direction_factors,
+    SignalCorrectionLookupSpec,
+    build_signal_direction_factors,
     infer_td_ms,
     read_correction_table,
     unique_int,
@@ -36,8 +36,7 @@ def _resolve_direction_factors(
     corr_td_ms: float | None,
     corr_tol_ms: float,
     corr_sheet: str | None,
-    corr_n1: int | None,
-    corr_n2: int | None,
+    preferred_side: int,
 ) -> dict[str, float] | None:
     if not apply_grad_corr:
         return None
@@ -50,19 +49,19 @@ def _resolve_direction_factors(
     if td_ms is None:
         raise ValueError("Could not infer td_ms for correction lookup. Pass --corr_td_ms or add td_ms to the input table.")
 
-    n1 = int(corr_n1) if corr_n1 is not None else unique_int(df, "N_1", "N")
-    n2 = int(corr_n2) if corr_n2 is not None else unique_int(df, "N_2", "N")
+    signal_n = unique_int(df, "N_1", "N_2", "N")
     corr = read_correction_table(corr_xlsx)
-    return build_direction_factors(
+    return build_signal_direction_factors(
         corr,
-        spec=CorrectionLookupSpec(
+        spec=SignalCorrectionLookupSpec(
             roi_ref=str(corr_roi),
             td_ms=float(td_ms),
+            signal_n=signal_n,
             tol_ms=float(corr_tol_ms),
             sheet=(corr_sheet or analysis_id),
-            n1=n1,
-            n2=n2,
-        ),
+            signal_source_file=signal_parquet.name,
+            preferred_side=1 if int(preferred_side) == 1 else 2,
+        )
     )
 
 
@@ -96,8 +95,6 @@ def main() -> None:
     ap.add_argument("--corr_td_ms", type=float, default=None)
     ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
     ap.add_argument("--corr_sheet", default=None)
-    ap.add_argument("--corr_n1", type=int, default=None)
-    ap.add_argument("--corr_n2", type=int, default=None)
     ap.add_argument("--grad_corr_power", type=float, default=1.0)
     args = ap.parse_args()
 
@@ -116,6 +113,7 @@ def main() -> None:
         validate_log_bounds("D0", d0_bounds)
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
+    preferred_side = 1 if args.model == "free_cpmg" else 2
     f_by_direction = _resolve_direction_factors(
         signal_parquet=args.signal_parquet,
         apply_grad_corr=apply_corr,
@@ -124,8 +122,7 @@ def main() -> None:
         corr_td_ms=args.corr_td_ms,
         corr_tol_ms=args.corr_tol_ms,
         corr_sheet=args.corr_sheet,
-        corr_n1=args.corr_n1,
-        corr_n2=args.corr_n2,
+        preferred_side=preferred_side,
     )
 
     run_fit_from_parquet(
