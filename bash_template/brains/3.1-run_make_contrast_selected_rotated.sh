@@ -16,6 +16,7 @@ ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
 DATA_ROOT="$ANALYSIS_ROOT/data-rotated"
 OUT_ROOT="$ANALYSIS_ROOT/contrast-data-rotated"
 DIRECTIONS=(long tra)
+ONEG="${ONEG:-false}"
 
 declare -a PAIRS=(
 "20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz050_b0250_19800122XXXX_20220622170141_7_results.rot_tensor.long.parquet|20220622_BRAIN_ep2d_advdiff_AP_919D_OGSE_10bval_06dir_d40_Hz025_b1075_19800122XXXX_20220622170141_6_results.rot_tensor.long.parquet"
@@ -51,6 +52,11 @@ if [[ ! -f "$MAKE_CONTRAST_SCRIPT" ]]; then
 fi
 
 mkdir -p "$OUT_ROOT"
+
+MAKE_CONTRAST_ARGS=()
+if [[ "${ONEG,,}" == "true" ]]; then
+    MAKE_CONTRAST_ARGS+=(--oneg)
+fi
 
 resolve_data_file() {
     local fname="$1"
@@ -117,6 +123,7 @@ for pair in "${PAIRS[@]}"; do
         "$file_a" \
         "$file_b" \
         --direction "${DIRECTIONS[@]}" \
+        "${MAKE_CONTRAST_ARGS[@]}" \
         --out_root "$OUT_ROOT"; then
         ok=$((ok + 1))
         echo "  OK"

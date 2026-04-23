@@ -355,7 +355,7 @@ def load_nogse_fit_d0(
 
         exp_id = _infer_exp_id(f)
         if 'fit_kind' in df.columns:
-            df = df[df['fit_kind'].astype(str) == 'nogse_contrast'].copy()
+            df = df[df['fit_kind'].astype(str).isin(['ogse_contrast', 'nogse_contrast'])].copy()
         if 'ok' in df.columns:
             df = df[df['ok'].fillna(False).astype(bool)].copy()
         if 'model' in df.columns:
@@ -446,7 +446,7 @@ def load_nogse_expected_keys(
 
         exp_id = _infer_exp_id(f)
         if 'fit_kind' in df.columns:
-            df = df[df['fit_kind'].astype(str) == 'nogse_contrast'].copy()
+            df = df[df['fit_kind'].astype(str).isin(['ogse_contrast', 'nogse_contrast'])].copy()
         if 'ok' in df.columns:
             df = df[df['ok'].fillna(False).astype(bool)].copy()
         if 'model' in df.columns:

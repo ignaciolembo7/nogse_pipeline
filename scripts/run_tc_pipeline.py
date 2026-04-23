@@ -11,7 +11,7 @@ from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Combine fit_params from fit_ogse-contrast_vs_g.py into a coherent groupfits table for the tc-vs-td stage."
+        description="Combine fit_params from the contrast family fit scripts into a coherent groupfits table for the tc-vs-td stage."
     )
     ap.add_argument(
         "fits",

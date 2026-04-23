@@ -19,8 +19,8 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
-PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse-signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
+PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse_signal_vs_g.py"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_FIBER"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal-plots/nogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"
@@ -31,8 +31,16 @@ DIRECTIONS="ALL"
 declare -a FILES=(
   # Add the signal parquet files manually.
   # Example:
-  "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_results.long.parquet"
 )
+
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then
     echo "ERROR: plot script not found: $PLOT_SCRIPT" >&2

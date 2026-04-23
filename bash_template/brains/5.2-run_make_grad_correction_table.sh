@@ -11,8 +11,8 @@ PY="${PY:-python}"
 MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
 ROI="Syringe"
-EXP_FITS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated"
-NOGSE_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit-free_ogse-contrast-rotated"
+EXP_FITS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_signal_vs_g_monoexp"
+NOGSE_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/nogse_contrast_vs_g_free"
 OUT_XLSX="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/grad_correction_rotated/Syringe.grad_correction_rotated.xlsx"
 OUT_CSV="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/grad_correction_rotated/Syringe.grad_correction_rotated.csv"
 

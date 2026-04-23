@@ -23,6 +23,7 @@ DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_brains.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
+ONEG="${ONEG:-false}"
 
 # The matched row in DEFAULT_PARAMS must include a populated "subj" column.
 
@@ -48,6 +49,11 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+PROCESS_ARGS=()
+if [[ "${ONEG,,}" == "true" ]]; then
+    PROCESS_ARGS+=(--oneg)
+fi
+
 total=0
 ok=0
 failed=0
@@ -62,7 +68,7 @@ while read -r file; do
     echo "Processing: $seq_name"
     echo "  File: $file"
 
-    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR"; then
+    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR" "${PROCESS_ARGS[@]}"; then
         ok=$((ok + 1))
         echo "  OK: $seq_name"
     else

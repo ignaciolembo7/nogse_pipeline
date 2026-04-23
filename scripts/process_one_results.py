@@ -16,7 +16,7 @@ from data_processing.match_params import parse_results_filename, select_params_r
 from data_processing.params import read_sequence_params_xlsx
 from data_processing.reshape import to_long
 from data_processing.schema import finalize_clean_signal_long
-from ogse_fitting.b_from_g import b_from_g
+from fitting.b_from_g import b_from_g
 
 
 # -------------------------

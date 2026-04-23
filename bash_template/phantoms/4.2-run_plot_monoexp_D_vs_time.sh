@@ -18,11 +18,12 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal}"
+FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_signal_vs_g_monoexp}"
 OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
 PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
 ROIS="ALL"
 DIRECTIONS="ALL"
+NS="${NS:-ALL}"
 # NS="1,4,8"
 
 if [[ ! -d "$FITS_ROOT" ]]; then

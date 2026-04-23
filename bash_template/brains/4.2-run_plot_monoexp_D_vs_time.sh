@@ -12,7 +12,7 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 # Configuration
 # ------------------------------------------------------------------
 PY="${PY:-python}"
-FITS_ROOT="${1:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/fit_monoexp_ogse-signal-rotated}"
+FITS_ROOT="${1:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_signal_vs_g_monoexp}"
 OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
 PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
 ROIS=(

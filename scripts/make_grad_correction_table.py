@@ -12,7 +12,7 @@ from ogse_fitting.make_grad_correction_table import ColumnMap, make_grad_correct
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument('--roi', required=True, help='ROI to use in both monoexp and contrast fits.')
-    ap.add_argument('--exp-fits-root', required=True, help='Root containing monoexp fits (fit_ogse-signal_vs_bval).')
+    ap.add_argument('--exp-fits-root', required=True, help='Root containing OGSE signal monoexp fits (ogse_signal_vs_g_monoexp).')
     ap.add_argument(
         '--nogse-root',
         required=True,

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from data_processing.schema import finalize_clean_dproj_long, finalize_clean_signal_long
-from ogse_fitting.b_from_g import b_from_g
+from fitting.b_from_g import b_from_g
 from signal_rotation.dirs import load_default_dirs, load_dirs_txt
 
 

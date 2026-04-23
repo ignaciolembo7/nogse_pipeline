@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from fitting.core import chi2 as fit_chi2
-from fitting.core import fit_least_squares, format_value_error
+from fitting.core import fit_least_squares
 from fitting.core import r2_score, rmse as fit_rmse
+from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_group
 from nogse_models.nogse_model_fitting import M_nogse_free
 from tools.fit_params_schema import standardize_fit_params
 from data_processing.io import write_table_outputs
@@ -161,7 +162,7 @@ def _build_model(
         raise ValueError(f"Unsupported NOGSE signal model {model_name!r}. Allowed values: {sorted(SIGNAL_MODELS)}.")
 
     spec = SIGNAL_MODELS[model_name]
-    x_ms = float(spec.x_model_ms(float(tn_ms)))
+    x_model_ms = float(spec.x_model_ms(float(tn_ms)))
     m0_lo, m0_hi = m0_bounds
     d0_lo, d0_hi = d0_bounds
 
@@ -185,9 +186,9 @@ def _build_model(
         fitted = dict(zip(param_names, values))
         m0 = float(fix_m0) if fix_m0 is not None else float(fitted["M0"])
         d0 = float(fix_d0) if fix_d0 is not None else float(fitted["D0_m2_ms"])
-        return spec.evaluator(float(tn_ms), g, int(n_value), x_ms, m0, d0)
+        return spec.evaluator(float(tn_ms), g, int(n_value), x_model_ms, m0, d0)
 
-    return BuiltModel(model=model, x_model_ms=x_ms, param_names=param_names, p0=p0, bounds=(lower, upper))
+    return BuiltModel(model=model, x_model_ms=x_model_ms, param_names=param_names, p0=p0, bounds=(lower, upper))
 
 
 def fit_one_group(
@@ -211,6 +212,7 @@ def fit_one_group(
 
     tn_ms = _resolve_tn_ms(data)
     n_value = int(round(float(_unique_scalar(data, "N", required=True))))
+
     built = _build_model(
         model_name,
         tn_ms=tn_ms,
@@ -307,49 +309,24 @@ def plot_fit_one_group(
     out_png: Path,
     title: str,
 ) -> None:
-    sigma = _resolve_sigma(avg_df, std_df, xcol=xcol, ycol=ycol)
-
-    plt.figure(figsize=(8, 6))
-    if sigma is not None:
-        plt.errorbar(x_data, y_data, yerr=sigma, fmt="o", markersize=6, capsize=3, label="signal")
-    else:
-        plt.plot(x_data, y_data, "o", markersize=6, label="signal")
-
-    plt.plot(fit_curve[:, 0], fit_curve[:, 1], "-", linewidth=2, label=fit_row["model"])
-    plt.xlabel(xcol)
-    plt.ylabel(ycol)
-    plt.title(title)
-    plt.grid(True, linestyle="--", alpha=0.3)
-
-    d0_m2_ms = float(fit_row.get("D0_m2_ms", np.nan))
-    d0_err_m2_ms = fit_row.get("D0_err_m2_ms", None)
-    # d0_mm2_s = d0_m2_ms * 1e9 if np.isfinite(d0_m2_ms) else np.nan
-    # d0_err_mm2_s = float(d0_err_m2_ms) * 1e9 if d0_err_m2_ms is not None and np.isfinite(float(d0_err_m2_ms)) else np.nan
-
-    text_lines = [
-        f"model={fit_row['model']}",
-        f"M0={format_value_error(fit_row.get('M0', np.nan), fit_row.get('M0_err', None))}",
-        f"D0={format_value_error(d0_m2_ms, d0_err_m2_ms, unit='m2/ms')}",
-        # f"D0={format_value_error(d0_mm2_s, d0_err_mm2_s, unit='mm2/s')}",
-        f"rmse={fit_row['rmse']:.4g}",
-        f"R2={fit_row['r2']:.4g}",
-    ]
-    plt.text(
-        0.02,
-        0.98,
-        "\n".join(text_lines),
-        transform=plt.gca().transAxes,
-        va="top",
-        ha="left",
-        fontsize=10,
-        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+    analysis_id = str(fit_row.get("analysis_id", "")) or "nogse_signal"
+    plot_nogse_signal_group(
+        avg_df=avg_df,
+        std_df=std_df,
+        xcol=xcol,
+        ycol=ycol,
+        out_png=out_png,
+        analysis_id=analysis_id,
+        roi=str(fit_row.get("roi", "roi")),
+        direction=str(fit_row.get("direction", "direction")),
+        signal_type=None,
+        fit_row=fit_row,
+        fit_curve=fit_curve,
+        x_data=np.asarray(x_data, dtype=float),
+        y_data=np.asarray(y_data, dtype=float),
+        data_label="signal",
+        connect_data=False,
     )
-
-    plt.legend()
-    plt.tight_layout()
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(out_png, dpi=300)
-    plt.close()
 
 
 def fit_nogse_signal_long(
@@ -365,6 +342,8 @@ def fit_nogse_signal_long(
     fix_d0: float | None = None,
     m0_bounds: tuple[float, float] = (0.0, np.inf),
     d0_bounds: tuple[float, float] = (1e-16, np.inf),
+    f_by_direction: Mapping[str, float] | None = None,
+    grad_corr_power: float = 1.0,
     source_file: str | None = None,
     analysis_id: str | None = None,
     outdir_plots: Path | None = None,
@@ -392,6 +371,7 @@ def fit_nogse_signal_long(
 
     fit_rows: list[dict[str, object]] = []
     for (roi, direction), group in avg_df.groupby(["roi", "direction"], sort=False):
+        group_fit = group.copy()
         std_group = None
         if not std_df.empty:
             std_group = std_df[
@@ -399,8 +379,15 @@ def fit_nogse_signal_long(
                 & (std_df["direction"].astype(str) == str(direction))
             ].copy()
 
+        f_corr = float(f_by_direction.get(str(direction), 1.0)) if f_by_direction else 1.0
+        grad_corr_scale = float(f_corr) ** float(grad_corr_power)
+        if xcol in group_fit.columns and np.isfinite(grad_corr_scale):
+            group_fit[xcol] = pd.to_numeric(group_fit[xcol], errors="coerce") * grad_corr_scale
+        if std_group is not None and xcol in std_group.columns and np.isfinite(grad_corr_scale):
+            std_group[xcol] = pd.to_numeric(std_group[xcol], errors="coerce") * grad_corr_scale
+
         fit_row, x_data, y_data, fit_curve = fit_one_group(
-            group,
+            group_fit,
             std_group,
             model_name=model,
             xcol=xcol,
@@ -410,6 +397,8 @@ def fit_nogse_signal_long(
             m0_bounds=m0_bounds,
             d0_bounds=d0_bounds,
         )
+        fit_row["f_corr"] = float(f_corr)
+        fit_row["grad_corr_scale"] = float(grad_corr_scale)
 
         for col in [
             "subj",
@@ -454,7 +443,7 @@ def fit_nogse_signal_long(
             title = f"{analysis_id} | roi={roi} | direction={direction} | type={signal_type} | model={model}"
             out_png = outdir_plots / f"{analysis_id}.roi-{roi}.dir-{direction}.{model}.png"
             plot_fit_one_group(
-                group,
+                group_fit,
                 std_group,
                 xcol=xcol,
                 ycol=ycol,
@@ -487,11 +476,17 @@ def run_fit_from_parquet(
     fix_d0: float | None = None,
     m0_bounds: tuple[float, float] = (0.0, np.inf),
     d0_bounds: tuple[float, float] = (1e-16, np.inf),
+    f_by_direction: Mapping[str, float] | None = None,
+    grad_corr_power: float = 1.0,
+    append_model_subdir: bool = True,
 ) -> tuple[FitOutputs, Path]:
     p = Path(parquet_path)
     df = pd.read_parquet(p)
     analysis_id = analysis_id_from_path(p)
-    out_dir = Path(out_root) / model / analysis_id
+    if append_model_subdir:
+        out_dir = Path(out_root) / model / analysis_id
+    else:
+        out_dir = Path(out_root) / analysis_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     outs = fit_nogse_signal_long(
@@ -506,6 +501,8 @@ def run_fit_from_parquet(
         fix_d0=fix_d0,
         m0_bounds=m0_bounds,
         d0_bounds=d0_bounds,
+        f_by_direction=f_by_direction,
+        grad_corr_power=grad_corr_power,
         source_file=p.name,
         analysis_id=analysis_id,
         outdir_plots=out_dir,

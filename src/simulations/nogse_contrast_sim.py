@@ -13,10 +13,10 @@ import pandas as pd
 
 def _import_make_contrast():
     try:
-        from ogse_fitting.contrast import make_contrast  # type: ignore
+        from fitting.contrast import make_contrast  # type: ignore
         return make_contrast
     except Exception as exc:
-        raise ImportError("Could not import ogse_fitting.contrast.make_contrast.") from exc
+        raise ImportError("Could not import fitting.contrast.make_contrast.") from exc
 
 
 def load_module(module_name: str, module_path: str | None = None):

@@ -5,7 +5,7 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-SUBJ="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+SUBJ="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
 EXP_PARENT="Data-NIFTI"
 OUT_ROOT_REL="Data-signals"
 CUT_TOKEN=""

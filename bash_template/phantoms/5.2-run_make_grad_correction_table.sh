@@ -20,8 +20,8 @@ PY="${PY:-$DEFAULT_PY}"
 MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
 ROI="water"
-EXP_FITS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal"
-NOGSE_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit-free_ogse-contrast"
+EXP_FITS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_signal_vs_g_monoexp"
+NOGSE_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_free"
 OUT_XLSX="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.xlsx"
 OUT_CSV="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.csv"
 

@@ -13,8 +13,8 @@ from fitting.core import chi2 as _chi2
 from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
+from ogse_plotting.plot_ogse_contrast_vs_g import FAMILY_LABEL, plot_contrast_fit
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
-from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
 from tools.strict_columns import raise_on_unrecognized_column_names
@@ -80,7 +80,7 @@ def _normalize_gbase(gbase: str) -> str:
     if b.endswith("_2"):
         b = b[:-2]
     if b not in VALID_GBASES:
-        raise ValueError(f"fit_ogse_contrast: unrecognized gbase {gbase!r}. Allowed values: {sorted(VALID_GBASES)}.")
+        raise ValueError(f"fit_ogse_contrast_vs_g: unrecognized gbase {gbase!r}. Allowed values: {sorted(VALID_GBASES)}.")
     return b
 
 
@@ -1035,7 +1035,7 @@ def fit_ogse_contrast_long(
     out = pd.DataFrame([r.__dict__ for r in rows])
 
     # Keep the standardized downstream fit-parameter schema.
-    out = standardize_fit_params(out, fit_kind="nogse_contrast", source_file=source_file)
+    out = standardize_fit_params(out, fit_kind="ogse_contrast", source_file=source_file)
     return out
 
 
@@ -1088,38 +1088,32 @@ def plot_fit_one_group(
     G2s = f * G2max
 
     ys = None
-    label = model
 
     if model == "free" and bool(fit_row.get("ok", True)):
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_free(td, G1s, G2s, n_1, n_2, M0, D0)
-        label = f"free: M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     if model == "tort" and bool(fit_row.get("ok", True)):
         alpha = float(fit_row["alpha"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_tort(td, G1s, G2s, n_1, n_2, alpha, M0, D0)
-        label = f"tort: a={alpha:.3g}, M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     if model == "rest" and bool(fit_row.get("ok", True)):
         tc = float(fit_row["tc_ms"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_rest(td, G1s, G2s, n_1, n_2, tc, M0, D0)
-        label = f"rest: tc={tc:.3g} ms, M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
-    start_fit_figure()
-    plot_fit_data(G1, y, label="data")
-    if ys is not None:
-        plot_fit_curve(G1s, ys, label=label)
-
-    roi = fit_row.get("roi", "roi")
-    direction = fit_row.get("direction", "direction")
-    finish_fit_figure(
-        title=f"OGSE contrast fit | ROI={roi} | direction={direction} | $t_d$={td:.1f} ms | N{n_1}-N{n_2}",
-        xlabel=f"{_normalize_gbase(gbase)}_1 (mT/m)",
-        ylabel=ycol,
+    plot_contrast_fit(
+        x=np.asarray(G1, dtype=float),
+        y=np.asarray(y, dtype=float),
+        fit_x=np.asarray(G1s, dtype=float) if ys is not None else None,
+        fit_y=np.asarray(ys, dtype=float) if ys is not None else None,
+        fit_row=fit_row,
         out_png=out_png,
+        gbase=_normalize_gbase(gbase),
+        ycol=ycol,
+        family_label=FAMILY_LABEL,
     )

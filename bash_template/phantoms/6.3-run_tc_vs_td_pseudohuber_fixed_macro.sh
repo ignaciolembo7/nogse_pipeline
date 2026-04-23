@@ -21,7 +21,7 @@ PY="${PY:-$DEFAULT_PY}"
 TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 
 METHOD="${METHOD:-pseudohuber_fixed_macro}"
-GROUPFITS="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_rest_ogse_contrast_corr/groupfits_rest.parquet"
+GROUPFITS="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/groupfits_rest.parquet"
 SUMMARY_ALPHA="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 YCOL="tc_peak_ms"
 EXCLUDE_TD_MS="75.1,209.1"
@@ -44,7 +44,7 @@ elif [[ "$YCOL" == "tc_fit_ms" || "$YCOL" == "tc_ms" ]]; then
 else
     TC_DIRNAME="${YCOL}_vs_td"
 fi
-OUT_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_rest_ogse_contrast_corr/$TC_DIRNAME/$METHOD" #/$YCOL"
+OUT_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/$TC_DIRNAME/$METHOD" #/$YCOL"
 
 if [[ ! -f "$TC_SCRIPT" ]]; then
     echo "ERROR: Script not found: $TC_SCRIPT" >&2

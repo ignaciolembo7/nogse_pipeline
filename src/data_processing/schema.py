@@ -5,7 +5,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from ogse_fitting.b_from_g import b_from_g
+from fitting.b_from_g import b_from_g
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 CLEAN_SIGNAL_LONG_COLUMNS = [

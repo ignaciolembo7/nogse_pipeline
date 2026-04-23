@@ -19,17 +19,20 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 
 MAKE_CONTRAST_SCRIPT="$REPO_ROOT/scripts/make_contrast.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_FIBER"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/contrast-data"
 DIRECTIONS=(1)
+ONEG="${ONEG:-true}"
 
 
 # Add the contrast pairs manually.
+# Example:
 declare -a PAIRS=(
-  # Add the contrast pairs manually.
-  # Example:
-  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_CPMG_N2_TN50_NiSO_phantom.long.parquet|$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_HAHN_N2_TN50_NiSO_phantom.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_results.long.parquet"
 )
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 if [[ ! -f "$MAKE_CONTRAST_SCRIPT" ]]; then
     echo "ERROR: make_contrast.py not found: $MAKE_CONTRAST_SCRIPT" >&2
@@ -42,6 +45,11 @@ if [[ ! -d "$DATA_ROOT" ]]; then
 fi
 
 mkdir -p "$OUT_ROOT"
+
+MAKE_CONTRAST_ARGS=()
+if [[ "${ONEG,,}" == "true" ]]; then
+    MAKE_CONTRAST_ARGS+=(--oneg)
+fi
 
 total=0
 ok=0
@@ -82,6 +90,7 @@ for pair in "${PAIRS[@]}"; do
         "$file_a" \
         "$file_b" \
         --direction "${DIRECTIONS[@]}" \
+        "${MAKE_CONTRAST_ARGS[@]}" \
         --out_root "$OUT_ROOT"; then
         ok=$((ok + 1))
         echo "  OK"

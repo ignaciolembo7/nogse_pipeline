@@ -19,9 +19,22 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
-FIT_SCRIPT="$REPO_ROOT/scripts/fit_nogse-signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
-OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_nogse-signal_vs_g"
+FIT_SCRIPT="$REPO_ROOT/scripts/fit_nogse_signal_vs_g.py"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_FIBER"
+FITS_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits"
+EXPERIMENT="nogse_signal_vs_g"
+APPLY_GRAD_CORR="${APPLY_GRAD_CORR:-false}"
+CORR_XLSX="${CORR_XLSX:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.xlsx}"
+CORR_ROI="${CORR_ROI:-water}"
+CORR_TD_MS="${CORR_TD_MS:-}"
+CORR_SHEET="${CORR_SHEET:-}"
+CORR_N1="${CORR_N1:-}"
+CORR_N2="${CORR_N2:-}"
+GRAD_CORR_POWER="${GRAD_CORR_POWER:-1.0}"
+ROOT_SUFFIX=""
+if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
+    ROOT_SUFFIX="_corr"
+fi
 XCOL="g"
 YCOL="value_norm"
 STAT="avg"
@@ -39,20 +52,27 @@ D0_VALUE="2.3e-12"
 D0_MIN="1e-13"
 D0_MAX="1e-10"
 
+# Optional manual jobs, formatted as: "path|model"
+# Supported models: free_cpmg | free_hahn
+# If this list is empty and AUTO_DISCOVER_JOBS is true, all *.long.parquet
+# files under DATA_ROOT are fitted with DEFAULT_MODEL.
 declare -a JOBS=(
-  # Optional manual jobs, formatted as: "path|model"
-  # Supported models: free_cpmg | free_hahn
-  # If this list is empty and AUTO_DISCOVER_JOBS is true, all *.long.parquet
-  # files under DATA_ROOT are fitted with DEFAULT_MODEL.
-  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet|free_cpmg"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_results.long.parquet|free_cpmg"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_results.long.parquet|free_cpmg"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_results.long.parquet|free_hahn"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_results.long.parquet|free_cpmg"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_results.long.parquet|free_hahn"
 )
+
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then
     echo "ERROR: fit script not found: $FIT_SCRIPT" >&2
     exit 1
 fi
 
-mkdir -p "$OUT_ROOT"
+mkdir -p "$FITS_DIR"
 
 if (( ${#JOBS[@]} == 0 )) && [[ "${AUTO_DISCOVER_JOBS,,}" == "true" ]]; then
     if [[ ! -d "$DATA_ROOT" ]]; then
@@ -104,6 +124,28 @@ case "${D0_MODE,,}" in
         ;;
 esac
 
+corr_args=(--no_grad_corr)
+if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
+    corr_args=(
+        --apply_grad_corr
+        --corr_xlsx "$CORR_XLSX"
+        --corr_roi "$CORR_ROI"
+        --grad_corr_power "$GRAD_CORR_POWER"
+    )
+    if [[ -n "${CORR_TD_MS// }" ]]; then
+        corr_args+=(--corr_td_ms "$CORR_TD_MS")
+    fi
+    if [[ -n "${CORR_SHEET// }" ]]; then
+        corr_args+=(--corr_sheet "$CORR_SHEET")
+    fi
+    if [[ -n "${CORR_N1// }" ]]; then
+        corr_args+=(--corr_n1 "$CORR_N1")
+    fi
+    if [[ -n "${CORR_N2// }" ]]; then
+        corr_args+=(--corr_n2 "$CORR_N2")
+    fi
+fi
+
 total=0
 ok=0
 failed=0
@@ -113,6 +155,7 @@ for job in "${JOBS[@]}"; do
     total=$((total + 1))
     file_path="${job%%|*}"
     model_name="${job##*|}"
+    out_root_job="$FITS_DIR/${EXPERIMENT}_${model_name}${ROOT_SUFFIX}"
     base_name="$(basename "$file_path")"
 
     echo "============================================================"
@@ -131,10 +174,11 @@ for job in "${JOBS[@]}"; do
     if "$PY" "$FIT_SCRIPT" \
         "$file_path" \
         --model "$model_name" \
-        --out_root "$OUT_ROOT" \
+        --out_root "$out_root_job" \
         --xcol "$XCOL" \
         --ycol "$YCOL" \
         --stat "$STAT" \
+        "${corr_args[@]}" \
         "${extra_args[@]}"; then
         ok=$((ok + 1))
         echo "  OK"

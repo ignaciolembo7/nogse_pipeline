@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
-from ogse_fitting.fit_ogse_contrast import _gcols, _maybe_scale_g_thorsten
+from ogse_fitting.fit_ogse_contrast_vs_g import _gcols, _maybe_scale_g_thorsten
 
 @dataclass(frozen=True)
 class PeakResult:

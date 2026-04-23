@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ogse_fitting.fit_ogse_contrast import _gcols, _maybe_scale_g_thorsten, _model_yhat
+from ogse_fitting.fit_ogse_contrast_vs_g import _gcols, _maybe_scale_g_thorsten, _model_yhat
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 

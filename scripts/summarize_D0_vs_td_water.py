@@ -57,7 +57,7 @@ def _read_all_fit_params(root: Path) -> pd.DataFrame:
 
 def _relevant_cols(df: pd.DataFrame) -> list[str]:
     """
-    Relevant columns follow the usual fit_signal_vs_bval.py output:
+    Relevant columns follow the usual fit_monoexp_signal_vs_bval.py output:
       direction, roi, g_type, fit_points, M0, M0_err, D0_mm2_s, D0_err, delta_ms, delta_app_ms, N, max_dur_ms
     plus any existing param_* / meta_* columns.
     """

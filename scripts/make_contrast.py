@@ -8,7 +8,7 @@ import re
 import pandas as pd
 
 from data_processing.io import write_table_outputs
-from ogse_fitting.contrast import make_contrast
+from fitting.contrast import make_contrast
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.strict_columns import find_unrecognized_column_names
 from tools.value_formatting import compact_unique_values, truthy_series

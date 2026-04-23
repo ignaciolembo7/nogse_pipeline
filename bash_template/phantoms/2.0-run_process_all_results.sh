@@ -19,13 +19,14 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-PHANTOM_SUBJ_REL="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+PHANTOM_SUBJ_REL="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 # OUTPUT_STEM_STRIP_TOKENS="${OUTPUT_STEM_STRIP_TOKENS:-}"
-OUTPUT_STEM_STRIP_TOKENS="20260122092639"
+OUTPUT_STEM_STRIP_TOKENS="20260122125354"
+ONEG="${ONEG:-true}"
 
 # The matched row in DEFAULT_PARAMS must include a populated "subj" column.
 
@@ -57,6 +58,9 @@ if [[ -n "$OUTPUT_STEM_STRIP_TOKENS" ]]; then
     for token in "${strip_tokens[@]}"; do
         PROCESS_ARGS+=(--strip-output-token "$token")
     done
+fi
+if [[ "${ONEG,,}" == "true" ]]; then
+    PROCESS_ARGS+=(--oneg)
 fi
 
 total=0

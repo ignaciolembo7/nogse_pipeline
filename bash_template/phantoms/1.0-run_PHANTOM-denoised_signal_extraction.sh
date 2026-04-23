@@ -15,8 +15,8 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 OUT_ROOT="$PROJECT_ROOT/Data-signals"
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms}"
-EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
-OUT_SUBJ_REL="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
+OUT_SUBJ_REL="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
 CUT_TOKEN=""
 # Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
 DWI_VARIANT="none"
@@ -27,6 +27,9 @@ USE_MEAN="1"
 DUMMY_SCANS="5"
 # Set to 1 to reuse existing reference images, or 0 to overwrite them.
 REUSE_REFERENCE="0"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+
 
 case "$REUSE_REFERENCE" in
   0|1)
