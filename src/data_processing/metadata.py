@@ -9,7 +9,7 @@ class FileMeta:
     tokens: list[str]
     parsed: dict[str, object]
 
-# patrones típicos (si no matchea, no pasa nada)
+# Common patterns; unmatched patterns are harmless.
 _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("date_yyyymmdd", re.compile(r"^(?P<v>\d{8})")),
     ("nbvals",        re.compile(r"(?P<v>\d+)bval", re.IGNORECASE)),
@@ -24,7 +24,7 @@ def parse_filename_metadata(path: str | Path) -> FileMeta:
     p = Path(path)
     name = p.name
 
-    # tokens crudos por si mañana aparece info nueva
+    # Raw tokens are kept so future metadata can be inspected.
     tokens = re.split(r"[_\-\s]+", p.stem)
 
     parsed: dict[str, object] = {"encoding": None, "has_qc": False}
@@ -40,7 +40,7 @@ def parse_filename_metadata(path: str | Path) -> FileMeta:
         if not m:
             continue
         v = m.group("v")
-        # casteos típicos
+        # Common numeric casts.
         if key in {"nbvals", "ndirs", "d_ms", "ogse_hz", "bmax", "seq_id"}:
             parsed[key] = int(v)
         else:

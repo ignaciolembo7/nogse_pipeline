@@ -17,7 +17,7 @@ PY="${PY:-python}"
 
 usage() {
   echo "Usage:"
-  echo "  bash nogse_pipeline/bash/phantoms/0.05-run_make_gval_gvec.sh [options]"
+  echo "  bash nogse_pipeline/bash_template/phantoms/0.1-run_make_gval_gvec.sh [options]"
   echo
   echo "Options:"
   echo "  --subject SUBJ      Subject/experiment folder name"
@@ -32,7 +32,7 @@ usage() {
   echo "  --dry-run           Print what would be written without creating files"
   echo
   echo "Example:"
-  echo "  bash nogse_pipeline/bash/phantoms/0.05-run_make_gval_gvec.sh"
+  echo "  bash nogse_pipeline/bash_template/phantoms/0.1-run_make_gval_gvec.sh"
   exit 1
 }
 

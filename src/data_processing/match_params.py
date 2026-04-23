@@ -16,10 +16,10 @@ class ResultMeta:
     TN: float | None
     N: float | None
 
-    # legacy: _d55 (ANTES; lo tratamos como max_dur_ms)
+    # Legacy: _d55 is treated as max_dur_ms.
     d_ms: float | None
 
-    # nuevo: _d1.5 (delta) y _Delta11.6 (Delta_app)
+    # New style: _d1.5 (delta) and _Delta11.6 (Delta_app).
     delta_ms: float | None
     Delta_ms: float | None
 
@@ -32,17 +32,21 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     p = Path(path)
     name = p.name
 
-    parent_name = p.parent.name.strip()
-    if parent_name and parent_name.lower() != "results":
-        sheet = parent_name
-    elif "_ep2d" in name:
-        sheet = name.split("_ep2d")[0]
-    elif "_d" in name:
-        sheet = name.split("_d")[0]
-    elif "_Delta" in name:
-        sheet = name.split("_Delta")[0]
+    parts_lower = [part.lower() for part in p.parts]
+    if "results" in parts_lower and parts_lower.index("results") + 1 < len(p.parts) - 1:
+        sheet = p.parts[parts_lower.index("results") + 1].strip()
     else:
-        sheet = p.stem.split("_")[0]
+        parent_name = p.parent.name.strip()
+        if parent_name and parent_name.lower() != "results":
+            sheet = parent_name
+        elif "_ep2d" in name:
+            sheet = name.split("_ep2d")[0]
+        elif "_d" in name:
+            sheet = name.split("_d")[0]
+        elif "_Delta" in name:
+            sheet = name.split("_Delta")[0]
+        else:
+            sheet = p.stem.split("_")[0]
     sheet = re.sub(r"_(\d+)bval_(\d+)dir.*$", "", sheet, flags=re.IGNORECASE)
 
     def _int(rx: str) -> int | None:
@@ -66,11 +70,11 @@ def parse_results_filename(path: str | Path) -> ResultMeta:
     TN = _float_with_p(r"_TN(\d+(?:p\d+|\.\d+)?)")
     N = _float_with_p(r"_N(\d+(?:p\d+|\.\d+)?)")
 
-    # nuevo: _d1.5 y _Delta11.6  (solo interpretamos _d como delta_ms si también hay _Delta)
+    # New style: interpret _d as delta_ms only when _Delta is present.
     delta_ms = _float(r"_d(\d+(?:\.\d+)?)") if re.search(r"_Delta", name, re.IGNORECASE) else None
     Delta_ms = _float(r"_Delta(\d+(?:\.\d+)?)")
 
-    # legacy: _d55 (solo si NO hay _Delta...)
+    # Legacy style: _d55 is used only when there is no _Delta token.
     d_ms = _float_with_p(r"_d(\d+(?:p\d+|\.\d+)?)") if delta_ms is None else None
 
     Hz   = _float(r"Hz(\d+(?:\.\d+)?)")
@@ -102,18 +106,25 @@ def _filter_close(df: pd.DataFrame, col: str, target: float, *, atol: float = 1e
     return df[np.isclose(v.to_numpy(float), float(target), rtol=0.0, atol=float(atol))]
 
 
+def _sequence_match_column(df: pd.DataFrame) -> str | None:
+    for col in ("sequence", "seq"):
+        if col in df.columns and pd.to_numeric(df[col], errors="coerce").notna().any():
+            return col
+    return None
+
+
 def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     """
     Strict match policy:
     1) The sheet name must match exactly.
-    2) If a sequence number is available, match it only inside that sheet.
-    3) If sheet+seq already identify a single row, return it directly.
-    4) If more than one row still remains, use Hz and timing fields to disambiguate.
+    2) If a group number is available, match it inside that sheet.
+    3) If a sequence number is available, match the Excel sequence column inside that sheet/group.
+    4) If more than one row still remains, use gradient, Hz, and timing fields to disambiguate.
     5) Do not silently fall back to another sheet.
     """
     df = params.copy()
 
-    # 1) Strict sheet match
+    # Strict sheet match
     if meta.sheet is None or "sheet" not in df.columns:
         raise ValueError(
             f"Cannot match parameters: meta.sheet={meta.sheet!r} or 'sheet' column is missing."
@@ -131,23 +142,21 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
             f"Available sheets in Excel: {available_sheets}"
         )
 
-    # 2) Sequence match only inside the already matched sheet
-    if meta.seq is not None and "seq" in df.columns:
-        seq_values = pd.to_numeric(df["seq"], errors="coerce")
-        df = df[seq_values == int(meta.seq)]
-
-        if df.empty:
-            raise ValueError(
-                "Exact sheet was found, but sequence was not found inside that sheet. "
-                f"sheet={target_sheet!r}, seq={meta.seq}"
-            )
-
-        if len(df) == 1:
-            return df.iloc[0]
-
-    # Additional disambiguation for grouped direct-g acquisitions
+    # Group disambiguates direct-g acquisitions whose sequence numbers belong to separate curves.
     if meta.group is not None and "group" in df.columns:
         df = _filter_close(df, "group", float(meta.group), atol=1e-6)
+
+    if meta.seq is not None:
+        seq_col = _sequence_match_column(df)
+        if seq_col is not None:
+            seq_values = pd.to_numeric(df[seq_col], errors="coerce")
+            df = df[seq_values == int(meta.seq)]
+
+            if df.empty:
+                raise ValueError(
+                    "Exact sheet/group was found, but sequence was not found inside that subset. "
+                    f"sheet={target_sheet!r}, group={meta.group}, {seq_col}={meta.seq}"
+                )
 
     if meta.G is not None and "G" in df.columns:
         df = _filter_close(df, "G", float(meta.G), atol=1e-6)
@@ -158,7 +167,7 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     if meta.N is not None and "N" in df.columns:
         df = _filter_close(df, "N", float(meta.N), atol=1e-6)
 
-    # 3) Hz
+    # Hz
     Hz = 0 if (meta.Hz is None and meta.encoding == "PGSE") else meta.Hz
     if Hz is not None and "Hz" in df.columns:
         hzcol = pd.to_numeric(df["Hz"], errors="coerce")
@@ -167,7 +176,7 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
         else:
             df = _filter_close(df, "Hz", float(Hz), atol=1e-6)
 
-    # 4) Timing fields
+    # Timing fields
     if meta.delta_ms is not None and "delta_ms" in df.columns:
         df = _filter_close(df, "delta_ms", float(meta.delta_ms), atol=1e-3)
 

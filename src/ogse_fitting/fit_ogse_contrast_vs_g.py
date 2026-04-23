@@ -2,17 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit, minimize_scalar
+from scipy.optimize import minimize_scalar
 
+from fitting.core import CurveFitParameter
+from fitting.core import chi2 as _chi2
+from fitting.core import fit_curve_fit_parameters
+from fitting.core import rmse as _rmse
+from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
+from ogse_plotting.plot_ogse_contrast_vs_g import FAMILY_LABEL, plot_contrast_fit
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
-from plottings.fit_plot_style import finish_fit_figure, plot_fit_curve, plot_fit_data, start_fit_figure
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
 from tools.strict_columns import raise_on_unrecognized_column_names
+from tools.value_formatting import scalar_or_compact_series, truthy_series
 
 
 # -----------------------------
@@ -46,7 +52,7 @@ def _normalize_keys(df: pd.DataFrame, *, label: str) -> pd.DataFrame:
         raise ValueError(f"{label}: b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
     out["b_step"] = bs.astype(int)
 
-    # stat si existe, siempre str
+    # Keep stat as a string when present.
     if "stat" in out.columns:
         out["stat"] = out["stat"].astype(str)
 
@@ -74,7 +80,7 @@ def _normalize_gbase(gbase: str) -> str:
     if b.endswith("_2"):
         b = b[:-2]
     if b not in VALID_GBASES:
-        raise ValueError(f"fit_ogse_contrast: unrecognized gbase {gbase!r}. Allowed values: {sorted(VALID_GBASES)}.")
+        raise ValueError(f"fit_ogse_contrast_vs_g: unrecognized gbase {gbase!r}. Allowed values: {sorted(VALID_GBASES)}.")
     return b
 
 
@@ -119,38 +125,6 @@ def _fit_row_correction_pair(fit_row: dict[str, Any] | pd.Series) -> tuple[float
     return _coerce_correction_pair(fit_row.get("f_corr", 1.0))
 
 
-def _rmse(y: np.ndarray, yhat: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((y - yhat) ** 2)))
-
-
-def _chi2(y: np.ndarray, yhat: np.ndarray) -> float:
-    return float(np.sum((y - yhat) ** 2))
-
-
-def _stderr_from_single_param_jacobian(
-    y: np.ndarray,
-    yhat: np.ndarray,
-    jac: np.ndarray,
-    *,
-    n_params: int = 1,
-) -> float | None:
-    if y.size == 0 or yhat.size != y.size or jac.size != y.size:
-        return None
-    if not np.all(np.isfinite(y)) or not np.all(np.isfinite(yhat)) or not np.all(np.isfinite(jac)):
-        return None
-    dof = int(y.size) - int(n_params)
-    if dof <= 0:
-        return None
-    sse = float(np.sum((y - yhat) ** 2))
-    jtj = float(np.sum(jac ** 2))
-    if not np.isfinite(sse) or not np.isfinite(jtj) or jtj <= 0.0:
-        return None
-    var = sse / (float(dof) * jtj)
-    if not np.isfinite(var) or var < 0.0:
-        return None
-    return float(np.sqrt(var))
-
-
 def _analysis_id_from_source_file(source_file: str | None) -> str:
     if not source_file:
         return ""
@@ -158,6 +132,93 @@ def _analysis_id_from_source_file(source_file: str | None) -> str:
     if stem.endswith(".long"):
         stem = stem[: -len(".long")]
     return stem
+
+
+@dataclass(frozen=True)
+class ContrastModelSpec:
+    name: str
+    evaluator: Callable[[float, np.ndarray, np.ndarray, int, int, dict[str, Any]], np.ndarray]
+    maxfev: int
+
+
+def _eval_free(
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    params: dict[str, Any],
+) -> np.ndarray:
+    return OGSE_contrast_vs_g_free(td_ms, G1, G2, n_1, n_2, float(params["M0"]), float(params["D0_m2_ms"]))
+
+
+def _eval_tort(
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    params: dict[str, Any],
+) -> np.ndarray:
+    return OGSE_contrast_vs_g_tort(
+        td_ms,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        float(params["alpha"]),
+        float(params["M0"]),
+        float(params["D0_m2_ms"]),
+    )
+
+
+def _eval_rest(
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    params: dict[str, Any],
+) -> np.ndarray:
+    return OGSE_contrast_vs_g_rest(
+        td_ms,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        float(params["tc_ms"]),
+        float(params["M0"]),
+        float(params["D0_m2_ms"]),
+    )
+
+
+CONTRAST_MODEL_SPECS: dict[str, ContrastModelSpec] = {
+    "free": ContrastModelSpec(name="free", evaluator=_eval_free, maxfev=400000),
+    "tort": ContrastModelSpec(name="tort", evaluator=_eval_tort, maxfev=600000),
+    "rest": ContrastModelSpec(name="rest", evaluator=_eval_rest, maxfev=600000),
+}
+
+
+def _fit_contrast_model(
+    spec: ContrastModelSpec,
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    y: np.ndarray,
+    *,
+    parameters: Sequence[CurveFitParameter],
+):
+    def model_from_params(params: dict[str, float]) -> np.ndarray:
+        return spec.evaluator(td_ms, G1, G2, n_1, n_2, params)
+
+    return fit_curve_fit_parameters(
+        model_from_params,
+        y,
+        parameters=parameters,
+        maxfev=spec.maxfev,
+    )
 
 
 def _model_yhat(
@@ -170,31 +231,10 @@ def _model_yhat(
     n_2: int,
     fit_row: dict[str, Any],
 ) -> np.ndarray:
-    if model == "free":
-        return OGSE_contrast_vs_g_free(td_ms, G1, G2, n_1, n_2, float(fit_row["M0"]), float(fit_row["D0_m2_ms"]))
-    if model == "tort":
-        return OGSE_contrast_vs_g_tort(
-            td_ms,
-            G1,
-            G2,
-            n_1,
-            n_2,
-            float(fit_row["alpha"]),
-            float(fit_row["M0"]),
-            float(fit_row["D0_m2_ms"]),
-        )
-    if model == "rest":
-        return OGSE_contrast_vs_g_rest(
-            td_ms,
-            G1,
-            G2,
-            n_1,
-            n_2,
-            float(fit_row["tc_ms"]),
-            float(fit_row["M0"]),
-            float(fit_row["D0_m2_ms"]),
-        )
-    raise ValueError(f"Unsupported model {model!r} for curve evaluation.")
+    spec = CONTRAST_MODEL_SPECS.get(str(model))
+    if spec is None:
+        raise ValueError(f"Unsupported model {model!r} for curve evaluation.")
+    return spec.evaluator(td_ms, G1, G2, n_1, n_2, fit_row)
 
 
 def _tc_peak_from_notebook_formula(
@@ -314,30 +354,8 @@ def _fit_free(
     M0_value: float,
     D0_value: float,
 ) -> tuple[float, float, float, float, str, float | None, float | None]:
-    # try:
-    #     from scipy.optimize import curve_fit  # type: ignore
-    # except Exception:
-    #     return _fit_free_numpy_bruteforce(
-    #         td, G1, G2, N1, N2, y,
-    #         M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value,
-    #     )
-
-    if not M0_vary and not D0_vary:
-        yhat = OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0_value, D0_value)
-        return float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "fixed", None, None
-
-    # bounds razonables alrededor del guess
+    # Keep D0 bounds centered around the user-provided seed.
     D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
-
-    if M0_vary and D0_vary:
-        def f(_dummy, M0, D0):
-            return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, D0)
-        p0 = [float(M0_value), float(D0_value)]
-        bounds = ([0.0, D_lo], [2.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
-        yhat = f(None, *popt)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-        return float(popt[0]), float(popt[1]), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1])
 
     if (not M0_vary) and D0_vary:
         def f_log(log_D0: float) -> float:
@@ -386,15 +404,28 @@ def _fit_free(
 
         return float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "logD_scalar_search", None, D0_err
 
-    def f(_dummy, M0):
-        return OGSE_contrast_vs_g_free(td, G1, G2, n_1, n_2, M0, float(D0_value))
-    p0 = [float(M0_value)]
-    bounds = ([0.0], [2.0])
-    popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=400000)
-    yhat = f(None, *popt)
-    M0 = float(popt[0])
-    M0_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-    return M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", M0_err, None
+    fit = _fit_contrast_model(
+        CONTRAST_MODEL_SPECS["free"],
+        td,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        y,
+        parameters=[
+            CurveFitParameter("M0", float(M0_value), 0.0, 2.0, bool(M0_vary)),
+            CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
+        ],
+    )
+    return (
+        float(fit.values["M0"]),
+        float(fit.values["D0_m2_ms"]),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("M0_err", np.nan)),
+        float(fit.errors.get("D0_err_m2_ms", np.nan)) if D0_vary else None,
+    )
 
 def _fit_tort(
     td: float,
@@ -410,55 +441,31 @@ def _fit_tort(
     D0_value: float,
 ):
     D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
-
-    if M0_vary and D0_vary:
-        def f(_dummy, alpha, M0, D0):
-            return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, D0)
-
-        p0 = [0.7, float(M0_value), float(D0_value)]
-        bounds = ([0.0, 0.0, D_lo], [2.0, 5.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
-        yhat = f(None, *popt)
-        rmse = _rmse(y, yhat)
-        chi2 = _chi2(y, yhat)
-        alpha, M0, D0 = map(float, popt)
-        return alpha, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
-
-    if (not M0_vary) and (not D0_vary):
-        def f(_dummy, alpha):
-            return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, float(M0_value), float(D0_value))
-
-        p0 = [0.7]
-        bounds = ([0.0], [2.0])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        yhat = f(None, *popt)
-        alpha = float(popt[0])
-        alpha_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-        return alpha, float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", alpha_err, None, None
-
-    if (not M0_vary) and D0_vary:
-        def f(_dummy, alpha, D0):
-            return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, float(M0_value), D0)
-
-        p0 = [0.7, float(D0_value)]
-        bounds = ([0.0, D_lo], [2.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-        yhat = f(None, *popt)
-        alpha, D0 = map(float, popt)
-        return alpha, float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), None, float(perr[1])
-
-    def f(_dummy, alpha, M0):
-        return OGSE_contrast_vs_g_tort(td, G1, G2, n_1, n_2, alpha, M0, float(D0_value))
-
-    p0 = [0.7, float(M0_value)]
-    bounds = ([0.0, 0.0], [2.0, 5.0])
-    popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-    yhat = f(None, *popt)
-    alpha, M0 = map(float, popt)
-    return alpha, M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1]), None
+    fit = _fit_contrast_model(
+        CONTRAST_MODEL_SPECS["tort"],
+        td,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        y,
+        parameters=[
+            CurveFitParameter("alpha", 0.7, 0.0, 2.0, True),
+            CurveFitParameter("M0", float(M0_value), 0.0, 5.0, bool(M0_vary)),
+            CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
+        ],
+    )
+    return (
+        float(fit.values["alpha"]),
+        float(fit.values["M0"]),
+        float(fit.values["D0_m2_ms"]),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("alpha_err", np.nan)),
+        float(fit.errors.get("M0_err", np.nan)) if M0_vary else None,
+        float(fit.errors.get("D0_err_m2_ms", np.nan)) if D0_vary else None,
+    )
 
 
 def _best_tc_seed_rest(
@@ -521,55 +528,124 @@ def _fit_rest(
         D0_guess=float(D0_value),
         tc_default=float(tc_value),
     )
+    fit = _fit_contrast_model(
+        CONTRAST_MODEL_SPECS["rest"],
+        td,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        y,
+        parameters=[
+            CurveFitParameter("tc_ms", float(tc_seed), tc_lo, tc_hi, True),
+            CurveFitParameter("M0", float(M0_value), 0.0, 5.0, bool(M0_vary)),
+            CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
+        ],
+    )
+    return (
+        float(fit.values["tc_ms"]),
+        float(fit.values["M0"]),
+        float(fit.values["D0_m2_ms"]),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("tc_err_ms", np.nan)),
+        float(fit.errors.get("M0_err", np.nan)) if M0_vary else None,
+        float(fit.errors.get("D0_err_m2_ms", np.nan)) if D0_vary else None,
+    )
 
-    if M0_vary and D0_vary:
-        def f(_dummy, tc, M0, D0):
-            return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, D0)
 
-        p0 = [float(tc_seed), float(M0_value), float(D0_value)]
-        bounds = ([tc_lo, 0.0, D_lo], [tc_hi, 5.0, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan, np.nan])
-        yhat = f(None, *popt)
-        rmse = _rmse(y, yhat)
-        chi2 = _chi2(y, yhat)
-        tc, M0, D0 = map(float, popt)
-        return tc, M0, D0, rmse, chi2, "scipy_curve_fit", float(perr[0]), float(perr[1]), float(perr[2])
+def _fit_selected_contrast_model(
+    model: str,
+    td: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    y: np.ndarray,
+    *,
+    M0_vary: bool,
+    D0_vary: bool,
+    M0_value: float,
+    D0_value: float,
+    tc_value: float,
+) -> dict[str, float | str | None]:
+    if model == "free":
+        M0, D0, rmse, chi2, method, M0_err, D0_err = _fit_free(
+            td,
+            G1,
+            G2,
+            n_1,
+            n_2,
+            y,
+            M0_vary=M0_vary,
+            D0_vary=D0_vary,
+            M0_value=M0_value,
+            D0_value=D0_value,
+        )
+        return {
+            "M0": float(M0),
+            "M0_err": None if M0_err is None else float(M0_err),
+            "D0_m2_ms": float(D0),
+            "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "rmse": float(rmse),
+            "chi2": float(chi2),
+            "method": str(method),
+        }
 
-    if (not M0_vary) and (not D0_vary):
-        def f(_dummy, tc):
-            return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, float(M0_value), float(D0_value))
+    if model == "tort":
+        alpha, M0, D0, rmse, chi2, method, alpha_err, M0_err, D0_err = _fit_tort(
+            td,
+            G1,
+            G2,
+            n_1,
+            n_2,
+            y,
+            M0_vary=M0_vary,
+            D0_vary=D0_vary,
+            M0_value=M0_value,
+            D0_value=D0_value,
+        )
+        return {
+            "alpha": float(alpha),
+            "alpha_err": None if alpha_err is None else float(alpha_err),
+            "M0": float(M0),
+            "M0_err": None if M0_err is None else float(M0_err),
+            "D0_m2_ms": float(D0),
+            "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "rmse": float(rmse),
+            "chi2": float(chi2),
+            "method": str(method),
+        }
 
-        p0 = [float(tc_seed)]
-        bounds = ([tc_lo], [tc_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        yhat = f(None, *popt)
-        tc = float(popt[0])
-        tc_err = float(np.sqrt(pcov[0, 0])) if pcov is not None and np.isfinite(pcov[0, 0]) else None
-        return tc, float(M0_value), float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", tc_err, None, None
+    if model == "rest":
+        tc, M0, D0, rmse, chi2, method, tc_err, M0_err, D0_err = _fit_rest(
+            td,
+            G1,
+            G2,
+            n_1,
+            n_2,
+            y,
+            M0_vary=M0_vary,
+            D0_vary=D0_vary,
+            M0_value=M0_value,
+            D0_value=D0_value,
+            tc_value=tc_value,
+        )
+        return {
+            "tc_ms": float(tc),
+            "tc_err_ms": None if tc_err is None else float(tc_err),
+            "M0": float(M0),
+            "M0_err": None if M0_err is None else float(M0_err),
+            "D0_m2_ms": float(D0),
+            "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "rmse": float(rmse),
+            "chi2": float(chi2),
+            "method": str(method),
+        }
 
-    if (not M0_vary) and D0_vary:
-        def f(_dummy, tc, D0):
-            return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, float(M0_value), D0)
+    raise ValueError(f"Model {model!r} is not implemented.")
 
-        p0 = [float(tc_seed), float(D0_value)]
-        bounds = ([tc_lo, D_lo], [tc_hi, D_hi])
-        popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-        perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-        yhat = f(None, *popt)
-        tc, D0 = map(float, popt)
-        return tc, float(M0_value), D0, _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), None, float(perr[1])
-
-    def f(_dummy, tc, M0):
-        return OGSE_contrast_vs_g_rest(td, G1, G2, n_1, n_2, tc, M0, float(D0_value))
-
-    p0 = [float(tc_seed), float(M0_value)]
-    bounds = ([tc_lo, 0.0], [tc_hi, 5.0])
-    popt, pcov = curve_fit(f, np.zeros_like(y), y, p0=p0, bounds=bounds, maxfev=600000)
-    perr = np.sqrt(np.diag(pcov)) if pcov is not None and np.all(np.isfinite(pcov)) else np.array([np.nan, np.nan])
-    yhat = f(None, *popt)
-    tc, M0 = map(float, popt)
-    return tc, M0, float(D0_value), _rmse(y, yhat), _chi2(y, yhat), "scipy_curve_fit", float(perr[0]), float(perr[1]), None
 
 # -----------------------------
 # Public API
@@ -597,6 +673,7 @@ class FitRow:
     bmax_1: float | None
     protocol_1: str | None
     sequence_1: str | None
+    one_g_per_sequence_1: bool | None
     sheet_1: str | None
 
     # sequence 2 params
@@ -612,6 +689,7 @@ class FitRow:
     bmax_2: float | None
     protocol_2: str | None
     sequence_2: str | None
+    one_g_per_sequence_2: bool | None
     sheet_2: str | None
 
     # fit config
@@ -689,6 +767,7 @@ def fit_ogse_contrast_long(
     peak_grid_n: int = 1000,
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
+    oneg: bool = False,
 ) -> pd.DataFrame:
     """
     Fit a long-form contrast table.
@@ -754,6 +833,28 @@ def fit_ogse_contrast_long(
                 return None
             return str(v)
 
+        def _get_bool(col: str) -> bool | None:
+            if col not in gg.columns:
+                return None
+            if pd.Series(gg[col]).dropna().empty:
+                return None
+            return bool(truthy_series(gg[col]))
+
+        one_g_per_sequence_1 = _get_bool("one_g_per_sequence_1")
+        one_g_per_sequence_2 = _get_bool("one_g_per_sequence_2")
+        allow_sequence_ranges = bool(oneg or one_g_per_sequence_1 or one_g_per_sequence_2)
+
+        def _get_sequence(col: str) -> str | None:
+            if col not in gg.columns:
+                return None
+            if allow_sequence_ranges:
+                v = scalar_or_compact_series(gg[col], name=col, required=False)
+            else:
+                v = _unique_scalar(gg[col], name=col, required=False)
+            if v is None:
+                return None
+            return str(v)
+
         n_1 = int(round(float(_unique_scalar(gg["N_1"], name="N_1", required=True))))
         n_2 = int(round(float(_unique_scalar(gg["N_2"], name="N_2", required=True))))
 
@@ -767,7 +868,7 @@ def fit_ogse_contrast_long(
         TR_1 = _get_float("TR_1")
         bmax_1 = _get_float("bmax_1")
         protocol_1 = _get_str("protocol_1")
-        sequence_1 = _get_str("sequence_1")
+        sequence_1 = _get_sequence("sequence_1")
         sheet_1 = _get_str("sheet_1")
 
         max_dur_ms_2 = _get_float("max_dur_ms_2")
@@ -780,7 +881,7 @@ def fit_ogse_contrast_long(
         TR_2 = _get_float("TR_2")
         bmax_2 = _get_float("bmax_2")
         protocol_2 = _get_str("protocol_2")
-        sequence_2 = _get_str("sequence_2")
+        sequence_2 = _get_sequence("sequence_2")
         sheet_2 = _get_str("sheet_2")
 
         # timing summary for fitting internals: prefer override > td_ms_1/2 > compute from side 1
@@ -841,6 +942,7 @@ def fit_ogse_contrast_long(
                     bmax_1=bmax_1,
                     protocol_1=protocol_1,
                     sequence_1=sequence_1,
+                    one_g_per_sequence_1=one_g_per_sequence_1,
                     sheet_1=sheet_1,
                     max_dur_ms_2=max_dur_ms_2,
                     tm_ms_2=tm_ms_2,
@@ -854,6 +956,7 @@ def fit_ogse_contrast_long(
                     bmax_2=bmax_2,
                     protocol_2=protocol_2,
                     sequence_2=sequence_2,
+                    one_g_per_sequence_2=one_g_per_sequence_2,
                     sheet_2=sheet_2,
                     model=model,
                     ycol=ycol,
@@ -908,6 +1011,7 @@ def fit_ogse_contrast_long(
             bmax_1=bmax_1,
             protocol_1=protocol_1,
             sequence_1=sequence_1,
+            one_g_per_sequence_1=one_g_per_sequence_1,
             sheet_1=sheet_1,
             max_dur_ms_2=max_dur_ms_2,
             tm_ms_2=tm_ms_2,
@@ -921,6 +1025,7 @@ def fit_ogse_contrast_long(
             bmax_2=bmax_2,
             protocol_2=protocol_2,
             sequence_2=sequence_2,
+            one_g_per_sequence_2=one_g_per_sequence_2,
             sheet_2=sheet_2,
             model=model,
             ycol=ycol,
@@ -934,124 +1039,44 @@ def fit_ogse_contrast_long(
         )
 
         try:
-            if model == "free":
-                M0, D0, rmse, chi2, method, M0_err, D0_err = _fit_free(
-                    td, G1, G2, n_1, n_2, y,
-                    M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value
-                )
-                peak_metrics = _compute_peak_metrics(
-                    model=model,
-                    td_ms=td,
-                    n_1=n_1,
-                    n_2=n_2,
-                    fit_row={"M0": float(M0), "D0_m2_ms": float(D0)},
-                    g1_max_corr=float(np.nanmax(G1)),
-                    g2_max_corr=float(np.nanmax(G2)),
-                    f_corr=float(f_corr),
-                    f_corr_1=float(f_corr_1),
-                    f_corr_2=float(f_corr_2),
-                    xplot=str(xplot),
-                    peak_grid_n=int(peak_grid_n),
-                    peak_D0_fix=float(peak_D0_fix),
-                    peak_gamma=float(peak_gamma),
-                )
-                rows.append(
-                    FitRow(
-                        **base,
-                        **peak_metrics,
-                        M0=float(M0),
-                        M0_err=None if M0_err is None else float(M0_err),
-                        D0_m2_ms=float(D0),
-                        D0_err_m2_ms=None if D0_err is None else float(D0_err),
-                        rmse=float(rmse),
-                        chi2=float(chi2),
-                        method=str(method),
-                    )
-                )
-
-            elif model == "tort":
-                alpha, M0, D0, rmse, chi2, method, alpha_err, M0_err, D0_err = _fit_tort(
-                    td, G1, G2, n_1, n_2, y,
-                    M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value
-                )
-                peak_metrics = _compute_peak_metrics(
-                    model=model,
-                    td_ms=td,
-                    n_1=n_1,
-                    n_2=n_2,
-                    fit_row={"alpha": float(alpha), "M0": float(M0), "D0_m2_ms": float(D0)},
-                    g1_max_corr=float(np.nanmax(G1)),
-                    g2_max_corr=float(np.nanmax(G2)),
-                    f_corr=float(f_corr),
-                    f_corr_1=float(f_corr_1),
-                    f_corr_2=float(f_corr_2),
-                    xplot=str(xplot),
-                    peak_grid_n=int(peak_grid_n),
-                    peak_D0_fix=float(peak_D0_fix),
-                    peak_gamma=float(peak_gamma),
-                )
-                rows.append(
-                    FitRow(
-                        **base,
-                        **peak_metrics,
-                        alpha=float(alpha),
-                        alpha_err=None if alpha_err is None else float(alpha_err),
-                        M0=float(M0),
-                        M0_err=None if M0_err is None else float(M0_err),
-                        D0_m2_ms=float(D0),
-                        D0_err_m2_ms=None if D0_err is None else float(D0_err),
-                        rmse=float(rmse),
-                        chi2=float(chi2),
-                        method=str(method),
-                    )
-                )
-
-            elif model == "rest":
-                tc, M0, D0, rmse, chi2, method, tc_err, M0_err, D0_err = _fit_rest(
-                    td, G1, G2, n_1, n_2, y,
-                    M0_vary=M0_vary, D0_vary=D0_vary, M0_value=M0_value, D0_value=D0_value, tc_value=tc_value
-                )
-                peak_metrics = _compute_peak_metrics(
-                    model=model,
-                    td_ms=td,
-                    n_1=n_1,
-                    n_2=n_2,
-                    fit_row={"tc_ms": float(tc), "M0": float(M0), "D0_m2_ms": float(D0)},
-                    g1_max_corr=float(np.nanmax(G1)),
-                    g2_max_corr=float(np.nanmax(G2)),
-                    f_corr=float(f_corr),
-                    f_corr_1=float(f_corr_1),
-                    f_corr_2=float(f_corr_2),
-                    xplot=str(xplot),
-                    peak_grid_n=int(peak_grid_n),
-                    peak_D0_fix=float(peak_D0_fix),
-                    peak_gamma=float(peak_gamma),
-                )
-                rows.append(
-                    FitRow(
-                        **base,
-                        **peak_metrics,
-                        tc_ms=float(tc),
-                        tc_err_ms=None if tc_err is None else float(tc_err),
-                        M0=float(M0),
-                        M0_err=None if M0_err is None else float(M0_err),
-                        D0_m2_ms=float(D0),
-                        D0_err_m2_ms=None if D0_err is None else float(D0_err),
-                        rmse=float(rmse),
-                        chi2=float(chi2),
-                        method=str(method),
-                    )
-                )
-            
-            else:
-                rows.append(FitRow(**base, ok=False, msg=f"Model {model!r} is not implemented."))
+            fit_values = _fit_selected_contrast_model(
+                model,
+                td,
+                G1,
+                G2,
+                n_1,
+                n_2,
+                y,
+                M0_vary=M0_vary,
+                D0_vary=D0_vary,
+                M0_value=M0_value,
+                D0_value=D0_value,
+                tc_value=tc_value,
+            )
+            peak_metrics = _compute_peak_metrics(
+                model=model,
+                td_ms=td,
+                n_1=n_1,
+                n_2=n_2,
+                fit_row=fit_values,
+                g1_max_corr=float(np.nanmax(G1)),
+                g2_max_corr=float(np.nanmax(G2)),
+                f_corr=float(f_corr),
+                f_corr_1=float(f_corr_1),
+                f_corr_2=float(f_corr_2),
+                xplot=str(xplot),
+                peak_grid_n=int(peak_grid_n),
+                peak_D0_fix=float(peak_D0_fix),
+                peak_gamma=float(peak_gamma),
+            )
+            rows.append(FitRow(**base, **peak_metrics, **fit_values))
         except Exception as e:
             rows.append(FitRow(**base, ok=False, msg=str(e)))
 
     out = pd.DataFrame([r.__dict__ for r in rows])
 
     # Keep the standardized downstream fit-parameter schema.
-    out = standardize_fit_params(out, fit_kind="nogse_contrast", source_file=source_file)
+    out = standardize_fit_params(out, fit_kind="ogse_contrast", source_file=source_file)
     return out
 
 
@@ -1104,38 +1129,32 @@ def plot_fit_one_group(
     G2s = f * G2max
 
     ys = None
-    label = model
 
     if model == "free" and bool(fit_row.get("ok", True)):
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_free(td, G1s, G2s, n_1, n_2, M0, D0)
-        label = f"free: M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     if model == "tort" and bool(fit_row.get("ok", True)):
         alpha = float(fit_row["alpha"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_tort(td, G1s, G2s, n_1, n_2, alpha, M0, D0)
-        label = f"tort: a={alpha:.3g}, M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
     if model == "rest" and bool(fit_row.get("ok", True)):
         tc = float(fit_row["tc_ms"])
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_rest(td, G1s, G2s, n_1, n_2, tc, M0, D0)
-        label = f"rest: tc={tc:.3g} ms, M0={M0:.3g}, D0={D0:.3g} m²/ms"
 
-    start_fit_figure()
-    plot_fit_data(G1, y, label="data")
-    if ys is not None:
-        plot_fit_curve(G1s, ys, label=label)
-
-    roi = fit_row.get("roi", "roi")
-    direction = fit_row.get("direction", "direction")
-    finish_fit_figure(
-        title=f"OGSE contrast fit | ROI={roi} | direction={direction} | $t_d$={td:.1f} ms | N{n_1}-N{n_2}",
-        xlabel=f"{_normalize_gbase(gbase)}_1 (mT/m)",
-        ylabel=ycol,
+    plot_contrast_fit(
+        x=np.asarray(G1, dtype=float),
+        y=np.asarray(y, dtype=float),
+        fit_x=np.asarray(G1s, dtype=float) if ys is not None else None,
+        fit_y=np.asarray(ys, dtype=float) if ys is not None else None,
+        fit_row=fit_row,
         out_png=out_png,
+        gbase=_normalize_gbase(gbase),
+        ycol=ycol,
+        family_label=FAMILY_LABEL,
     )

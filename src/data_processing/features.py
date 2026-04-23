@@ -19,7 +19,7 @@ def add_ogse_features(
 
     # --- compute g if missing ---
     if "g" not in out.columns:
-        b = out["bvalue"].to_numpy(dtype=float)  # b en s/mm^2
+        b = out["bvalue"].to_numpy(dtype=float)  # b in s/mm^2
         g = np.sqrt((b * 1e9) / (N * (gamma**2) * (delta_ms**2) * delta_app_ms))
         g[b == 0] = 0.0
         out["g"] = g
@@ -27,7 +27,7 @@ def add_ogse_features(
     if "b_step" not in out.columns:
         raise KeyError("b_step no existe; asegurate de haber pasado por reshape.to_long()")
 
-    # Elegir stat para normalización (prioriza avg/Mean si existen)
+    # Choose the stat used for normalization (prefer avg/Mean when available).
     stats_present = set(out["stat"].unique())
     if norm_stat not in stats_present:
         if "avg" in stats_present:
@@ -37,7 +37,7 @@ def add_ogse_features(
         else:
             norm_stat = next(iter(stats_present))
 
-    # --- g_max / g_lin_max / g_thorsten CONSISTENTES ---
+    # --- consistent g_max / g_lin_max / g_thorsten ---
     b_step_max = int(pd.to_numeric(out["b_step"], errors="coerce").max())
     if b_step_max <= 0:
         b_step_max = 1
@@ -54,7 +54,7 @@ def add_ogse_features(
     if g_thorsten_val is not None:
         out["g_thorsten"] = float(g_thorsten_val) * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
 
-    # --- Normalización SOLO para stat==norm_stat ---
+    # --- normalization only for stat==norm_stat ---
     out["value_norm"] = np.nan
     mask = out["stat"] == norm_stat
 

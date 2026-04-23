@@ -13,7 +13,7 @@ DELTA_RE = re.compile(r"_Delta(?P<Delta>\d+(?:\.\d+)?)", re.IGNORECASE)
 def parse_delta_from_name(name: str) -> float:
     m = DELTA_RE.search(name)
     if not m:
-        raise ValueError(f"No pude extraer Delta de: {name}")
+        raise ValueError(f"Could not extract Delta from: {name}")
     return float(m.group("Delta"))
 
 def infer_exp_id_from_parquet(p: Path) -> str:
@@ -24,7 +24,7 @@ def infer_exp_id_from_parquet(p: Path) -> str:
     return p.stem
 
 def _score_fit_file(p: Path) -> int:
-    # preferir fit_params.csv, luego fit_params_k=... con k chico
+    # Prefer fit_params.csv, then fit_params_k=... with the smallest k.
     stem = p.stem.lower()
     if stem == "fit_params":
         return 0
@@ -38,7 +38,7 @@ def _score_fit_file(p: Path) -> int:
 def find_fit_params_file(exp_dir: Path) -> Path:
     cands = list(exp_dir.glob("fit_params*.csv")) + list(exp_dir.glob("fit_params*.xlsx"))
     if not cands:
-        raise FileNotFoundError(f"No encontré fit_params* en: {exp_dir}")
+        raise FileNotFoundError(f"Could not find fit_params* in: {exp_dir}")
     cands = sorted(cands, key=_score_fit_file)
     return cands[0]
 
@@ -74,9 +74,9 @@ def plot_grid_all_deltas(
 
     parqs = sorted(data_root.glob("**/*.long.parquet"))
     if not parqs:
-        raise FileNotFoundError(f"No encontré .long.parquet en: {data_root}")
+        raise FileNotFoundError(f"Could not find .long.parquet in: {data_root}")
 
-    # cargar todo (datos + fits) en una tabla larga con Delta
+    # Load all data and fit references into one long table with Delta.
     blocks = []
     for pq in parqs:
         exp_id = infer_exp_id_from_parquet(pq)
@@ -86,10 +86,10 @@ def plot_grid_all_deltas(
         if stat_col in df.columns:
             df = df[df[stat_col].isin([stat_keep, "Mean"])].copy()
 
-        # filtros de columnas
+        # Required column checks.
         for c in [dir_col, roi_col, bcol, ycol]:
             if c not in df.columns:
-                raise ValueError(f"Falta columna {c!r} en {pq}. Columnas: {df.columns.tolist()}")
+                raise ValueError(f"Missing column {c!r} in {pq}. Columns: {df.columns.tolist()}")
 
         df = df[[dir_col, roi_col, bcol, ycol]].copy()
         df[dir_col] = df[dir_col].astype(str)
@@ -102,30 +102,30 @@ def plot_grid_all_deltas(
 
     data = pd.concat(blocks, ignore_index=True).dropna(subset=[bcol, ycol])
 
-    # rois
+    # ROIs.
     if rois is None:
         rois = sorted(data[roi_col].unique().tolist())
     else:
         rois = [str(r) for r in rois]
         data = data[data[roi_col].isin(rois)].copy()
 
-    # dirs
+    # Directions.
     dirs = [str(d) for d in dirs]
     data = data[data[dir_col].isin(dirs)].copy()
 
     deltas = sorted(data["Delta_ms"].unique().tolist())
 
-    # preparar figura
+    # Prepare figure.
     nrows, ncols = len(rois), len(dirs)
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4.8 * ncols, 3.6 * nrows), sharex=True, sharey=True)
     axes = np.array(axes).reshape(nrows, ncols)
 
-    # colores consistentes por Delta (usa ciclo default de matplotlib)
+    # Consistent colors by Delta, using the default matplotlib cycle.
     colors = plt.rcParams["axes.prop_cycle"].by_key().get("color", [])
     if not colors:
         colors = ["C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9"]
 
-    # legend global sin duplicados
+    # Global legend without duplicates.
     used_labels = set()
 
     for i, roi in enumerate(rois):
@@ -136,7 +136,7 @@ def plot_grid_all_deltas(
                 ax.axis("off")
                 continue
 
-            # title subplot
+            # Subplot title.
             ax.set_title(f"{roi}  G{d}")
 
             for k, Delta in enumerate(deltas):
@@ -154,17 +154,17 @@ def plot_grid_all_deltas(
                 ax.plot(s[bcol].to_numpy(), s[ycol].to_numpy(), marker="o", linestyle="None",
                         markersize=3.5, label=lbl_pts, color=color)
 
-                # curva fit: leer D0/M0 desde fit_params del experimento correspondiente
+                # Fit curve: read D0/M0 from the corresponding experiment fit_params.
                 exp_id = s["exp_id"].iloc[0]
-                exp_dir = fits_root / exp_id  # si tu fits_root apunta a la carpeta del grupo, esto existe
+                exp_dir = fits_root / exp_id  # Exists when fits_root points to the group folder.
                 if not exp_dir.exists():
-                    # fallback: si fits_root es el root global monoexp_fits/<grupo>, exp_dir está bien; si no, probá buscar recursivo
+                    # Recursive fallback could be added here if fits_root points elsewhere.
                     pass
 
                 try:
                     fit_file = find_fit_params_file(exp_dir)
                     fp = load_fit_params(fit_file)
-                    # buscar fila ROI+dir
+                    # Match the ROI+direction fit row.
                     fp["direction"] = fp["direction"].astype(str)
                     fp["roi"] = fp["roi"].astype(str)
                     row = fp[(fp["direction"] == d) & (fp["roi"] == roi)]
@@ -183,14 +183,14 @@ def plot_grid_all_deltas(
 
                         ax.plot(b_dense, y_dense, linestyle="-", linewidth=2, label=lbl_fit, color=color)
                 except Exception:
-                    # si falta fit o algo no matchea, simplemente no dibuja la curva
+                    # Missing or unmatched fits simply skip the curve.
                     pass
 
             if logy:
                 ax.set_yscale("log")
             ax.grid(True, linestyle="--", alpha=0.25)
 
-    # labels comunes
+    # Shared labels.
     for ax in axes[-1, :]:
         ax.set_xlabel("b [s/mm$^2$]", fontsize=14)
     for ax in axes[:, 0]:
@@ -199,7 +199,7 @@ def plot_grid_all_deltas(
     if title:
         fig.suptitle(title, y=0.98)
 
-    # legend global a la derecha
+    # Global legend on the right.
     handles, labels = [], []
     for ax in fig.axes:
         h, l = ax.get_legend_handles_labels()
@@ -208,7 +208,7 @@ def plot_grid_all_deltas(
                 handles.append(hh)
                 labels.append(ll)
 
-    # quitar duplicados manteniendo orden
+    # Remove duplicates while preserving order.
     seen = set()
     H, L = [], []
     for hh, ll in zip(handles, labels):
@@ -219,7 +219,7 @@ def plot_grid_all_deltas(
         L.append(ll)
 
     fig.legend(H, L, loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=9)
-    fig.tight_layout(rect=(0, 0, 0.82, 1))  # deja espacio para legend
+    fig.tight_layout(rect=(0, 0, 0.82, 1))  # Leave space for the legend.
     fig.savefig(out_png, dpi=300)
     plt.close(fig)
     return out_png

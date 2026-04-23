@@ -68,6 +68,7 @@ NOGSE_CONTRAST_COLS = [
     'bmax_1',
     'protocol_1',
     'sequence_1',
+    'one_g_per_sequence_1',
     'sheet_1',
     'max_dur_ms_2',
     'tm_ms_2',
@@ -81,6 +82,7 @@ NOGSE_CONTRAST_COLS = [
     'bmax_2',
     'protocol_2',
     'sequence_2',
+    'one_g_per_sequence_2',
     'sheet_2',
     'fit_kind',
     'model',
@@ -128,12 +130,71 @@ NOGSE_CONTRAST_COLS = [
     'msg',
 ]
 
+OGSE_CONTRAST_COLS = list(NOGSE_CONTRAST_COLS)
+
+NOGSE_SIGNAL_COLS = [
+    'source_file',
+    'analysis_id',
+    'subj',
+    'sheet',
+    'roi',
+    'direction',
+    'protocol',
+    'sequence',
+    'group',
+    'type',
+    'max_dur_ms',
+    'tm_ms',
+    'td_ms',
+    'TN',
+    'N',
+    'delta_ms',
+    'Delta_app_ms',
+    'Hz',
+    'TE',
+    'TR',
+    'x',
+    'y',
+    'fit_kind',
+    'model',
+    'xcol',
+    'ycol',
+    'stat',
+    'x_model_ms',
+    'x_min',
+    'x_max',
+    'G_min',
+    'G_max',
+    'n_points',
+    'n_fit',
+    'M0',
+    'M0_err',
+    'D0_m2_ms',
+    'D0_err_m2_ms',
+    'D0_mm2_s',
+    'D0_err_mm2_s',
+    'rmse',
+    'r2',
+    'chi2',
+    'M0_bound_min',
+    'M0_bound_max',
+    'D0_bound_min',
+    'D0_bound_max',
+    'method',
+    'ok',
+    'msg',
+]
+
 
 def _schema_cols_for_kind(fit_kind: str) -> list[str]:
     if fit_kind == 'monoexp':
         return MONOEXP_COLS
     if fit_kind == 'nogse_contrast':
         return NOGSE_CONTRAST_COLS
+    if fit_kind == 'ogse_contrast':
+        return OGSE_CONTRAST_COLS
+    if fit_kind == 'nogse_signal':
+        return NOGSE_SIGNAL_COLS
     raise ValueError(f'fit_kind desconocido: {fit_kind}')
 
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import pandas as pd
+
 DEFAULT_STAT_SHEETS = {0: "avg", 1: "std", 2: "med", 3: "mad", 4: "mode"}
 LEGACY_XLSX_STAT_SHEETS = {
     "Sheet1": "avg",
@@ -42,36 +43,36 @@ def _read_xlsx_stats(xls: pd.ExcelFile) -> dict[str, pd.DataFrame]:
     exact_map = {str(name): str(name) for name in sheet_names}
     norm_map = {str(name).strip().lower(): str(name) for name in sheet_names}
 
-    # formato nuevo de contraste / área
+    # New contrast/area workbook format.
     for sheet_name, stat_name in NEW_STAT_SHEETS.items():
         if sheet_name in exact_map:
             out[stat_name] = pd.read_excel(xls, sheet_name=exact_map[sheet_name], engine="openpyxl")
     if out:
         return out
 
-    # salida estilo MATLAB escrita como Sheet1..Sheet5
+    # MATLAB-style output written as Sheet1..Sheet5.
     for sheet_name, stat_name in LEGACY_XLSX_STAT_SHEETS.items():
         if sheet_name in exact_map:
             out[stat_name] = pd.read_excel(xls, sheet_name=exact_map[sheet_name], engine="openpyxl")
     if out:
         return out
 
-    # compatibilidad adicional si las hojas ya vienen nombradas por la stat
+    # Additional compatibility when sheets are already named by stat.
     for sheet_name, stat_name in NAMED_STAT_SHEETS.items():
         if sheet_name in norm_map:
             out[stat_name] = pd.read_excel(xls, sheet_name=norm_map[sheet_name], engine="openpyxl")
     if out:
         return out
 
-    # fallback: si no matchea nada, leer primera hoja como avg
+    # Fallback: if nothing matches, read the first sheet as avg.
     return {"avg": pd.read_excel(xls, sheet_name=0, engine="openpyxl")}
 
 def read_result_xls(path: str | Path, stat_sheets=DEFAULT_STAT_SHEETS) -> dict[str, pd.DataFrame]:
     """
-    Lee resultados legacy (.xls) y nuevos (.xlsx) y devuelve dict[stat -> DataFrame].
-    - Legacy .xls: sheets por índice 0..4 -> avg/std/med/mad/mode
-    - Legacy .xlsx: sheets tipo Sheet1..Sheet5 o mean/std/median/mad/mode
-    - Nuevo .xlsx: sheets por nombre Mean/Min/Max/Area -> avg/min/max/area
+    Read legacy (.xls) and new (.xlsx) results into dict[stat -> DataFrame].
+    - Legacy .xls: sheets by index 0..4 -> avg/std/med/mad/mode
+    - Legacy .xlsx: Sheet1..Sheet5 or mean/std/median/mad/mode sheets
+    - New .xlsx: sheets named Mean/Min/Max/Area -> avg/min/max/area
     """
     p = Path(path)
     suf = p.suffix.lower()
@@ -79,12 +80,77 @@ def read_result_xls(path: str | Path, stat_sheets=DEFAULT_STAT_SHEETS) -> dict[s
     out: dict[str, pd.DataFrame] = {}
 
     if suf == ".xls":
-        # legacy: requiere xlrd
+        # Legacy .xls requires xlrd.
         xls = pd.ExcelFile(p, engine="xlrd")
         for sheet_idx, stat_name in stat_sheets.items():
             out[stat_name] = pd.read_excel(xls, sheet_name=sheet_idx, engine="xlrd")
         return out
 
-    # nuevo: .xlsx
+    # New workbook format: .xlsx.
     xls = pd.ExcelFile(p, engine="openpyxl")
     return _read_xlsx_stats(xls)
+
+
+def write_table_outputs(
+    df: pd.DataFrame,
+    parquet_path: str | Path,
+    *,
+    xlsx_path: str | Path | None = None,
+    csv_path: str | Path | None = None,
+) -> Path:
+    """
+    Write a canonical table output bundle, using parquet as the primary artifact.
+    Optional xlsx/csv siblings preserve the repository's existing output contracts.
+    """
+    out_parquet = Path(parquet_path)
+    out_parquet.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out_parquet, index=False)
+
+    if xlsx_path is not None:
+        out_xlsx = Path(xlsx_path)
+        out_xlsx.parent.mkdir(parents=True, exist_ok=True)
+        df.to_excel(out_xlsx, index=False)
+
+    if csv_path is not None:
+        out_csv = Path(csv_path)
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_csv, index=False)
+
+    return out_parquet
+
+
+def write_xlsx_csv_outputs(
+    df: pd.DataFrame,
+    xlsx_path: str | Path,
+    *,
+    csv_path: str | Path | None = None,
+    sheet_name: str | None = None,
+) -> Path:
+    """Write an xlsx table and its optional csv sibling with consistent directory handling."""
+    out_xlsx = Path(xlsx_path)
+    out_xlsx.parent.mkdir(parents=True, exist_ok=True)
+    if sheet_name is None:
+        df.to_excel(out_xlsx, index=False)
+    else:
+        with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+
+    if csv_path is not None:
+        out_csv = Path(csv_path)
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(out_csv, index=False)
+
+    return out_xlsx
+
+
+def write_xlsx_sheets(
+    tables: dict[str, pd.DataFrame],
+    xlsx_path: str | Path,
+) -> Path:
+    """Write a multi-sheet xlsx workbook with consistent directory handling."""
+    out_xlsx = Path(xlsx_path)
+    out_xlsx.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
+        for sheet_name, df in tables.items():
+            df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False)
+    return out_xlsx

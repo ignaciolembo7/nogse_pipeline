@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import repo_bootstrap  # noqa: F401
 from pathlib import Path
 import argparse
 import pandas as pd
@@ -14,7 +16,7 @@ def iter_parquets(globs: list[str]):
     for g in globs:
         paths += sorted(Path().glob(g))
     if not paths:
-        raise FileNotFoundError("No encontré parquets con esos glob patterns.")
+        raise FileNotFoundError("No parquet files matched those glob patterns.")
 
     for p in paths:
         name = p.name
@@ -54,20 +56,20 @@ def main():
         else:
             raise ValueError(f"En {path}: falta N (necesaria para separar por N).")
 
-        # --- output dir por experimento
+        # --- output directory per experiment
         outdir = out_root / exp / "dproj"
         outdir.mkdir(parents=True, exist_ok=True)
 
-        # --- ROIs a plotear
+        # --- ROIs to plot
         rois = sorted(df["roi"].dropna().unique())
         if args.roi != "ALL":
             rois = [args.roi]
 
-        # --- Ns disponibles
+        # --- available N values
         Ns = sorted(df[n_col].dropna().unique())
 
         # ===========================
-        # FIGURA 1: x y z para todos los N en una sola gráfica (por ROI)
+        # Figure 1: x, y, and z for all N values in a single plot per ROI.
         # ===========================
         axes_xz = ["x", "y", "z"]
         for roi in rois:
@@ -100,12 +102,12 @@ def main():
             print("Saved:", outpath)
 
         # ===========================
-        # FIGURA 2: subplots por N, dentro comparar x,z,eig1,eig2,eig3 (por ROI)
+        # Figure 2: subplots by N, comparing x, z, eig1, eig2, and eig3 per ROI.
         # ===========================
         axes_panel = ["x", "y", "z", "eig1", "eig2", "eig3"]
         label_map = {"eig1": "eig1 (λ1)", "eig2": "eig2 (λ2)", "eig3": "eig3 (λ3)"}
 
-        # grid tipo notebook: ideal 1x4, si hay más Ns se arma en filas
+        # Notebook-style grid: ideal 1x4, with extra rows when more N values exist.
         ncols = min(4, len(Ns))
         nrows = int(np.ceil(len(Ns) / ncols))
 
@@ -135,7 +137,7 @@ def main():
 
                 ax.legend(fontsize=9)
 
-            # apagar subplots vacíos si Ns < nrows*ncols
+            # Disable empty subplots when Ns < nrows*ncols.
             for j in range(len(Ns), len(axs)):
                 axs[j].axis("off")
 

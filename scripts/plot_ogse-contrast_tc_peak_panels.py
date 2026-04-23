@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 
@@ -18,7 +20,7 @@ def _parse_xlims(rows: list[list[str]] | None) -> dict[str, tuple[float, float]]
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Genera figuras de contraste con la misma grilla ROI x direction que los paneles de fit, "
+            "Generate contrast figures with the same ROI x direction grid as the fit panels, "
             "marcando el tc_peak usado para cada curva y para varias transformaciones del eje x."
         )
     )
@@ -30,7 +32,7 @@ def main() -> None:
     )
     ap.add_argument("--out-dir", type=Path, default=None, help="Directorio de salida. Si no, usa <fits_root>/tc_peak_panels.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo para descubrir fit_params.")
-    ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos.")
+    ap.add_argument("--models", nargs="+", default=None, help="Filter models.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")

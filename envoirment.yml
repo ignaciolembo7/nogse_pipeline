@@ -142,4 +142,3 @@ dependencies:
     - six==1.17.0
     - typing-extensions==4.15.0
     - wheel==0.46.3
-prefix: /home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env

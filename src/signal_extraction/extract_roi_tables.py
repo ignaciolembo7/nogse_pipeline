@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    import repo_bootstrap  # noqa: F401
+except ModuleNotFoundError:
+    from . import repo_bootstrap  # noqa: F401
+
 """
 extract_roi_tables.py
 
@@ -27,6 +32,8 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 import nibabel as nib
+
+from data_processing.io import write_xlsx_sheets
 
 
 # ---------------------------------------------------------------------
@@ -310,6 +317,7 @@ def _extract_collapsed_mean_tables(
     roi_idx: list[np.ndarray],
     grad_value: float,
     grad_col_name: str,
+    dummy_scans: int = 0,
 ) -> dict[str, pd.DataFrame]:
     """
     Collapse a 4D acquisition into one mean image and compute one ROI summary row.
@@ -319,12 +327,20 @@ def _extract_collapsed_mean_tables(
     average image rather than one value per volume.
     """
     nvol = int(dwi_img.shape[3])
+    if dummy_scans < 0:
+        raise ValueError(f"dummy_scans must be >= 0. Got {dummy_scans}.")
+    if dummy_scans >= nvol:
+        raise ValueError(
+            f"dummy_scans must be smaller than the number of DWI volumes. "
+            f"Got dummy_scans={dummy_scans}, nvol={nvol}."
+        )
+
     dataobj = dwi_img.dataobj
 
     mean_vol = np.zeros(dwi_img.shape[:3], dtype=np.float64)
-    for j in range(nvol):
+    for j in range(dummy_scans, nvol):
         mean_vol += np.asanyarray(dataobj[..., j], dtype=np.float64)
-    mean_vol /= float(nvol)
+    mean_vol /= float(nvol - dummy_scans)
     mean_flat = mean_vol.reshape(-1)
 
     out = {
@@ -352,6 +368,7 @@ def extract_tables(
     rois: list[ROI],
     *,
     collapse_mean: bool = False,
+    dummy_scans: int = 0,
 ) -> dict[str, pd.DataFrame]:
     """
     Fast table extraction:
@@ -391,6 +408,7 @@ def extract_tables(
             roi_idx=roi_idx,
             grad_value=grad_value,
             grad_col_name=grad_col_name,
+            dummy_scans=dummy_scans,
         )
 
     # Allocate result arrays: dict[stat][roi] -> (nvol,)
@@ -451,10 +469,9 @@ def write_excel_like_matlab(tables: dict[str, pd.DataFrame], out_xlsx: Path) -> 
       mode -> mode
     """
     order = [("avg", "mean"), ("std", "std"), ("med", "median"), ("mad", "mad"), ("mode", "mode")]
-    out_xlsx.parent.mkdir(parents=True, exist_ok=True)
-
-    with pd.ExcelWriter(out_xlsx, engine="openpyxl") as w:
-        for sheet, key in order:
-            if key not in tables:
-                raise KeyError(f"Missing key '{key}' in tables dict. Available keys: {list(tables.keys())}")
-            tables[key].to_excel(w, sheet_name=sheet, index=False)
+    ordered_tables: dict[str, pd.DataFrame] = {}
+    for sheet, key in order:
+        if key not in tables:
+            raise KeyError(f"Missing key '{key}' in tables dict. Available keys: {list(tables.keys())}")
+        ordered_tables[sheet] = tables[key]
+    write_xlsx_sheets(ordered_tables, out_xlsx)

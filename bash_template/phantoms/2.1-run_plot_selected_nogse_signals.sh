@@ -14,19 +14,13 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
-elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
-    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
 
-PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse-signal_vs_g.py"
-<<<<<<< HEAD
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_NISO4"
-=======
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20220610-PHANTOM3"
->>>>>>> origin/main
+PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse_signal_vs_g.py"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_FIBER"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal-plots/nogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"
@@ -37,12 +31,16 @@ DIRECTIONS="ALL"
 declare -a FILES=(
   # Add the signal parquet files manually.
   # Example:
-<<<<<<< HEAD
-  "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
-=======
-  # "$DATA_ROOT/20260122-PHANTOM_NISO4_Exp01_N2_TN50_NiSO_phantom.long.parquet"
->>>>>>> origin/main
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_results.long.parquet"
+  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_results.long.parquet"
 )
+
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then
     echo "ERROR: plot script not found: $PLOT_SCRIPT" >&2

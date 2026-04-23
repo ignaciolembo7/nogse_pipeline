@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 
 from nogse_models.nogse_model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
-from ogse_fitting.fit_ogse_contrast import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
+from ogse_fitting.fit_ogse_contrast_vs_g import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
 
 @dataclass(frozen=True)
 class PeakResult:
     method: str                 # "param" | "nonparam"
-    xplot: str                  # "1" o "2"
+    xplot: str                  # "1" or "2"
     f_peak: float
     g1_peak: float
     g2_peak: float
@@ -20,8 +20,8 @@ class PeakResult:
 
 def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
     """
-    Pico del modelo ajustado evaluado en una grilla f∈[0,1] escalando con g1_max/g2_max.
-    Requiere fit_row.ok == True y params válidos.
+    Peak of the fitted model evaluated on an f in [0, 1] grid scaled by g1_max/g2_max.
+    Requires fit_row.ok == True and valid parameters.
     """
     if not fit_row.get("ok", True):
         raise ValueError("fit_row no OK; no puedo sacar pico paramétrico.")
@@ -64,7 +64,7 @@ def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
         D0 = float(fit_row["D0_m2_ms"])
         y = OGSE_contrast_vs_g_rest(td_ms, G1, G2, n_1, n_2, tc_ms, M0, D0)
     else:
-        raise ValueError(f"peak_from_fit_row: modelo '{model}' no soportado.")
+        raise ValueError(f"peak_from_fit_row: model {model!r} is not supported.")
 
     i = int(np.nanargmax(y))
     return PeakResult(
@@ -112,7 +112,7 @@ def peak_from_data_group(
     y, G1, G2 = y[m], G1[m], G2[m]
 
     if len(y) < 3:
-        raise ValueError("Muy pocos puntos para pico no paramétrico.")
+        raise ValueError("Too few points for a non-parametric peak.")
 
     x = G1 if str(xplot) == "1" else G2
     order = np.argsort(x)
@@ -135,7 +135,7 @@ def peak_from_data_group(
 
     i = int(np.nanargmax(y_s))
 
-    # f_peak lo definimos por fracción relativa a máximos para mantener compatibilidad
+    # Define f_peak as a relative fraction of maxima to preserve compatibility.
     g1_max = float(np.nanmax(G1))
     g2_max = float(np.nanmax(G2))
     f_peak = float(G1[i] / g1_max) if str(xplot) == "1" and g1_max > 0 else float(G2[i] / g2_max) if g2_max > 0 else np.nan
@@ -167,7 +167,7 @@ def tc_from_peak(
     Unidades asumidas:
       - G en mT/m  -> se convierte a T/m con 1e-3
       - delta en ms
-      - D0 en m^2/ms  (coherente con usar Td en ms en tus modelos)
+      - D0 in m^2/ms, consistent with using Td in ms in these models.
       - gamma en rad/s/T (se convierte a rad/ms/T multiplicando 1e-3)
     """
     G_Tpm = float(g_peak_mTpm) * 1e-3

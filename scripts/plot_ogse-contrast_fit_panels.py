@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 
@@ -9,8 +11,8 @@ from ogse_fitting.contrast_fit_panels import plot_contrast_fit_panels
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Genera figuras de contraste vs g con ajustes, agrupadas por subj. "
-            "Cada figura contiene una grilla ROI x direction y superpone todas las curvas td_ms disponibles."
+            "Generate contrast-vs-g figures with fits, grouped by subj. "
+            "Each figure contains an ROI x direction grid and overlays every available td_ms curve."
         )
     )
     ap.add_argument("fits_root", help="Carpeta raíz con fit_params de contraste.")
@@ -21,7 +23,7 @@ def main() -> None:
     )
     ap.add_argument("--out-dir", type=Path, default=None, help="Directorio de salida. Si no, usa <fits_root>/contrast_fit_panels.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo para descubrir fit_params.")
-    ap.add_argument("--models", nargs="+", default=None, help="Filtra modelos.")
+    ap.add_argument("--models", nargs="+", default=None, help="Filter models.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")

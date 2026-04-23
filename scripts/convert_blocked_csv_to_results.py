@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+from data_processing.io import write_xlsx_sheets
 
 
 BVALUES_32 = [
@@ -24,7 +28,7 @@ DEFAULT_DELTAS = [36, 42, 48, 54, 60, 66, 72, 78, 84, 89.6]
 
 
 def ffloat(x: float) -> str:
-    """float -> string corto para filename (89.6 -> 89p6)."""
+    """Convert a float to a short filename token (89.6 -> 89p6)."""
     s = f"{x:.3f}".rstrip("0").rstrip(".")
     return s.replace(".", "p")
 
@@ -50,7 +54,7 @@ def main():
 
     df = pd.read_csv(csv_path)
 
-    # detectar columnas por ROI
+    # Detect ROI columns.
     rois = ["Fibra1", "Agua", "Fibra2"]
     cols_avg = {r: f"Mean({r})" for r in rois}
     cols_min = {r: f"Min({r})" for r in rois}
@@ -58,7 +62,7 @@ def main():
 
     for k in list(cols_avg.values()) + list(cols_min.values()) + list(cols_max.values()):
         if k not in df.columns:
-            raise ValueError(f"Falta columna en CSV: {k}. Columnas disponibles: {list(df.columns)}")
+            raise ValueError(f"Missing CSV column: {k}. Available columns: {list(df.columns)}")
 
     rows_per_block = len(BVALUES_32)
     if len(df) != rows_per_block * len(deltas):
@@ -67,7 +71,7 @@ def main():
             f"({len(deltas)} bloques × {rows_per_block} filas)."
         )
 
-    # bmax para naming (máximo del patrón, redondeado)
+    # bmax used for naming (rounded pattern maximum).
     bmax = int(round(max(BVALUES_32)))
 
     for i, Delta_app in enumerate(deltas, start=1):
@@ -83,8 +87,8 @@ def main():
             min_df[r] = pd.to_numeric(block[cols_min[r]], errors="coerce")
             max_df[r] = pd.to_numeric(block[cols_max[r]], errors="coerce")
 
-        # filename corto pero único
-        # IMPORTANTE: el pipeline parsea:
+        # Short but unique filename.
+        # IMPORTANT: the pipeline parses:
         #   *_10bval_*_03dir_*_dXXpY_*_Hz000_*_b1495_*_{seq}_results.xlsx
         fname = (
             f"{args.exp}_PGSE_"
@@ -96,23 +100,26 @@ def main():
 
         out_path = out_dir / fname
 
-        with pd.ExcelWriter(out_path, engine="openpyxl") as w:
-            avg_df.to_excel(w, sheet_name="avg", index=False)
-            min_df.to_excel(w, sheet_name="min", index=False)
-            max_df.to_excel(w, sheet_name="max", index=False)
-
-            info = pd.DataFrame([{
-                "exp": args.exp,
-                "seq": i,
-                "Hz": args.Hz,
-                "bmax": bmax,
-                "d_ms": Delta_app,
-                "delta_ms": args.delta_ms,
-                "ndirs": args.ndirs,
-                "nbvals": args.nbvals,
-                "notes": "Generado desde Results.csv con patrón fijo de bvalues (32 filas por Delta_app).",
-            }])
-            info.to_excel(w, sheet_name="info", index=False)
+        info = pd.DataFrame([{
+            "exp": args.exp,
+            "seq": i,
+            "Hz": args.Hz,
+            "bmax": bmax,
+            "d_ms": Delta_app,
+            "delta_ms": args.delta_ms,
+            "ndirs": args.ndirs,
+            "nbvals": args.nbvals,
+            "notes": "Generated from Results.csv with a fixed bvalue pattern (32 rows per Delta_app).",
+        }])
+        write_xlsx_sheets(
+            {
+                "avg": avg_df,
+                "min": min_df,
+                "max": max_df,
+                "info": info,
+            },
+            out_path,
+        )
 
         print("Saved:", out_path)
 

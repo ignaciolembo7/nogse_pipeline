@@ -14,21 +14,17 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
-elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
-    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/fit_monoexp_ogse-signal}"
+FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_signal_vs_g_monoexp}"
 OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
 PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
 ROIS="ALL"
 DIRECTIONS="ALL"
-<<<<<<< HEAD
-=======
-NS="1,4,8"
->>>>>>> origin/main
+NS="${NS:-ALL}"
+# NS="1,4,8"
 
 if [[ ! -d "$FITS_ROOT" ]]; then
     echo "ERROR: Fits root not found: $FITS_ROOT" >&2
@@ -60,15 +56,12 @@ if [[ "$DIRECTIONS" != "ALL" ]]; then
         extra_args+=(--dirs "${dir_list[@]}")
     fi
 fi
-<<<<<<< HEAD
-=======
 if [[ "$NS" != "ALL" ]]; then
     read -r -a n_list <<< "${NS//,/ }"
     if (( ${#n_list[@]} > 0 )); then
         extra_args+=(--Ns "${n_list[@]}")
     fi
 fi
->>>>>>> origin/main
 
 "$PY" "$PLOT_SCRIPT" \
     --fits-root "$FITS_ROOT" \

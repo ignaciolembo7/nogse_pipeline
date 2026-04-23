@@ -3,25 +3,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/brains}"
+ONEG="${ONEG:-false}"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 RUN_SCRIPTS=(
 #   "0.0-run_dicom2nifti.sh"    
-#   "1-run_BRAINS-denoised_topup_signal_extraction.sh"
+#   "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
 #   "2.0-run_process_all_results.sh" # starting from this step, results will be saved in analysis/brains
 #   "3.0-run_rotate_all_signals.sh"
 #   "3.1-run_make_contrast_selected_rotated.sh"
 #   "3.2-run_plot_all_ogse_contrast_vs_g.sh"
-#   "4.1-run_fit_ogse_signal_vs_bval.sh"
+#   "4.1-run_fit_ogse_signal_vs_g.sh"
 #   "4.2-run_plot_monoexp_D_vs_time.sh"
 #   "4.3-run_make_alpha_macro_summary.sh"
 #   "4.4-run_plot_D0_vs_Delta.sh"
-#   "5.1-run_fit_free_all_ogse_contrast_vs_g.sh"
+#   "5.0-run_make_nogse_contrast_selected_rotated.sh"
+#   "5.0-run_plot_all_nogse_contrast_vs_g.sh"
+#   "5.1-run_fit_nogse_contrast_vs_g.sh"
 #   "5.2-run_make_grad_correction_table.sh"
 #   "5.3-run_fit_free_all_ogse_contrast_vs_g_corr.sh"
 #   "6.1-run_fit_rest_all_ogse_contrast_vs_g_corr.sh"
@@ -35,7 +40,10 @@ echo "============================================================"
 echo "Brains pipeline runner"
 echo "Script dir : $SCRIPT_DIR"
 echo "Project    : $PROJECT_ROOT"
+echo "Repo       : $REPO_ROOT"
 echo "PY         : $PY"
+echo "ONEG       : $ONEG"
+echo "PYTHONPATH : $PYTHONPATH"
 echo "Log root   : $LOG_ROOT"
 echo "============================================================"
 
@@ -63,7 +71,7 @@ for script_name in "${RUN_SCRIPTS[@]}"; do
         continue
     fi
 
-    if PY="$PY" bash "$script_path" >"$log_path" 2>&1; then
+    if PY="$PY" LOG_ROOT="$LOG_ROOT" ONEG="$ONEG" bash "$script_path" >"$log_path" 2>&1; then
         ok=$((ok + 1))
         echo "OK: $script_name"
     else

@@ -13,24 +13,17 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
-elif [[ -x "/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python" ]]; then
-    DEFAULT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
-<<<<<<< HEAD:bash_template/phantoms/2-run_process_all_results.sh
-ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/20260122-PHANTOM_NISO4"
-DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
-=======
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_brains.xlsx"
->>>>>>> origin/main:bash_template/brains/2.0-run_process_all_results.sh
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
+ONEG="${ONEG:-false}"
 
 # The matched row in DEFAULT_PARAMS must include a populated "subj" column.
 
@@ -56,6 +49,11 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+PROCESS_ARGS=()
+if [[ "${ONEG,,}" == "true" ]]; then
+    PROCESS_ARGS+=(--oneg)
+fi
+
 total=0
 ok=0
 failed=0
@@ -70,7 +68,7 @@ while read -r file; do
     echo "Processing: $seq_name"
     echo "  File: $file"
 
-    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR"; then
+    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR" "${PROCESS_ARGS[@]}"; then
         ok=$((ok + 1))
         echo "  OK: $seq_name"
     else
@@ -95,4 +93,5 @@ if (( failed > 0 )); then
     for seq in "${failed_sequences[@]}"; do
         echo "  - $seq"
     done
+    exit 1
 fi

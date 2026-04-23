@@ -14,11 +14,11 @@ def to_long(
     source_file: str | None = None,
 ) -> pd.DataFrame:
     """
-    Convierte las tablas intercaladas (stride=ndirs) a formato long/tidy.
-    Replica una fila b0 (promedio de b0_reps) para cada direction, igual que tu notebook.
+    Convert interleaved tables (stride=ndirs) to long/tidy format.
+    Replicate one averaged b0 row per direction, matching the notebook convention.
     """
     if not stats:
-        raise ValueError("stats está vacío")
+        raise ValueError("stats is empty.")
 
     any_df = next(iter(stats.values()))
     if bcol not in any_df.columns:
@@ -27,7 +27,7 @@ def to_long(
                 bcol = alt
                 break
     if bcol not in any_df.columns:
-        raise ValueError(f"No encuentro la columna '{bcol}'. Columnas: {list(any_df.columns)}")
+        raise ValueError(f"Could not find column {bcol!r}. Columns: {list(any_df.columns)}")
 
     rois = [c for c in any_df.columns if c != bcol]
 
@@ -35,15 +35,15 @@ def to_long(
     long_parts: list[pd.DataFrame] = []
 
     for stat, df in stats.items():
-        # b0 promedio (por ROI)
+        # Average b0 per ROI.
         b0 = df.loc[: b0_reps - 1, rois].mean(axis=0)
 
-        # datos sin los b0 repetidos
+        # Data rows without the repeated b0 measurements.
         data = df.loc[b0_reps:, [bcol] + rois].reset_index(drop=True)
         if len(data) != rows_expected:
             raise ValueError(
-                f"[{stat}] Esperaba {rows_expected} filas (ndirs*nbvals), pero tengo {len(data)}. "
-                "Esto suele pasar si ndirs/nbvals no coinciden con el archivo."
+                f"[{stat}] Expected {rows_expected} rows (ndirs*nbvals), got {len(data)}. "
+                "This usually means ndirs/nbvals do not match the file."
             )
 
         idx = np.arange(len(data))
@@ -52,7 +52,7 @@ def to_long(
 
         data = data.assign(direction=direction, b_step=b_step)
 
-        # long sin b0
+        # Long table without b0 rows.
         long = data.melt(
             id_vars=[bcol, "direction", "b_step"],
             value_vars=rois,
@@ -62,7 +62,7 @@ def to_long(
         long = long.rename(columns={bcol: out_col})
         long["stat"] = stat
 
-        # b0 duplicado por direction (b_step=0)
+        # Duplicate b0 for each direction (b_step=0).
         b0_long = pd.DataFrame({
             out_col: 0.0,
             "direction": np.repeat(np.arange(1, ndirs + 1), len(rois)),
@@ -77,7 +77,7 @@ def to_long(
     out = pd.concat(long_parts, ignore_index=True)
     out["source_file"] = source_file if source_file is not None else ""
 
-    # Orden final: por ROI y direction; y dentro de cada curva, b_step (0 primero)
+    # Final order: ROI, direction, then b_step within each curve (0 first).
     sort_cols = [c for c in ["stat", "roi", "direction", "b_step"] if c in out.columns]
     out = out.sort_values(sort_cols, kind="stable").reset_index(drop=True)
 

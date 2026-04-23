@@ -35,7 +35,7 @@ def plot_dproj_subplots_by_N(
 ):
     """
     Replica el plot tipo 'subplots 1 x len(Ns)' del notebook (cell 10).
-    Requiere que df_all tenga columnas: roi, direction, bvalue, D_proj, N
+    Requires df_all to have columns: roi, direction, bvalue, D_proj, N.
     """
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)

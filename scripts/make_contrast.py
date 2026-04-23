@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import repo_bootstrap  # noqa: F401
+
 import argparse
 from pathlib import Path
 import re
 import pandas as pd
 
-from ogse_fitting.contrast import make_contrast
+from data_processing.io import write_table_outputs
+from fitting.contrast import make_contrast
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.strict_columns import find_unrecognized_column_names
+from tools.value_formatting import compact_unique_values, truthy_series
 
 KEY_COLS = ("stat", "roi", "direction", "b_step")
 
@@ -79,6 +83,10 @@ def _fmt_seq(x) -> str:
     return _sanitize(str(x))
 
 
+def _has_oneg_marker(df: pd.DataFrame) -> bool:
+    return "one_g_per_sequence" in df.columns and truthy_series(df["one_g_per_sequence"])
+
+
 def _sequence_number(df: pd.DataFrame):
     seq = _one(df, "sequence", None)
     if seq is not None and str(seq).strip():
@@ -92,6 +100,14 @@ def _sequence_number(df: pd.DataFrame):
     if m:
         return int(m.group(1))
     return None
+
+
+def _sequence_label(df: pd.DataFrame, *, compact: bool = False) -> str:
+    if compact and "sequence" in df.columns:
+        values = pd.Series(df["sequence"]).dropna().unique().tolist()
+        if values:
+            return compact_unique_values(values)
+    return _fmt_seq(_sequence_number(df))
 
 
 def _build_analysis_core(
@@ -265,11 +281,13 @@ def build_analysis_id(
     df_cmp: pd.DataFrame,
     directions: list[str],
     sheet_override: str | None,
+    oneg: bool = False,
 ) -> tuple[str, str]:
     analysis_core, analysis_short = _build_analysis_core(df_ref, df_cmp, directions, sheet_override)
-    seq1 = _sequence_number(df_ref)
-    seq2 = _sequence_number(df_cmp)
-    seq_tag = f"_seq{_fmt_seq(seq1)}-{_fmt_seq(seq2)}"
+    compact_sequences = bool(oneg or _has_oneg_marker(df_ref) or _has_oneg_marker(df_cmp))
+    seq1 = _sequence_label(df_ref, compact=compact_sequences)
+    seq2 = _sequence_label(df_cmp, compact=compact_sequences)
+    seq_tag = f"_seq{seq1}-{seq2}"
     analysis = f"{analysis_core}{seq_tag}"
     return _sanitize(analysis)[:160], analysis_short
 
@@ -291,6 +309,7 @@ def main():
     ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
     ap.add_argument("--out_root", default="analysis/ogse_experiments/contrast", help="directory root")
     ap.add_argument("--exp", default=None, help="Override the sheet name used for naming only.")
+    ap.add_argument("--oneg", action="store_true", help="Allow one-g-per-sequence inputs and compact sequence labels.")
     args = ap.parse_args()
 
     directions = _normalize_direction_list(args.direction)
@@ -318,7 +337,9 @@ def main():
                 f"Requested directions={directions}, ref_available={ref_dirs_before}, cmp_available={cmp_dirs_before}."
             )
 
-    analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp)
+    oneg_mode = bool(args.oneg or _has_oneg_marker(df_ref) or _has_oneg_marker(df_cmp))
+
+    analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp, oneg=oneg_mode)
     old_analysis_id, _ = build_analysis_id_without_sequence(df_ref, df_cmp, directions, args.exp)
     sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
     subj = _one(df_ref, "subj", _one(df_cmp, "subj", infer_subj_label(sheet, source_name=analysis_id)))
@@ -360,8 +381,7 @@ def main():
     tables_dir.mkdir(parents=True, exist_ok=True)
 
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
-    out.to_parquet(out_parquet, index=False)
-    out.to_excel(out_parquet.with_suffix(".xlsx"), index=False)
+    write_table_outputs(out, out_parquet, xlsx_path=out_parquet.with_suffix(".xlsx"))
 
     # Remove older duplicate outputs that used the pre-sequence naming scheme.
     if old_analysis_id != analysis_id:

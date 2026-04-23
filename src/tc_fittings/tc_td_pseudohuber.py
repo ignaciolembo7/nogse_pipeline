@@ -6,13 +6,14 @@ from typing import Optional, Dict, Tuple, List
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.optimize import least_squares
 
+from data_processing.io import write_xlsx_csv_outputs
+from fitting.core import least_squares_with_standard_errors
 from tools.brain_labels import infer_subj_label
 
 
 # ---------------------------
-# Modelo pseudo-huber (reparam)
+# Pseudo-Huber model (reparameterized)
 # ---------------------------
 def tc_pseudohuber(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
     Td = np.asarray(Td, float)
@@ -48,12 +49,8 @@ def qquad_se(delta: float, alpha_macro: float, delta_se: float, alpha_se: float)
     var = (dqda**2) * (alpha_se**2) + (dqdd**2) * (delta_se**2)
     return float(np.sqrt(var))
 
-def tc_pseudohuber_alpha_fixed(Td: np.ndarray, c: float, delta: float, alpha_fixed: float) -> np.ndarray:
-    return tc_pseudohuber(Td, c, delta, alpha_fixed)
-
-
 # ===========================
-# Helpers genéricos
+# Generic helpers
 # ===========================
 def _as_str_series(s: pd.Series) -> pd.Series:
     return s.astype(str).str.strip()
@@ -61,12 +58,12 @@ def _as_str_series(s: pd.Series) -> pd.Series:
 def _ensure_required_cols(df: pd.DataFrame, cols: list[str], where: str) -> None:
     miss = [c for c in cols if c not in df.columns]
     if miss:
-        raise KeyError(f"{where}: faltan columnas {miss}. Tengo: {list(df.columns)}")
+        raise KeyError(f"{where}: missing columns {miss}. Available columns: {list(df.columns)}")
 
 def _ensure_subj(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Asegura columna 'subj' siempre presente y no vacía.
-    Si no existe, intenta derivar desde 'Archivo_origen' o 'source_file'.
+    Ensure the 'subj' column is always present and non-empty.
+    When it is missing, try to derive it from 'Archivo_origen' or 'source_file'.
     """
     df = df.copy()
     if "subj" not in df.columns:
@@ -96,7 +93,7 @@ def _ensure_alpha_macro_cols(df: pd.DataFrame) -> pd.DataFrame:
 def _directions_present(df: pd.DataFrame, preferred: tuple[str, ...] = ("long", "tra")) -> list[str]:
     df = _ensure_direction(df)
     dirs = [d for d in sorted(df["direction"].dropna().unique()) if d != ""]
-    # ordenar dejando preferred al principio si existen
+    # Keep preferred directions first when they exist.
     pref = [d for d in preferred if d in dirs]
     rest = [d for d in dirs if d not in pref]
     return pref + rest
@@ -107,27 +104,14 @@ def _subset_last(x: np.ndarray, y: np.ndarray, k_last: Optional[int]) -> Tuple[n
     return x[-k_last:], y[-k_last:]
 
 def _fit_least_squares(fun, p0, bounds):
-    res = least_squares(fun, x0=p0, bounds=bounds)
-    p = res.x
-    se = np.full_like(p, np.nan, dtype=float)
-    if res.jac is not None:
-        J = res.jac
-        dof = max(0, J.shape[0] - J.shape[1])
-        if dof > 0:
-            s2 = float(res.cost * 2 / dof)  # cost=0.5*sum(r^2)
-            try:
-                cov = np.linalg.inv(J.T @ J) * s2
-                se = np.sqrt(np.diag(cov))
-            except np.linalg.LinAlgError:
-                pass
-    return p, se, res
+    return least_squares_with_standard_errors(fun, p0, bounds)
 
 
 def _validate_fit_bound(name: str, lower: float, upper: float) -> None:
     if not np.isfinite(lower):
-        raise ValueError(f"{name}_min debe ser finito.")
+        raise ValueError(f"{name}_min must be finite.")
     if upper <= lower:
-        raise ValueError(f"{name}_max debe ser mayor que {name}_min.")
+        raise ValueError(f"{name}_max must be greater than {name}_min.")
 
 
 def _clip_initial(value: float, lower: float, upper: float) -> float:
@@ -152,23 +136,23 @@ def _safe_tag(text: object) -> str:
 
 
 # ---------------------------
-# Summary alpha_macro loader (GENÉRICO)
+# Generic alpha_macro summary loader
 # ---------------------------
 def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     """
-    Lee summary_alpha_values.xlsx de forma tolerante.
+    Read summary_alpha_values.xlsx with tolerant column matching.
 
-    Espera columnas parecidas a:
-      subj, region, direccion, alpha, alpha_error (nombres libres)
+    Expected approximate columns:
+      subj, region, direction, alpha, alpha_error (free-form names)
 
-    Devuelve SIEMPRE:
+    Always returns:
       subj, roi, direction, alpha_macro, alpha_macro_error
 
-    - Mantiene TODAS las direcciones presentes (ej: '1','2','3', 'x','y','z', 'long','tra', ...).
-    - Si detecta direcciones x/y/z, agrega derivadas:
+    - Keeps all directions present, e.g. '1','2','3', 'x','y','z', 'long','tra', ...
+    - When x/y/z directions are detected, add derived directions:
         long := x
         tra  := mean(y,z)
-      (solo si no existen ya en el archivo)
+      only when they do not already exist in the file.
     """
     raw = pd.read_excel(summary_xlsx, decimal=",")
     lower_to_cols: dict[str, list[str]] = {}
@@ -202,7 +186,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     if alpha_macro is None:
         missing.append("alpha_macro")
     if missing:
-        raise KeyError(f"load_alpha_macro_summary: faltan columnas {missing}. Tengo: {list(raw.columns)}")
+        raise KeyError(f"load_alpha_macro_summary: missing columns {missing}. Available columns: {list(raw.columns)}")
 
     df = pd.DataFrame(
         {
@@ -230,7 +214,7 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
     base = df.dropna(subset=["alpha_macro"]).copy()
     base = base[base_cols]
 
-    # Derivadas long/tra si hay x/y/z
+    # Derive long/tra when x/y/z are available.
     dirs = set(base["direction"].unique())
     derived = []
 
@@ -317,8 +301,8 @@ def fit_tc_vs_td_pseudohuber(
 ) -> pd.DataFrame:
     """
     mode:
-      - free_macro: ajusta (c, delta, alpha_macro)
-      - fixed_macro: fija alpha_macro = alpha_macro(summary) y ajusta (c, delta)
+      - free_macro: fit (c, delta, alpha_macro)
+      - fixed_macro: fix alpha_macro = alpha_macro(summary) and fit (c, delta)
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     _validate_fit_bound("c", float(c_min), float(c_max))
@@ -326,11 +310,11 @@ def fit_tc_vs_td_pseudohuber(
     _validate_fit_bound("alpha_macro", float(alpha_macro_min), float(alpha_macro_max))
 
     if c_fixed is not None and not np.isfinite(float(c_fixed)):
-        raise ValueError("c_fixed debe ser finito.")
+        raise ValueError("c_fixed must be finite.")
     if delta_fixed is not None and (not np.isfinite(float(delta_fixed)) or float(delta_fixed) <= 0):
-        raise ValueError("delta_fixed debe ser finito y > 0.")
+        raise ValueError("delta_fixed must be finite and > 0.")
     if alpha_macro_fixed is not None and not np.isfinite(float(alpha_macro_fixed)):
-        raise ValueError("alpha_macro_fixed debe ser finito.")
+        raise ValueError("alpha_macro_fixed must be finite.")
 
     df = df_params.copy()
     df["roi"] = df["roi"].astype(str).str.replace("_norm", "", regex=False)
@@ -351,9 +335,9 @@ def fit_tc_vs_td_pseudohuber(
 
     dirs = _directions_present(df)
     if not dirs:
-        raise ValueError("No hay valores en la columna 'direction' de groupfits.")
+        raise ValueError("There are no values in the groupfits 'direction' column.")
 
-    # Normalizar alpha_macro_df si se usa
+    # Normalize alpha_macro_df when used.
     if alpha_macro_df is not None:
         alpha_macro_df = alpha_macro_df.copy()
         alpha_macro_df["roi"] = alpha_macro_df["roi"].astype(str).str.replace("_norm", "", regex=False)
@@ -372,7 +356,7 @@ def fit_tc_vs_td_pseudohuber(
                 x = sub["td_ms"].to_numpy(dtype=float)
                 y = sub[y_col].to_numpy(dtype=float)
 
-                # si hay NaNs, limpiarlos
+                # Drop NaNs before fitting.
                 m = np.isfinite(x) & np.isfinite(y)
                 x, y = x[m], y[m]
                 if len(x) == 0:
@@ -384,21 +368,21 @@ def fit_tc_vs_td_pseudohuber(
                     if alpha_macro_df is None:
                         continue
 
-                    # dentro del loop, justo donde buscás alpha_fixed:
+                    # Resolve alpha_fixed for this loop entry.
                     sheet_val = None
                     if "sheet" in sub.columns:
                         uu = sub["sheet"].dropna().astype(str).unique()
                         if len(uu) == 1:
                             sheet_val = uu[0]
 
-                    # 1) intento por subj
+                    # First try matching by subject.
                     mdf = alpha_macro_df[
                         (alpha_macro_df["subj"] == subj) &
                         (alpha_macro_df["roi"] == region) &
                         (alpha_macro_df["direction"] == dir_actual)
                     ]
 
-                    # 2) fallback por sheet si no matchea por subj
+                    # Fall back to sheet when subject matching fails.
                     if mdf.empty and (sheet_val is not None) and ("sheet" in alpha_macro_df.columns):
                         mdf = alpha_macro_df[
                             (alpha_macro_df["sheet"].astype(str) == str(sheet_val)) &
@@ -450,7 +434,7 @@ def fit_tc_vs_td_pseudohuber(
 
                         def fun(p):
                             c_val, delta_val = unpack_fixed_macro(p)
-                            return tc_pseudohuber_alpha_fixed(x_fit, c_val, delta_val, alpha_fixed) - y_fit
+                            return tc_pseudohuber(x_fit, c_val, delta_val, alpha_fixed) - y_fit
 
                         p, se, res = _fit_least_squares(
                             fun,
@@ -569,7 +553,7 @@ def fit_tc_vs_td_pseudohuber(
                     "r2": r2,
                 })
 
-        # Plot por regiones (grid) para esta direction
+        # Plot regions as a grid for this direction.
         if len(regiones) == 0:
             continue
 
@@ -593,7 +577,7 @@ def fit_tc_vs_td_pseudohuber(
                 if len(x) == 0:
                     continue
 
-                # obtener params fit
+                # Retrieve fit parameters.
                 fit_row = None
                 for rr in rows[::-1]:
                     if rr["subj"] == subj and rr["roi"] == region and rr["direction"] == dir_actual:
@@ -618,7 +602,7 @@ def fit_tc_vs_td_pseudohuber(
             if any_line:
                 ax.legend(fontsize=9)
 
-        # limpiar axes vacíos si hay más ejes que regiones
+        # Clear empty axes when there are more axes than regions.
         for ax in axes[len(regiones):]:
             ax.axis("off")
 
@@ -629,14 +613,14 @@ def fit_tc_vs_td_pseudohuber(
 
     if not rows:
         raise ValueError(
-            "No se generó ningún ajuste tc_vs_td (df_fit quedó vacío). "
-            "Causas típicas: (i) no hay >=3 puntos Td por (subj, roi, direction) en modo free_macro; "
-            "(ii) en fixed_macro falta alpha_macro para esas claves; "
-            "(iii) Direcciones no coinciden entre groupfits y summary."
+            "No tc_vs_td fit was generated (df_fit is empty). "
+            "Typical causes: (i) there are not >=3 Td points per (subj, roi, direction) in free_macro mode; "
+            "(ii) alpha_macro is missing for those keys in fixed_macro mode; "
+            "(iii) directions do not match between groupfits and summary."
         )
 
     df_fit = pd.DataFrame(rows)
-    df_fit.to_excel(out_dir / f"params_pseudohuber_mode={mode}_y={y_col}_k={k_last}.xlsx", index=False)
+    write_xlsx_csv_outputs(df_fit, out_dir / f"params_pseudohuber_mode={mode}_y={y_col}_k={k_last}.xlsx")
     return df_fit
 
 
@@ -769,9 +753,9 @@ def block2b_cc_vars_long_tra_sameY(
     fname: str | None = None,
 ) -> None:
     """
-    Versión GENÉRICA del plot comparativo por direcciones:
-    - Antes: 2 columnas (long/tra)
-    - Ahora: 1xN columnas para TODAS las direcciones presentes (ordenando long/tra primero si existen)
+    Generic comparative plot by direction:
+    - Previously: 2 columns (long/tra)
+    - Now: 1xN columns for every available direction, ordering long/tra first when present.
     - Misma escala Y por fila (sharey='row')
     """
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -790,7 +774,7 @@ def block2b_cc_vars_long_tra_sameY(
     subjs = sorted(df_fit["subj"].unique())
     markers = _markers_for_subjs(subjs)
 
-    directions = _directions_present(df_fit)  # dinámico
+    directions = _directions_present(df_fit)  # Dynamic.
     if not directions:
         print("[INFO] var-grid plot: no directions found -> skip.")
         return
@@ -810,7 +794,7 @@ def block2b_cc_vars_long_tra_sameY(
     ncols = len(directions)
     fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 3.0*nrows + 1), sharex=True, sharey="row")
 
-    # normalizar axes a 2D
+    # Normalize axes to 2D.
     axes = np.array(axes)
     if nrows == 1 and ncols == 1:
         axes = axes.reshape((1, 1))
@@ -859,12 +843,12 @@ def block2b_cc_vars_long_tra_sameY(
             if row == 0 and col == 0 and any_line:
                 ax.legend(fontsize=9, loc="best")
 
-    # X ticks solo abajo
+    # X ticks only on the bottom row.
     for ax in axes[-1, :]:
         ax.set_xticks(x)
         ax.set_xticklabels(regiones, rotation=25, ha="right", fontsize=10)
 
-    # Fijar límites Y por fila usando TODOS los puntos
+    # Set row-wise Y limits using all points.
     def _set_row_ylim(row_idx: int, var: str, err: str):
         yy = df_fit[var].to_numpy(dtype=float) if var in df_fit.columns else np.array([])
         ee = df_fit[err].to_numpy(dtype=float) if err in df_fit.columns else np.zeros_like(yy)
@@ -1280,8 +1264,11 @@ def block1d_fullrange_tc_with_approximations(
 
     if curve_rows:
         df_curves = pd.DataFrame(curve_rows)
-        df_curves.to_csv(out_dir / f"{y_col}_fullrange_curves.csv", index=False)
-        df_curves.to_excel(out_dir / f"{y_col}_fullrange_curves.xlsx", index=False)
+        write_xlsx_csv_outputs(
+            df_curves,
+            out_dir / f"{y_col}_fullrange_curves.xlsx",
+            csv_path=out_dir / f"{y_col}_fullrange_curves.csv",
+        )
 
 
 # ---------------------------
