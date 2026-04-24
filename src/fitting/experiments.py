@@ -5,6 +5,7 @@ from typing import Iterable
 
 CONTRAST_MODELS = ("free", "rest", "tort")
 NOGSE_SIGNAL_MODELS = ("free_cpmg", "free_hahn")
+OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse")
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ CANONICAL_EXPERIMENTS: dict[str, ExperimentFamily] = {
     ),
     "ogse_signal_vs_g": ExperimentFamily(
         name="ogse_signal_vs_g",
-        models=("monoexp",),
+        models=OGSE_SIGNAL_MODELS,
         supports_correction=True,
     ),
     "ogse_contrast_vs_g": ExperimentFamily(

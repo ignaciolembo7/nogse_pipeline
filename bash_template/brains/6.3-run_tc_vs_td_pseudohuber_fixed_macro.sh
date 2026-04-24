@@ -18,7 +18,7 @@ TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 METHOD="pseudohuber_fixed_macro"
 GROUPFITS="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/groupfits_rest.parquet"
 SUMMARY_ALPHA="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
-YCOL="tc_peak_ms"
+YCOL="${YCOL:-tc_peak_ms}"
 EXCLUDE_TD_MS="76"
 SHOW_ERRORBARS="1"
 ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC,Left-Lateral-Ventricle,Right-Lateral-Ventricle,Syringe"
@@ -31,13 +31,17 @@ DELTA_FIXED="FREE"
 DELTA_MIN="1e-6"
 DELTA_MAX="300"
 EXCLUDE_MATCHES=()
-if [[ "$YCOL" == "tc_peak_ms" ]]; then
-    TC_DIRNAME="tcpeak_vs_td"
-elif [[ "$YCOL" == "tc_fit_ms" || "$YCOL" == "tc_ms" ]]; then
-    TC_DIRNAME="tcfit_vs_td"
-else
-    TC_DIRNAME="${YCOL}_vs_td"
-fi
+case "$YCOL" in
+    tc_peak_ms)
+        TC_DIRNAME="tcpeak_vs_td"
+        ;;
+    tc_fit_ms|tc_ms)
+        TC_DIRNAME="tcfit_vs_td"
+        ;;
+    *)
+        TC_DIRNAME="${YCOL}_vs_td"
+        ;;
+esac
 OUT_DIR="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/$TC_DIRNAME/$METHOD" #/$YCOL"
 
 if [[ ! -f "$TC_SCRIPT" ]]; then

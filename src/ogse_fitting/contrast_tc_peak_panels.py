@@ -20,7 +20,7 @@ from ogse_fitting.contrast_fit_panels import (
     _sanitize_token,
     _subset_group,
 )
-from ogse_fitting.fit_ogse_contrast import _fit_row_correction_pair
+from ogse_fitting.fit_ogse_contrast_vs_g import _fit_row_correction_pair
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 

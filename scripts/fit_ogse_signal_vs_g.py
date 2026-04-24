@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from fitting.experiments import experiment_models, split_all_or_values, validate_experiment_model
+from fitting.experiments import experiment_models, fit_output_name, split_all_or_values, validate_experiment_model
 from fitting.gradient_correction import (
     SignalCorrectionLookupSpec,
     build_signal_direction_factors,
@@ -129,11 +129,11 @@ def main() -> None:
     ap.add_argument("--ycol", default="value_norm", choices=sorted(VALID_YCOLS))
 
     fit_group = ap.add_mutually_exclusive_group()
-    fit_group.add_argument("--fit_points", type=int, default=None, help="Fixed number of points to use in the OGSE free-signal fit.")
+    fit_group.add_argument("--fit_points", type=int, default=None, help="Fixed number of points to use in the selected OGSE signal model fit.")
     fit_group.add_argument(
         "--auto_fit_points",
         action="store_true",
-        help="Automatically select how many initial points best match the OGSE free-signal model.",
+        help="Automatically select how many initial points best match the selected OGSE signal model.",
     )
     ap.add_argument("--auto_fit_tol", type=float, default=0.05, help="Relative tolerance used by the automatic mode when adding a new point.")
     ap.add_argument("--auto_fit_err_floor", type=float, default=0.005, help="Absolute floor for rmse_log before comparing consecutive k values.")
@@ -150,7 +150,7 @@ def main() -> None:
     ap.add_argument("--D0_init", type=float, default=0.0023)
     ap.add_argument("--fix_M0", type=float, default=1.0)
     ap.add_argument("--free_M0", action="store_true")
-    ap.add_argument("--out_root", default="ogse_experiments/fits/ogse_signal_vs_g_monoexp")
+    ap.add_argument("--out_root", default=None)
     ap.add_argument(
         "--out_dproj_root",
         default=None,
@@ -168,7 +168,7 @@ def main() -> None:
     ap.add_argument("--corr_sheet", default=None)
     args = ap.parse_args()
 
-    validate_experiment_model(EXPERIMENT, args.model)
+    model = validate_experiment_model(EXPERIMENT, args.model)
 
     if args.fit_points is not None and args.fit_points <= 0:
         raise ValueError("--fit_points must be > 0.")
@@ -215,8 +215,14 @@ def main() -> None:
         corr_sheet=args.corr_sheet,
     )
 
+    corrected = apply_corr
+    out_root = args.out_root
+    if out_root is None:
+        out_root = str(Path("ogse_experiments/fits") / fit_output_name(EXPERIMENT, model, corrected=corrected))
+
     run_fit_ogse_signal_vs_g_from_parquet(
         args.parquet,
+        model=model,
         dirs=directions,
         rois=split_all_or_values(rois),
         ycol=args.ycol,
@@ -236,7 +242,7 @@ def main() -> None:
         delta_ms=delta_ms,
         Delta_app_ms=Delta_app_ms,
         stat_keep=args.stat,
-        out_root=args.out_root,
+        out_root=out_root,
         out_dproj_root=args.out_dproj_root,
         f_by_direction=f_by_direction,
         plot_xcol=args.plot_xcol,

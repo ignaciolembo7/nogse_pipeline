@@ -34,7 +34,7 @@ def main() -> None:
         nargs='+',
         type=int,
         default=[1, 4, 8],
-        help='Ns from the monoexp curves that are averaged into D0_fit_monoexp.',
+        help='Ns from the monoexp curves that are averaged into D0_fit_monoexp (with direction-averaging per subj/sheet/roi/td_ms).',
     )
     ap.add_argument('--stat', default='avg', help='Stat to keep. Defaults to avg. Use ALL to skip filtering.')
     ap.add_argument('--tol-ms', type=float, default=1e-3, help='Tolerance in ms for matching td_ms between monoexp and contrast.')

@@ -175,7 +175,7 @@ def plot_ogse_signal_summary(
 
 
 def build_ogse_signal_fit_label(fit_row: dict[str, object]) -> str:
-    model = str(fit_row.get("model", "monoexp"))
+    model = str(fit_row.get("model", "unknown"))
     parts = [model]
     if "M0" in fit_row:
         parts.append(f"M0={compact_float(fit_row.get('M0'))}")
@@ -204,7 +204,7 @@ def plot_ogse_signal_fit(
     n_txt = compact_float(fit_row.get("N"), digits=0)
 
     text_lines = [
-        f"model={fit_row.get('model', 'monoexp')}",
+        f"model={fit_row.get('model', 'unknown')}",
         f"M0={compact_float(fit_row.get('M0'))}",
         (
             f"D0={compact_float(fit_row.get('D0_mm2_s'))} mm2/s"

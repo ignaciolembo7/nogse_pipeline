@@ -1022,16 +1022,16 @@ def _propagate_correction_std_side(row: pd.Series, side: int) -> float:
     return float(0.5 * corr * np.sqrt(rel_var))
 
 
-def _format_missing_signal_matches(missing: pd.DataFrame, monoexp_ref: pd.DataFrame) -> str:
+def _format_missing_monoexp_reference(missing: pd.DataFrame, monoexp_ref: pd.DataFrame) -> str:
     sample_missing_cols = [
-        c for c in ['subj', 'sheet', 'roi', 'direction', 'side', 'signal_source_key', 'td_ms', 'N']
+        c for c in ['subj', 'sheet', 'roi', 'direction', 'td_ms', 'N_1', 'N_2', 'monoexp_ref_Ns']
         if c in missing.columns
     ]
     sample_missing = missing[sample_missing_cols].drop_duplicates().head(10)
     sample_exp_cols = [c for c in ['subj', 'sheet', 'roi', 'direction', 'source_key', 'td_ms', 'N'] if c in monoexp_ref.columns]
     sample_exp = monoexp_ref[sample_exp_cols].drop_duplicates().head(20)
     return (
-        'Faltan referencias monoexp para algunos fits OGSE individuales.\n\n'
+        'Faltan referencias monoexp para la clave subj+sheet+roi+td_ms.\n\n'
         'Ejemplos faltantes:\n'
         f"{sample_missing.to_string(index=False)}\n\n"
         'Referencias monoexp disponibles (ejemplos):\n'
@@ -1088,17 +1088,19 @@ def _attach_selected_monoexp_reference(
     out: pd.DataFrame,
     monoexp_ref: pd.DataFrame,
     *,
-    monoexp_ref_Ns: tuple[int, ...],
+    monoexp_ref_Ns: tuple[int, ...] | None,
     tol_ms: float,
 ) -> pd.DataFrame:
     ref = monoexp_ref.copy()
     ref['_td_key'] = _td_key_from_series(ref['td_ms'], tol_ms)
     ref['_N_key'] = _int_key_from_series(ref['N'])
-    ref = ref[ref['_N_key'].isin(list(monoexp_ref_Ns))].copy()
-    if ref.empty:
-        raise ValueError(_format_missing_selected_monoexp(out, monoexp_ref, monoexp_ref_Ns=monoexp_ref_Ns))
+    if monoexp_ref_Ns is not None:
+        ref = ref[ref['_N_key'].isin(list(monoexp_ref_Ns))].copy()
+        if ref.empty:
+            raise ValueError(_format_missing_selected_monoexp(out, monoexp_ref, monoexp_ref_Ns=monoexp_ref_Ns))
 
-    group_cols = ['subj', 'sheet', 'roi', 'direction', '_td_key']
+    # Reference D0 is shared across directions: same subj+sheet+roi+td_ms.
+    group_cols = ['subj', 'sheet', 'roi', '_td_key']
     ref_agg = ref.groupby(group_cols, as_index=False).agg(
         D0_fit_monoexp=('D0_fit_monoexp', 'mean'),
         D0_fit_monoexp_std=('D0_fit_monoexp', 'std'),
@@ -1111,11 +1113,20 @@ def _attach_selected_monoexp_reference(
     work = out.copy()
     work['_td_key'] = _td_key_from_series(work['td_ms'], tol_ms)
     merged = work.merge(ref_agg, on=group_cols, how='left')
-    missing = merged[
-        merged['D0_fit_monoexp'].isna()
-        | (pd.to_numeric(merged['monoexp_ref_N_count'], errors='coerce') < len(monoexp_ref_Ns))
-    ].copy()
+    missing = merged[merged['D0_fit_monoexp'].isna()].copy()
+    if monoexp_ref_Ns is not None:
+        missing = pd.concat(
+            [
+                missing,
+                merged[
+                    pd.to_numeric(merged['monoexp_ref_N_count'], errors='coerce') < len(monoexp_ref_Ns)
+                ].copy(),
+            ],
+            ignore_index=True,
+        ).drop_duplicates()
     if not missing.empty:
+        if monoexp_ref_Ns is None:
+            raise ValueError(_format_missing_monoexp_reference(missing, monoexp_ref))
         raise ValueError(_format_missing_selected_monoexp(missing, monoexp_ref, monoexp_ref_Ns=monoexp_ref_Ns))
     return merged.drop(columns=['_td_key'])
 
@@ -1134,35 +1145,7 @@ def _build_side_specific_table(
     if raw.empty:
         raise ValueError('No hay fits OGSE individuales crudos válidos para construir la corrección.')
 
-    monoexp_ref = monoexp_ref.copy()
-    raw['_td_key'] = _td_key_from_series(raw['td_ms'], tol_ms)
-    raw['_N_key'] = _int_key_from_series(raw['N'])
-    raw['signal_source_key'] = raw.get('signal_source_key', pd.Series('', index=raw.index)).astype(str)
-    monoexp_ref['_td_key'] = _td_key_from_series(monoexp_ref['td_ms'], tol_ms)
-    monoexp_ref['_N_key'] = _int_key_from_series(monoexp_ref['N'])
-    monoexp_ref['source_key'] = monoexp_ref['source_key'].astype(str)
-
-    mono_cols = [
-        'subj', 'sheet', 'roi', 'direction', 'source_key', '_td_key', '_N_key',
-        'source_file', 'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
-    ]
-    mono = monoexp_ref[mono_cols].rename(
-        columns={
-            'source_key': 'signal_source_key',
-            'source_file': 'monoexp_source_file',
-        }
-    )
-
-    merged = raw.merge(
-        mono,
-        on=['subj', 'sheet', 'roi', 'direction', 'signal_source_key', '_td_key', '_N_key'],
-        how='left',
-    )
-
-    missing = merged[merged['D0_fit_monoexp'].isna()].copy()
-    if not missing.empty:
-        raise ValueError(_format_missing_signal_matches(missing, monoexp_ref))
-
+    merged = raw.copy()
     common = ['subj', 'sheet', 'analysis_id', 'source_file', 'roi', 'direction', 'stat']
     side_blocks: list[pd.DataFrame] = []
     for side in (1, 2):
@@ -1170,16 +1153,14 @@ def _build_side_specific_table(
         if sub.empty:
             continue
         keep = common + [
-            'signal_source_file', 'signal_source_key', 'monoexp_source_file',
+            'signal_source_file', 'signal_source_key',
             'td_ms', 'N', 'Hz', 'sequence', 'delta_ms', 'Delta_app_ms',
             'D0_m2_ms', 'D0_err_m2_ms', 'n_fit', 'n_points', 'g_max_raw_mTm',
-            'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
         ]
         sub = sub[keep].rename(
             columns={
                 'signal_source_file': f'signal_source_file_{side}',
                 'signal_source_key': f'signal_source_key_{side}',
-                'monoexp_source_file': f'monoexp_source_file_{side}',
                 'td_ms': f'td_ms_{side}',
                 'N': f'N_{side}',
                 'Hz': f'Hz_{side}',
@@ -1191,9 +1172,6 @@ def _build_side_specific_table(
                 'n_fit': f'n_nogse_{side}',
                 'n_points': f'n_points_nogse_{side}',
                 'g_max_raw_mTm': f'g_max_raw_mTm_{side}',
-                'D0_fit_monoexp': f'D0_fit_monoexp_{side}',
-                'D0_fit_monoexp_std': f'D0_fit_monoexp_std_{side}',
-                'n_monoexp': f'n_monoexp_{side}',
             }
         )
         side_blocks.append(sub)
@@ -1216,30 +1194,12 @@ def _build_side_specific_table(
             f'{bad.to_string(index=False)}'
         )
 
-    selected_Ns = _normalize_monoexp_ref_Ns(monoexp_ref_Ns)
-    if selected_Ns is None:
-        mono_side_vals = out[['D0_fit_monoexp_1', 'D0_fit_monoexp_2']].apply(pd.to_numeric, errors='coerce')
-        out['D0_fit_monoexp'] = mono_side_vals.mean(axis=1)
-        out['D0_fit_monoexp_std'] = mono_side_vals.std(axis=1)
-        mono_internal_std = out[['D0_fit_monoexp_std_1', 'D0_fit_monoexp_std_2']].apply(pd.to_numeric, errors='coerce').mean(axis=1)
-        out['D0_fit_monoexp_std'] = out['D0_fit_monoexp_std'].fillna(mono_internal_std)
-        out['n_monoexp'] = (
-            pd.to_numeric(out['n_monoexp_1'], errors='coerce').fillna(0)
-            + pd.to_numeric(out['n_monoexp_2'], errors='coerce').fillna(0)
-        ).astype(int)
-        out['monoexp_ref_Ns'] = out.apply(lambda row: ','.join(str(int(round(float(row[f'N_{side}'])))) for side in (1, 2)), axis=1)
-        out['monoexp_ref_N_count'] = 2
-        out['monoexp_ref_source_files'] = out[['monoexp_source_file_1', 'monoexp_source_file_2']].apply(
-            lambda row: ';'.join(str(v) for v in row.dropna().astype(str) if str(v)),
-            axis=1,
-        )
-    else:
-        out = _attach_selected_monoexp_reference(
-            out,
-            monoexp_ref,
-            monoexp_ref_Ns=selected_Ns,
-            tol_ms=tol_ms,
-        )
+    out = _attach_selected_monoexp_reference(
+        out,
+        monoexp_ref,
+        monoexp_ref_Ns=_normalize_monoexp_ref_Ns(monoexp_ref_Ns),
+        tol_ms=tol_ms,
+    )
 
     out['ratio_1'] = out['D0_fit_nogse_1'] / out['D0_fit_monoexp']
     out['ratio_2'] = out['D0_fit_nogse_2'] / out['D0_fit_monoexp']
@@ -1255,10 +1215,8 @@ def _build_side_specific_table(
         'N_1', 'N_2',
         'Hz_1', 'Hz_2', 'sequence_1', 'sequence_2',
         'signal_source_file_1', 'signal_source_file_2',
-        'monoexp_source_file_1', 'monoexp_source_file_2',
         'D0_fit_nogse_1', 'D0_fit_nogse_err_1', 'n_nogse_1', 'n_points_nogse_1', 'g_max_raw_mTm_1',
         'D0_fit_nogse_2', 'D0_fit_nogse_err_2', 'n_nogse_2', 'n_points_nogse_2', 'g_max_raw_mTm_2',
-        'D0_fit_monoexp_1', 'D0_fit_monoexp_2',
         'D0_fit_monoexp', 'D0_fit_monoexp_std', 'n_monoexp',
         'monoexp_ref_Ns', 'monoexp_ref_N_count', 'monoexp_ref_source_files',
         'ratio_1', 'ratio_2',
@@ -1344,13 +1302,10 @@ def _add_side_specific_pooled_rows(
             d0_col = f'D0_fit_nogse_{side}'
             factor_col = f'correction_factor_{side}'
             factor_std_col = f'correction_factor_{side}_std'
-            mono_col = f'D0_fit_monoexp_{side}'
 
             d0_vals = pd.to_numeric(donors[d0_col], errors='coerce').dropna()
             factor_vals = pd.to_numeric(donors[factor_col], errors='coerce').dropna()
-            mono_vals = _num_col(donors, mono_col).dropna()
             row[f'signal_source_file_{side}'] = ''
-            row[f'monoexp_source_file_{side}'] = ''
             row[d0_col] = float(d0_vals.mean()) if not d0_vals.empty else np.nan
             row[f'D0_fit_nogse_err_{side}'] = float(d0_vals.std()) if len(d0_vals) > 1 else np.nan
             if not np.isfinite(float(row[f'D0_fit_nogse_err_{side}'])):
@@ -1358,11 +1313,6 @@ def _add_side_specific_pooled_rows(
             row[f'n_nogse_{side}'] = int(len(donors))
             row[f'n_points_nogse_{side}'] = int(_num_col(donors, f'n_points_nogse_{side}').sum())
             row[f'g_max_raw_mTm_{side}'] = float(_num_col(donors, f'g_max_raw_mTm_{side}').mean())
-            row[mono_col] = float(mono_vals.mean()) if not mono_vals.empty else np.nan
-            row[f'D0_fit_monoexp_std_{side}'] = float(mono_vals.std()) if len(mono_vals) > 1 else np.nan
-            if not np.isfinite(float(row[f'D0_fit_monoexp_std_{side}'])):
-                row[f'D0_fit_monoexp_std_{side}'] = float(_num_col(donors, f'D0_fit_monoexp_std_{side}').mean())
-            row[f'n_monoexp_{side}'] = int(_num_col(donors, f'n_monoexp_{side}').sum())
             row[factor_col] = float(factor_vals.mean()) if not factor_vals.empty else np.nan
             row[factor_std_col] = float(factor_vals.std()) if len(factor_vals) > 1 else np.nan
             if not np.isfinite(float(row[factor_std_col])):

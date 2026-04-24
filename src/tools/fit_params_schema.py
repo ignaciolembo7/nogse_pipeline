@@ -48,6 +48,7 @@ MONOEXP_COLS = [
     'ok',
     'msg',
 ]
+OGSE_SIGNAL_COLS = list(MONOEXP_COLS)
 
 NOGSE_CONTRAST_COLS = [
     'source_file',
@@ -193,6 +194,8 @@ NOGSE_SIGNAL_COLS = [
 def _schema_cols_for_kind(fit_kind: str) -> list[str]:
     if fit_kind == 'monoexp':
         return MONOEXP_COLS
+    if fit_kind == 'ogse_signal':
+        return OGSE_SIGNAL_COLS
     if fit_kind == 'nogse_contrast':
         return NOGSE_CONTRAST_COLS
     if fit_kind == 'ogse_contrast':

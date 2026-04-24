@@ -23,6 +23,7 @@ from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import rmse_log as _rmse_log
 from models.model_fitting import M_ogse_free
+from monoexp_fitting.fit_monoexp_signal_vs_bval import run_fit_from_parquet as run_fit_monoexp_from_parquet
 from ogse_plotting.plot_ogse_signal_vs_g import plot_ogse_signal_fit
 from tools.fit_params_schema import standardize_fit_params
 from tools.strict_columns import raise_on_unrecognized_column_names
@@ -45,6 +46,9 @@ GTYPE_ALIASES = {
     "bvalue_thorsten": "g_thorsten",
 }
 VALID_G_TYPES = set(GTYPE_ALIASES)
+OGSE_SIGNAL_MODEL_MONOEXP = "monoexp"
+OGSE_SIGNAL_MODEL_FREE = "free_ogse"
+VALID_OGSE_SIGNAL_MODELS = {OGSE_SIGNAL_MODEL_MONOEXP, OGSE_SIGNAL_MODEL_FREE}
 
 
 def infer_exp_id(p: Path) -> str:
@@ -126,7 +130,7 @@ def _normalize_requested_rois(
     return [roi_val]
 
 
-def build_monoexp_dproj_long(
+def build_signal_dproj_long(
     df_signal: pd.DataFrame,
     fit_params: pd.DataFrame,
     *,
@@ -704,7 +708,7 @@ def fit_ogse_signal_vs_g_long(
                     roi=str(roi_val),
                     direction=str(dir_val),
                     stat=str(stat_keep),
-                    model="monoexp",
+                    model=OGSE_SIGNAL_MODEL_FREE,
                     ycol=str(ycol),
                     g_type=str(g_type),
                     plot_xcol=str(plot_axis),
@@ -728,7 +732,7 @@ def fit_ogse_signal_vs_g_long(
                 roi=str(roi_val),
                 direction=str(dir_val),
                 stat=str(stat_keep),
-                model="monoexp",
+                model=OGSE_SIGNAL_MODEL_FREE,
                 ycol=str(ycol),
                 g_type=str(g_type),
                 plot_xcol=str(plot_axis),
@@ -780,7 +784,7 @@ def fit_ogse_signal_vs_g_long(
             )
 
         if outdir_plots is not None:
-            out_png = outdir_plots / f"{roi_val}.monoexp.{g_type}.{ycol}.direction_{dir_val}.png"
+            out_png = outdir_plots / f"{roi_val}.{OGSE_SIGNAL_MODEL_FREE}.{g_type}.{ycol}.direction_{dir_val}.png"
             plot_fit_one_group_ogse_free(
                 d,
                 results[-1],
@@ -797,6 +801,7 @@ def fit_ogse_signal_vs_g_long(
 def run_fit_ogse_signal_vs_g_from_parquet(
     parquet_path: str | Path,
     *,
+    model: str = OGSE_SIGNAL_MODEL_MONOEXP,
     dirs: Optional[Sequence[str]] = None,
     roi: str = "ALL",
     rois: Optional[Sequence[str]] = None,
@@ -817,11 +822,51 @@ def run_fit_ogse_signal_vs_g_from_parquet(
     Delta_app_ms: Optional[float] = None,
     td_ms: Optional[float] = None,
     stat_keep: str = "avg",
-    out_root: str | Path = "ogse_experiments/fits/ogse_signal_vs_g_monoexp",
+    out_root: str | Path | None = None,
     out_dproj_root: Optional[str | Path] = None,
     f_by_direction: Mapping[str, float] | None = None,
     plot_xcol: str | None = None,
 ) -> Tuple[FitOutputs, Path]:
+    model_name = str(model)
+    resolved_out_root = (
+        Path(out_root)
+        if out_root is not None
+        else Path("ogse_experiments/fits") / f"ogse_signal_vs_g_{model_name}"
+    )
+    if model_name == OGSE_SIGNAL_MODEL_MONOEXP:
+        return run_fit_monoexp_from_parquet(
+            parquet_path,
+            dirs=dirs,
+            roi=roi,
+            rois=rois,
+            ycol=ycol,
+            g_type=g_type,
+            fit_points=fit_points,
+            auto_fit_points=auto_fit_points,
+            auto_fit_min_points=auto_fit_min_points,
+            auto_fit_max_points=auto_fit_max_points,
+            auto_fit_rel_tol=auto_fit_rel_tol,
+            auto_fit_err_floor=auto_fit_err_floor,
+            free_M0=free_M0,
+            fix_M0=fix_M0,
+            D0_init=D0_init,
+            gamma=gamma,
+            N=N,
+            delta_ms=delta_ms,
+            Delta_app_ms=Delta_app_ms,
+            td_ms=td_ms,
+            stat_keep=stat_keep,
+            out_root=resolved_out_root,
+            out_dproj_root=out_dproj_root,
+            f_by_direction=f_by_direction,
+            b_corr_power=2.0,
+        )
+    if model_name != OGSE_SIGNAL_MODEL_FREE:
+        raise ValueError(
+            f"Unsupported OGSE signal model {model_name!r}. "
+            f"Allowed values: {sorted(VALID_OGSE_SIGNAL_MODELS)}."
+        )
+
     p = Path(parquet_path)
     df = pd.read_parquet(p) if p.suffix.lower() not in [".xlsx", ".xls"] else pd.read_excel(p, sheet_name=0)
 
@@ -832,7 +877,7 @@ def run_fit_ogse_signal_vs_g_from_parquet(
     exp_id = infer_exp_id(p)
     sheet = _unique_str(df, "sheet") or exp_id.split("_")[0]
 
-    exp_dir = Path(out_root) / sheet / exp_id
+    exp_dir = resolved_out_root / sheet / exp_id
     tables_dir = exp_dir
     plots_dir = exp_dir
 
@@ -873,7 +918,7 @@ def run_fit_ogse_signal_vs_g_from_parquet(
         fp["max_dur_ms"] = _unique_float_any(df, ["max_dur_ms"], required=False, name="max_dur_ms")
         fp["tm_ms"] = _unique_float_any(df, ["tm_ms"], required=False, name="tm_ms")
         fp["td_ms"] = td_ms if td_ms is not None else _unique_float_any(df, ["td_ms"], required=False, name="td_ms")
-        fp = standardize_fit_params(fp, fit_kind="monoexp", source_file=p.name)
+        fp = standardize_fit_params(fp, fit_kind="ogse_signal", source_file=p.name)
 
     out_params_parquet = tables_dir / "fit_params.parquet"
     out_params_xlsx = tables_dir / "fit_params.xlsx"
@@ -886,10 +931,10 @@ def run_fit_ogse_signal_vs_g_from_parquet(
     if out_dproj_root is not None and not fp.empty:
         dproj_dir = Path(out_dproj_root) / sheet
         dproj_dir.mkdir(parents=True, exist_ok=True)
-        dproj = build_monoexp_dproj_long(df, fp, stat_keep=stat_keep)
+        dproj = build_signal_dproj_long(df, fp, stat_keep=stat_keep)
         if not dproj.empty:
-            out_dproj_parquet = dproj_dir / f"{exp_id}.monoexp.Dproj.long.parquet"
-            out_dproj_xlsx = dproj_dir / f"{exp_id}.monoexp.Dproj.long.xlsx"
+            out_dproj_parquet = dproj_dir / f"{exp_id}.ogse_signal.Dproj.long.parquet"
+            out_dproj_xlsx = dproj_dir / f"{exp_id}.ogse_signal.Dproj.long.xlsx"
             write_table_outputs(dproj, out_dproj_parquet, xlsx_path=out_dproj_xlsx)
 
     return outs, exp_dir
@@ -898,6 +943,7 @@ def run_fit_ogse_signal_vs_g_from_parquet(
 def run_fit_from_parquet(
     parquet_path: str | Path,
     *,
+    model: str = OGSE_SIGNAL_MODEL_MONOEXP,
     dirs: Optional[Sequence[str]] = None,
     roi: str = "ALL",
     rois: Optional[Sequence[str]] = None,
@@ -918,13 +964,14 @@ def run_fit_from_parquet(
     Delta_app_ms: Optional[float] = None,
     td_ms: Optional[float] = None,
     stat_keep: str = "avg",
-    out_root: str | Path = "ogse_experiments/fits/ogse_signal_vs_g_monoexp",
+    out_root: str | Path | None = None,
     out_dproj_root: Optional[str | Path] = None,
     f_by_direction: Mapping[str, float] | None = None,
     plot_xcol: str | None = None,
 ) -> Tuple[FitOutputs, Path]:
     return run_fit_ogse_signal_vs_g_from_parquet(
         parquet_path,
+        model=model,
         dirs=dirs,
         roi=roi,
         rois=rois,
@@ -952,6 +999,9 @@ def run_fit_from_parquet(
     )
 
 
+build_monoexp_dproj_long = build_signal_dproj_long
+
+
 __all__ = [
     "AUTO_FIT_ABS_TOL",
     "AUTO_FIT_ERR_FLOOR",
@@ -961,6 +1011,7 @@ __all__ = [
     "FitOutputs",
     "VALID_G_TYPES",
     "build_monoexp_dproj_long",
+    "build_signal_dproj_long",
     "fit_ogse_signal_vs_g_long",
     "infer_exp_id",
     "run_fit_from_parquet",
