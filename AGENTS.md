@@ -80,3 +80,6 @@ For any requested change, use this priority order:
 - Structural improvements MUST preserve scientific and pipeline behavior.
 - If logic centralization is performed, the refactor MUST reproduce the same outputs for equivalent inputs.
 - Any intentional change to scientific logic or output values MUST be explicitly justified and MUST NOT be introduced implicitly during cleanup.
+
+## Scientific logic preservation
+- The agent MUST NOT add or change scientific/physical logic without an explicit user request. It MUST preserve the exact physical correction scheme already specified by the user and MUST NOT invent combined, averaged, surrogate, or “equivalent” correction factors.
