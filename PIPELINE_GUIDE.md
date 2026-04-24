@@ -448,7 +448,7 @@ D_proj = n^T D n
 - `scripts/make_contrast.py`
 - `src/fitting/contrast.py`
 
-### Stage 8: OGSE free-signal fitting and macro-scale summaries
+### Stage 8: OGSE signal fitting and macro-scale summaries
 
 **What goes in**
 
@@ -456,7 +456,9 @@ D_proj = n^T D n
 
 **What happens conceptually**
 
-- each ROI/direction curve is fitted with the centralized OGSE free-signal model `M_ogse_free`;
+- the OGSE signal workflow (`scripts/fit_ogse_signal_vs_g.py`) selects a fitting model explicitly with `--model`;
+- in the `4.x` batch scripts, that model is `monoexp`, implemented by the true monoexponential machinery in `src/monoexp_fitting`;
+- optional OGSE-specific fitting remains available as `free_ogse`, implemented in `src/ogse_fitting` and evaluated with `M_ogse_free`;
 - the fit can use either a fixed number of lowest-`b` points or an automatically selected prefix of the curve;
 - from the fitted attenuation, the pipeline produces:
   - `D0`
@@ -466,7 +468,7 @@ D_proj = n^T D n
 
 **What comes out**
 
-- OGSE free-signal fit tables
+- OGSE signal fit tables (model-tagged)
 - `Dproj` tables
 - `D`-vs-`Delta_app` plots
 - `summary_alpha_values.xlsx`
@@ -478,7 +480,16 @@ D_proj = n^T D n
 
 **Key physical or mathematical idea**
 
-The implemented signal model is:
+For the monoexponential model used in `4.x`, the signal model is:
+
+```text
+S(b) = M0 * exp(-b * D0)
+```
+
+This is evaluated by `src/monoexp_fitting/fit_monoexp_signal_vs_bval.py`
+inside the OGSE signal workflow.
+
+For the optional OGSE-specific model (`free_ogse`), the implemented model is:
 
 ```text
 S(G) = M_ogse_free(TE, G, N, TE/N, M0, D0)
@@ -492,8 +503,8 @@ def M_ogse_free(TE, G, N, x, M0, D0):
     return M0 * np.exp(-1.0 / 12 * g**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
 ```
 
-For the single-curve OGSE signal fits in this repository, the fitter evaluates
-that model at `x = TE/N`, using the corrected gradient axis directly. Because
+When `free_ogse` is selected, the fitter evaluates that model at `x = TE/N`,
+using the corrected gradient axis directly. Because
 the exponent is still proportional to `G^2`, these fits continue to provide the
 same kind of reference diffusivity scale used later in the correction and
 summary stages.
@@ -505,6 +516,7 @@ of the OGSE curve that is intended to define the reference `D0`.
 **Code**
 
 - `scripts/fit_ogse_signal_vs_g.py`
+- `src/monoexp_fitting/fit_monoexp_signal_vs_bval.py`
 - `src/ogse_fitting/fit_ogse_signal_vs_g.py`
 - `scripts/plot_D0_vs_Delta.py`
 - `scripts/make_alpha_macro_summary.py`
@@ -591,7 +603,17 @@ out['correction_factor_1'] = np.sqrt(out['ratio_1'])
 out['correction_factor_2'] = np.sqrt(out['ratio_2'])
 ```
 
+`D0_fit_monoexp` is a single shared reference per
+`subj + sheet + roi + td_ms`: it is averaged over the selected monoexp
+reference `N` values (default `1,4,8`) and across available directions
+(e.g., `long` and `tra`). Therefore, rows that differ only by direction use
+the same `D0_fit_monoexp`.
+
 Code reference: `src/ogse_fitting/make_grad_correction_table.py`.
+
+In the canonical batch runners, this reference branch is wired explicitly to
+the monoexponential OGSE signal outputs:
+`fits/ogse_signal_vs_g_monoexp` (see `bash_template/*/5.2-run_make_grad_correction_table.sh`).
 
 #### Why the square root appears
 
@@ -681,9 +703,10 @@ if axis_uses_bvalue(axis_base):
 axis_corr = bvalue_corr if axis_uses_bvalue(axis_base) else gradient_corr
 ```
 
-The important design consequence is that the code no longer has a separate
-"effective `b`" correction path inside these four fitters. A corrected `b`
-axis exists only as the `b` value implied by a corrected gradient.
+The practical consequence is that correction remains tied to gradient
+calibration, but each model family consumes that correction in its own natural
+fit variable (`b` for monoexp signal fits, `g` for OGSE/NOGSE free-signal
+fits, side-specific variables for contrast fits).
 
 #### How each fitter now works
 
@@ -694,20 +717,20 @@ axis exists only as the `b` value implied by a corrected gradient.
   - plotting variable: `plot_xcol`
   - corrected vs uncorrected mode: `--apply_grad_corr` / `--no_grad_corr`
 - Internal fit variable:
-  - the corrected gradient `g_corr`, because the model evaluation now calls the
-    centralized `M_ogse_free`
-  - the corresponding `b(g_corr)` representation is still derived from that
-    same corrected gradient for reporting, point selection, and downstream
-    diffusivity summaries
+  - depends on model:
+  - `monoexp`: corrected `b` axis (equivalent to deriving `b` from corrected
+    gradient for the same acquisition timing);
+  - `free_ogse`: corrected gradient `g_corr` passed to `M_ogse_free`;
 - Internal plot variable:
   - `plot_xcol`, built from the same corrected gradient family
 
 Key code:
 
 ```python
-fit_bundle = build_axis_bundle(...)
-plot_bundle = build_axis_bundle(...)
-yhat = M_ogse_free(td_ms, fit_bundle.gradient_corr, N, td_ms / N, M0, D0)
+if model == "monoexp":
+    run_fit_monoexp_from_parquet(...)
+elif model == "free_ogse":
+    yhat = M_ogse_free(td_ms, fit_bundle.gradient_corr, N, td_ms / N, M0, D0)
 ```
 
 Code reference:
@@ -865,6 +888,127 @@ without confusing the two acquisitions that formed a contrast.
 - `src/nogse_fitting/fit_nogse_signal_vs_g.py`
 - `src/ogse_fitting/fit_ogse_contrast_vs_g.py`
 - `src/nogse_fitting/fit_nogse_contrast_vs_g.py`
+
+#### End-to-end correction code traces (signals and contrasts)
+
+This section spells out the exact code path used to apply correction factors in
+the four `*_vs_g` workflows.
+
+1. Correction factors are created as side-specific values in the correction table:
+
+```python
+out['ratio_1'] = out['D0_fit_nogse_1'] / out['D0_fit_monoexp']
+out['ratio_2'] = out['D0_fit_nogse_2'] / out['D0_fit_monoexp']
+out['correction_factor_1'] = np.sqrt(out['ratio_1'])
+out['correction_factor_2'] = np.sqrt(out['ratio_2'])
+```
+
+Code: `src/ogse_fitting/make_grad_correction_table.py`.
+
+2. Those factors are read and matched before fitting:
+
+```python
+corr = read_correction_table(args.corr_xlsx)
+f_by_direction = build_direction_factors(
+    corr,
+    spec=CorrectionLookupSpec(...),
+    factor_mode="per_side",
+)
+```
+
+Code: `scripts/fit_ogse_contrast_vs_g.py`, `scripts/fit_nogse_contrast_vs_g.py`.
+
+For single-signal fits, matching is done per signal file and/or `N`, then
+reduced to one factor per direction:
+
+```python
+return build_signal_direction_factors(
+    corr,
+    spec=SignalCorrectionLookupSpec(
+        ...,
+        signal_source_file=parquet.name,
+        signal_n=signal_n,
+    )
+)
+```
+
+Code: `scripts/fit_ogse_signal_vs_g.py`, `scripts/fit_nogse_signal_vs_g.py`,
+`src/fitting/gradient_correction.py`.
+
+3. OGSE signal fit (`ogse_signal_vs_g`):
+
+- `free_ogse` model consumes corrected gradient directly via `build_axis_bundle`:
+
+```python
+fit_bundle = build_axis_bundle(..., axis=g_type, correction_factor=float(f_corr), ...)
+fit_res = _select_fit_result(fit_bundle.gradient_corr, y, ...)
+```
+
+Code: `src/ogse_fitting/fit_ogse_signal_vs_g.py`.
+
+- `monoexp` model branch delegates to the monoexponential fitter, which applies
+  the equivalent `b`-axis correction:
+
+```python
+run_fit_monoexp_from_parquet(..., f_by_direction=f_by_direction, b_corr_power=2.0)
+...
+b_corr_scale = float(f_corr) ** float(b_corr_power)
+b = b * b_corr_scale
+```
+
+Code: `src/ogse_fitting/fit_ogse_signal_vs_g.py`,
+`src/monoexp_fitting/fit_monoexp_signal_vs_bval.py`.
+
+4. NOGSE signal fit (`nogse_signal_vs_g`) always fits on corrected gradient:
+
+```python
+fit_bundle = build_axis_bundle(..., axis=fit_axis, correction_factor=float(f_corr), ...)
+group_fit["__fit_x__"] = fit_bundle.gradient_corr
+fit_row, x_data, y_data, fit_curve = fit_one_group(..., xcol="__fit_x__")
+```
+
+Code: `src/nogse_fitting/fit_nogse_signal_vs_g.py`.
+
+5. OGSE contrast fit (`ogse_contrast_vs_g`) uses side-specific corrected gradients:
+
+```python
+fit_bundle_1 = build_axis_bundle(..., side=1, correction_factor=float(f_corr_1), ...)
+fit_bundle_2 = build_axis_bundle(..., side=2, correction_factor=float(f_corr_2), ...)
+G1 = fit_bundle_1.gradient_corr
+G2 = fit_bundle_2.gradient_corr
+```
+
+Code: `src/ogse_fitting/fit_ogse_contrast_vs_g.py`.
+
+6. NOGSE contrast fit (`nogse_contrast_vs_g`) fits side-1 corrected gradient
+   (model axis), while keeping side-2 correction metadata for provenance and
+   peak/summary reporting:
+
+```python
+fit_bundle = build_axis_bundle(..., side=1, correction_factor=float(f_corr_1), ...)
+G_corr = fit_bundle.gradient_corr
+...
+side2_bundle = build_axis_bundle(..., side=2, correction_factor=float(f_corr_2), ...)
+```
+
+Code: `src/nogse_fitting/fit_nogse_contrast_vs_g.py`.
+
+7. Shared transformation law used by all four workflows:
+
+```python
+gradient_raw = extract_gradient_array(df, axis=axis_base, side=resolved_side)
+gradient_corr = gradient_raw * float(f_corr)
+bvalue_corr = bvalue_from_gradient(gradient_corr, axis=axis_base, ...)
+```
+
+Code: `src/fitting/b_from_g.py`.
+
+So, operationally:
+
+- factors are always looked up as `correction_factor_1/2`,
+- correction is applied first on gradient amplitude,
+- any corrected `b` axis is derived from that corrected gradient (or, for the
+  monoexp branch, equivalently as `b *= f^2`).
 
 ### Stage 11: Grouped `t_c` summaries and `t_c` vs `t_d` fitting
 
