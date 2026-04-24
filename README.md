@@ -10,6 +10,8 @@ This repository contains the end-to-end analysis pipeline used here for brain an
 
 The detailed scientific walkthrough now lives in [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md), including an expanded explanation of gradient correction, the `b ~ g^2` scaling logic, and short code snippets for the key pipeline steps.
 
+For OGSE signal fitting, the workflow entrypoint is `scripts/fit_ogse_signal_vs_g.py` and model choice is explicit (`--model`). In the `4.x` batch stages, the selected model is the true monoexponential model implemented in `src/monoexp_fitting`.
+
 ## What the pipeline does
 
 At a high level, the repository implements these stages:
