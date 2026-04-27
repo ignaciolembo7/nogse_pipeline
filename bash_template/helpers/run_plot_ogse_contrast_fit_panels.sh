@@ -11,7 +11,7 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 PY="${PY:-python}"
 
 # Configuration
-FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr}"
+FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr}"
 CONTRAST_ROOT="${CONTRAST_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/contrast-data-rotated}"
 PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse-contrast_fit_panels.py}"
 OUT_DIR="${OUT_DIR:-$FITS_ROOT/contrast_fit_panels}"
