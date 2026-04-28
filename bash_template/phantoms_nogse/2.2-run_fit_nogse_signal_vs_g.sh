@@ -8,9 +8,6 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
-# ------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -19,21 +16,21 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 FIT_SCRIPT="$REPO_ROOT/scripts/fit_nogse_signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_FIBER"
-FITS_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260122-PHANTOM_FIBER"
+FITS_DIR="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/fits"
 EXPERIMENT="nogse_signal_vs_g"
 APPLY_GRAD_CORR="${APPLY_GRAD_CORR:-false}"
-CORR_XLSX="${CORR_XLSX:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.xlsx}"
+CORR_XLSX="${CORR_XLSX:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments/fits/grad_correction/water.grad_correction.xlsx}"
 CORR_ROI="${CORR_ROI:-water}"
 CORR_TD_MS="${CORR_TD_MS:-}"
 CORR_SHEET="${CORR_SHEET:-}"
 CORR_N1="${CORR_N1:-}"
 CORR_N2="${CORR_N2:-}"
 ROOT_SUFFIX=""
-if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
-    ROOT_SUFFIX="_corr"
-fi
 XCOL="g"
 YCOL="value_norm"
 STAT="avg"
@@ -56,15 +53,20 @@ D0_MAX="1e-10"
 # If this list is empty and AUTO_DISCOVER_JOBS is true, all *.long.parquet
 # files under DATA_ROOT are fitted with DEFAULT_MODEL.
 declare -a JOBS=(
-# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_results.long.parquet|free_cpmg"
-"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_results.long.parquet|free_cpmg"
-"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_results.long.parquet|free_hahn"
-"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_results.long.parquet|free_cpmg"
-"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_results.long.parquet|free_hahn"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_20260122092639_results.long.parquet|free_cpmg"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260122092639_results.long.parquet|free_cpmg"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260122092639_results.long.parquet|free_hahn"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260122125354_results.long.parquet|free_cpmg"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260122125354_results.long.parquet|free_hahn"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_20260122125354_results.long.parquet|free_cpmg"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_20260122125354_results.long.parquet|free_hahn"
 )
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# ------------------------------------------------------------------
+if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
+    ROOT_SUFFIX="_corr"
+fi
 
 if [[ ! -f "$FIT_SCRIPT" ]]; then
     echo "ERROR: fit script not found: $FIT_SCRIPT" >&2

@@ -8,9 +8,6 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
-# ------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -19,23 +16,27 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse_signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20260122-PHANTOM_FIBER"
-OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal-plots/nogse_signal_vs_g"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260122-PHANTOM_FIBER"
+OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/signal_plots/nogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"
 STAT="avg"
 ROIS="ALL"
 DIRECTIONS="ALL"
 
+# Add the signal parquet files manually.
 declare -a FILES=(
-  # Add the signal parquet files manually.
-  # Example:
-  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_results.long.parquet"
-  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_results.long.parquet"
-  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_results.long.parquet"
-  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_results.long.parquet"
-  "$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_results.long.parquet"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN50_20260122092639_results.long.parquet"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260122092639_results.long.parquet"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260122092639_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260122125354_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260122125354_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_20260122125354_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_20260122125354_results.long.parquet"
 )
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------

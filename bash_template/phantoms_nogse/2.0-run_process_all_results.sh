@@ -18,15 +18,15 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
-ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
-PHANTOM_SUBJ_REL="20220610-PHANTOM3"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
-DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
+ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
+DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
+PHANTOM_SUBJ_REL="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
+DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
-# OUTPUT_STEM_STRIP_TOKENS="${OUTPUT_STEM_STRIP_TOKENS:-}"
-OUTPUT_STEM_STRIP_TOKENS="20220610-PHANTOM3"
-ONEG="${ONEG:-false}"
+ONEG="${ONEG:-true}"
+OUTPUT_STEM_STRIP_TOKENS="${OUTPUT_STEM_STRIP_TOKENS:-}"
+# OUTPUT_STEM_STRIP_TOKENS="20260122092639"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 

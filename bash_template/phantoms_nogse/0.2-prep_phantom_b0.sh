@@ -19,6 +19,8 @@ REF_MODE="mean"
 DUMMY_SCANS="5"
 # Set to 1 to reuse existing reference images, or 0 to overwrite them.
 REUSE_REFERENCE="0"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 usage() {
   echo "Usage:"

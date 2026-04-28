@@ -8,9 +8,7 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
-# ------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------
+
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -19,8 +17,12 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
-ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
-TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/nogse-contrast-data/tables}"
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments}"
+TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables}"
 FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fit_nogse_contrast_vs_g.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
 
@@ -36,12 +38,22 @@ GBASE="${GBASE:-g}"
 YCOL="${YCOL:-value_norm}"
 DIRECTIONS="${DIRECTIONS:-ALL}"
 ROIS="${ROIS:-ALL}"
+# ROIS="water,water1"
 ONEG="${ONEG:-true}"
 FIX_M0="${FIX_M0:-1.0}"
 FREE_M0="${FREE_M0:-}"
+M0_MIN="${M0_MIN:-}"
+M0_MAX="${M0_MAX:-}"
 FIX_D0="${FIX_D0:-}"
 FREE_D0="${FREE_D0:-}"
+D0_MIN="${D0_MIN:-}"
+D0_MAX="${D0_MAX:-}"
+TC_MIN="${TC_MIN:-}"
+TC_MAX="${TC_MAX:-}"
 PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}"
+
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 ROOT_SUFFIX=""
 if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
@@ -89,6 +101,29 @@ if [[ -n "${FREE_D0// }" ]]; then
     d0_args+=(--free_D0 "$FREE_D0")
 elif [[ -n "${FIX_D0// }" ]]; then
     d0_args+=(--fix_D0 "$FIX_D0")
+fi
+
+bounds_args=()
+if [[ -n "${M0_MIN// }" || -n "${M0_MAX// }" ]]; then
+    if [[ -z "${M0_MIN// }" || -z "${M0_MAX// }" ]]; then
+        echo "ERROR: M0_MIN and M0_MAX must be provided together." >&2
+        exit 1
+    fi
+    bounds_args+=(--M0_bounds "$M0_MIN" "$M0_MAX")
+fi
+if [[ -n "${D0_MIN// }" || -n "${D0_MAX// }" ]]; then
+    if [[ -z "${D0_MIN// }" || -z "${D0_MAX// }" ]]; then
+        echo "ERROR: D0_MIN and D0_MAX must be provided together." >&2
+        exit 1
+    fi
+    bounds_args+=(--D0_bounds "$D0_MIN" "$D0_MAX")
+fi
+if [[ -n "${TC_MIN// }" || -n "${TC_MAX// }" ]]; then
+    if [[ -z "${TC_MIN// }" || -z "${TC_MAX// }" ]]; then
+        echo "ERROR: TC_MIN and TC_MAX must be provided together." >&2
+        exit 1
+    fi
+    bounds_args+=(--tc_bounds "$TC_MIN" "$TC_MAX")
 fi
 
 oneg_args=()
@@ -140,6 +175,7 @@ while read -r file; do
         "${corr_args[@]}" \
         "${m0_args[@]}" \
         "${d0_args[@]}" \
+        "${bounds_args[@]}" \
         "${roi_args[@]}"; then
         ok=$((ok + 1))
         echo "  OK"

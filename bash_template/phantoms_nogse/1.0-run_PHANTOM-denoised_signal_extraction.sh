@@ -15,16 +15,15 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 OUT_ROOT="$PROJECT_ROOT/Data-signals"
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms}"
-EXP_ROOT="$PROJECT_ROOT/Data-NIFTI-PHANTOM-denoised/20220610-PHANTOM3"
-OUT_SUBJ_REL="20220610-PHANTOM3"
-CUT_TOKEN="_den_grc"
+EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF" # Absolute path to the root of the input data for this batch, which should be organized in a BIDS-like structure. The subject-level directory name should match OUT_SUBJ_REL below.
+OUT_SUBJ_REL="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF" # Relative to OUT_ROOT
+CUT_TOKEN=""
 # Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
 DWI_VARIANT="none"
-# Set to 1 only for acquisitions that must be collapsed into one mean image
-# and one signal row per sequence.
-USE_MEAN="0"
+# Set to 1 only for acquisitions that must be collapsed into one mean image and one signal row per sequence.
+USE_MEAN="1"
 # Number of initial volumes to discard when USE_MEAN="1".
-DUMMY_SCANS="0"
+DUMMY_SCANS="5"
 # Set to 1 to reuse existing reference images, or 0 to overwrite them.
 REUSE_REFERENCE="0"
 # ------------------------------------------------------------------

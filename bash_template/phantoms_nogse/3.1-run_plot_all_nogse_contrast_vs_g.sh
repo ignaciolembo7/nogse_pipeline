@@ -7,15 +7,16 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
+PLOT_HELPER="$REPO_ROOT/bash_template/helpers/run_plot_contrast_vs_g.sh"
+
+PY="${PY:-python}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PLOT_HELPER="$REPO_ROOT/bash_template/helpers/run_plot_contrast_vs_g.sh"
-PY="${PY:-python}"
-ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
-TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast-data/tables}"
-OUT_ROOT="${OUT_ROOT:-$ANALYSIS_ROOT/contrast-data/plots}"
-PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse_contrast_vs_g.py}"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments}"
+TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables}"
+OUT_ROOT="${OUT_ROOT:-$ANALYSIS_ROOT/contrast_data/plots}"
+PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_nogse_contrast_vs_g.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
 XCOL="${XCOL:-g_1}"
 YCOL="${YCOL:-value_norm}"
@@ -23,6 +24,8 @@ STAT="${STAT:-avg}"
 DIRECTIONS="${DIRECTIONS:-ALL}"
 ROIS="${ROIS:-ALL}"
 MISSING_TABLES_MODE="${MISSING_TABLES_MODE:-skip}"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 if [[ ! -f "$PLOT_HELPER" ]]; then
     echo "ERROR: plot helper script not found: $PLOT_HELPER" >&2

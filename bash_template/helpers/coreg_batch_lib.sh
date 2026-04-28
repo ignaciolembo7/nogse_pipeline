@@ -68,7 +68,7 @@ init_run() {
   cd "$PROJECT_ROOT"
 
   RUN_ID="${run_name}_$(date +%Y%m%d_%H%M%S)"
-  LOG_DIR="$PROJECT_ROOT/logs/$RUN_ID"
+  LOG_DIR="$PROJECT_ROOT/nogse_pipeline/logs/$RUN_ID"
 
   mkdir -p "$LOG_DIR"
 
