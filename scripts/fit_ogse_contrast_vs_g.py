@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_processing.io import write_table_outputs
+from data_processing.io import fit_params_output_basename, write_table_outputs
 from fitting.b_from_g import VALID_AXIS_BASES
 from fitting.experiments import experiment_models, validate_experiment_model
 from fitting.gradient_correction import (
@@ -208,12 +208,18 @@ def main() -> None:
         oneg=bool(args.oneg),
     )
 
-    out_parquet = tables_dir / "fit_params.parquet"
+    fit_params_name = fit_params_output_basename(
+        model=str(args.model),
+        axis=str(args.gbase),
+        ycol=str(args.ycol),
+        directions=None if directions is None else [str(v) for v in directions],
+    )
+    out_parquet = tables_dir / f"{fit_params_name}.parquet"
     write_table_outputs(
         fit_df,
         out_parquet,
         xlsx_path=out_parquet.with_suffix(".xlsx"),
-        csv_path=tables_dir / "fit_params.csv",
+        csv_path=tables_dir / f"{fit_params_name}.csv",
     )
 
     print("Saved fit table:", out_parquet)

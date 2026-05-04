@@ -9,61 +9,55 @@ from fitting.b_from_g import b_from_g
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 CLEAN_SIGNAL_LONG_COLUMNS = [
-    "stat", "roi", "direction", "b_step",
-    "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
-    "g", "g_max", "g_lin_max", "g_thorsten",
+    "stat","roi","direction","b_step",
+    "bvalue","bvalue_g","bvalue_g_lin_max","bvalue_thorsten","bmax",
+    "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
     "one_g_per_sequence",
-    "value", "value_norm", "S0",
-    "source_file",
-    "subj",
-    "max_dur_ms", "tm_ms", "td_ms",
-    "Hz", "N", "G", "TN", "x", "y", "TE", "TR", "bmax",
-    "protocol", "sequence", "group", "type", "sheet",
-    "Delta_app_ms", "delta_ms",
+    "value","value_norm","S0",
+    "TE","TR","td_ms","Hz",
+    "max_dur_ms","Delta_app_ms","delta_ms","tm_ms", 
+    "TN","N","G","x", "y",
+    "subj","type","protocol","sequence","group","sheet","source_file",
 ]
 
 CLEAN_DPROJ_LONG_COLUMNS = [
     "roi", "direction", "b_step",
-    "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten",
+    "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten", "bmax",
     "g", "g_max", "g_lin_max", "g_thorsten",
     "gradient_axis_kind",
     "one_g_per_sequence",
     "D_proj",
-    "source_file",
-    "subj",
-    "max_dur_ms", "tm_ms", "td_ms",
-    "Hz", "N", "G", "TN", "x", "y", "TE", "TR", "bmax",
-    "protocol", "sequence", "group", "type", "sheet",
-    "Delta_app_ms", "delta_ms",
+    "TE","TR","td_ms","Hz", 
+    "max_dur_ms","Delta_app_ms","delta_ms","tm_ms",
+    "TN","N","G","x","y",
+    "subj","type","protocol","sequence","group","sheet","source_file",
 ]
 
 SIGNAL_LONG_PREFIX = [
     "stat","roi","direction","b_step","bvalue",
-    "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten",
+    "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten","bmax",
     "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
     "one_g_per_sequence",
-    "value","value_norm","S0","source_file",
-    # Canonical timing columns.
-    "max_dur_ms","tm_ms","td_ms",
-    "Hz","N","G","TN","x","y","TE","TR","bmax",
-    "protocol","sequence","group","type","sheet",
-    "Delta_app_ms","delta_ms",
+    "value","value_norm","S0",
+    "TE","TR","td_ms","Hz",
+    "max_dur_ms","Delta_app_ms","delta_ms","tm_ms", 
+    "TN","N","G","x","y",
+    "subj","type","sequence","group","protocol","sheet","source_file",
 ]
 
 DPROJ_LONG_PREFIX = [
     "roi","direction","b_step","bvalue",
-    "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten",
+    "bvalue_orig","bvalue_g","bvalue_g_lin_max","bvalue_thorsten","bmax",
     "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
     "one_g_per_sequence",
-    "D_proj","source_file",
-    # Canonical timing columns.
-    "max_dur_ms","tm_ms","td_ms",
-    "Hz","N","G","TN","x","y","TE","TR","bmax",
-    "protocol","sequence","group","type","sheet",
-    "Delta_app_ms","delta_ms",
+    "D_proj",
+    "TE","TR","td_ms","Hz",
+    "max_dur_ms","Delta_app_ms","delta_ms","tm_ms",
+    "TN","N","G","x","y",
+    "subj","type","sequence","group","protocol","sheet","source_file",
 ]
 
 RENAME_MAP = {

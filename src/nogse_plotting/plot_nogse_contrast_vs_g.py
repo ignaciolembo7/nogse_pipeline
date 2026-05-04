@@ -82,12 +82,7 @@ def plot_nogse_contrast_fit(
     n1_txt = compact_float(fit_row.get("N_1"), digits=0)
     n2_txt = compact_float(fit_row.get("N_2"), digits=0)
     display_model = build_display_model_name(fit_row.get("model", "fit"), family_label=FAMILY_LABEL)
-
-    text_lines = [
-        *fit_parameter_fragments(fit_row),
-        f"rmse={compact_float(fit_row.get('rmse'), digits=4)}",
-        f"chi2={compact_float(fit_row.get('chi2'), digits=4)}",
-    ]
+    fit_label = build_contrast_fit_label(fit_row, family_label=FAMILY_LABEL)
 
     render_xy_plot(
         x=np.asarray(x, dtype=float),
@@ -103,8 +98,7 @@ def plot_nogse_contrast_fit(
         connect_data=False,
         fit_x=None if fit_x is None else np.asarray(fit_x, dtype=float),
         fit_y=None if fit_y is None else np.asarray(fit_y, dtype=float),
-        fit_label="fit",
-        text_lines=text_lines,
+        fit_label=fit_label,
     )
 
 

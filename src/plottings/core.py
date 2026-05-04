@@ -59,6 +59,14 @@ def distinct_colors(n: int) -> list[str]:
     return colors
 
 
+def _style_legend(ax, *, title: str | None = None) -> None:
+    legend = ax.legend(title=title, frameon=True, fontsize=10, loc="best")
+    frame = legend.get_frame()
+    frame.set_facecolor("white")
+    frame.set_alpha(0.75)
+    frame.set_edgecolor("#cbd5e1")
+
+
 def render_xy_plot(
     *,
     x: np.ndarray,
@@ -131,7 +139,7 @@ def render_xy_plot(
 
     handles, _labels = ax.get_legend_handles_labels()
     if handles:
-        ax.legend(frameon=False, fontsize=10, loc="best")
+        _style_legend(ax)
 
     fig.tight_layout()
     ensure_dir(out_png.parent)
@@ -184,7 +192,7 @@ def render_multi_series_plot(
 
     handles, _labels = ax.get_legend_handles_labels()
     if handles:
-        ax.legend(title=legend_title, frameon=False, fontsize=10, loc="best")
+        _style_legend(ax, title=legend_title)
 
     fig.tight_layout()
     ensure_dir(out_png.parent)

@@ -28,6 +28,25 @@ from nogse_fitting.fit_nogse_signal_vs_g import (
 EXPERIMENT = "nogse_signal_vs_g"
 
 
+def _infer_preferred_side(df: pd.DataFrame, *, model: str) -> int:
+    if "type" in df.columns:
+        values = sorted({str(v).strip().upper() for v in df["type"].dropna().tolist() if str(v).strip()})
+        if len(values) == 1:
+            if values[0] == "CPMG":
+                return 1
+            if values[0] == "HAHN":
+                return 2
+            raise ValueError(f"Unsupported NOGSE sequence type for gradient correction: {values[0]!r}.")
+        if len(values) > 1:
+            raise ValueError(f"Expected a single NOGSE sequence type, found: {values}.")
+
+    if str(model).endswith("_cpmg"):
+        return 1
+    if str(model).endswith("_hahn"):
+        return 2
+    raise ValueError("Could not infer the preferred correction side from the signal table or model name.")
+
+
 def _resolve_direction_factors(
     *,
     signal_parquet: Path,
@@ -37,7 +56,7 @@ def _resolve_direction_factors(
     corr_td_ms: float | None,
     corr_tol_ms: float,
     corr_sheet: str | None,
-    preferred_side: int,
+    model: str,
 ) -> dict[str, float] | None:
     if not apply_grad_corr:
         return None
@@ -51,6 +70,7 @@ def _resolve_direction_factors(
         raise ValueError("Could not infer td_ms for correction lookup. Pass --corr_td_ms or add td_ms to the input table.")
 
     signal_n = unique_int(df, "N_1", "N_2", "N")
+    preferred_side = _infer_preferred_side(df, model=model)
     corr = read_correction_table(corr_xlsx)
     return build_signal_direction_factors(
         corr,
@@ -114,7 +134,6 @@ def main() -> None:
         validate_log_bounds("D0", d0_bounds)
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
-    preferred_side = 1 if args.model == "free_cpmg" else 2
     f_by_direction = _resolve_direction_factors(
         signal_parquet=args.signal_parquet,
         apply_grad_corr=apply_corr,
@@ -123,7 +142,7 @@ def main() -> None:
         corr_td_ms=args.corr_td_ms,
         corr_tol_ms=args.corr_tol_ms,
         corr_sheet=args.corr_sheet,
-        preferred_side=preferred_side,
+        model=args.model,
     )
 
     run_fit_from_parquet(

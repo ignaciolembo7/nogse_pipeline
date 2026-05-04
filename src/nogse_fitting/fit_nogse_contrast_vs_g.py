@@ -325,8 +325,14 @@ def _fit_free(
     D0_vary: bool,
     M0_value: float,
     D0_value: float,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
 ) -> tuple[float, float, float, float, str, float | None, float | None]:
-    D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
+    m0_lo, m0_hi = (0.0, 2.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
+    D_lo, D_hi = (float(D0_value / 10.0), float(D0_value * 10.0)) if d0_bounds is None else (
+        float(d0_bounds[0]),
+        float(d0_bounds[1]),
+    )
 
     if (not M0_vary) and D0_vary:
         def f_log(log_D0: float) -> float:
@@ -378,7 +384,7 @@ def _fit_free(
         n_value,
         y,
         parameters=[
-            CurveFitParameter("M0", float(M0_value), 0.0, 2.0, bool(M0_vary)),
+            CurveFitParameter("M0", float(M0_value), m0_lo, m0_hi, bool(M0_vary)),
             CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
         ],
     )
@@ -403,8 +409,14 @@ def _fit_tort(
     D0_vary: bool,
     M0_value: float,
     D0_value: float,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
 ):
-    D_lo, D_hi = float(D0_value / 10.0), float(D0_value * 10.0)
+    m0_lo, m0_hi = (0.0, 5.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
+    D_lo, D_hi = (float(D0_value / 10.0), float(D0_value * 10.0)) if d0_bounds is None else (
+        float(d0_bounds[0]),
+        float(d0_bounds[1]),
+    )
     fit = _fit_contrast_model(
         CONTRAST_MODEL_SPECS["tort"],
         td,
@@ -413,7 +425,7 @@ def _fit_tort(
         y,
         parameters=[
             CurveFitParameter("alpha", 0.7, 0.0, 2.0, True),
-            CurveFitParameter("M0", float(M0_value), 0.0, 5.0, bool(M0_vary)),
+            CurveFitParameter("M0", float(M0_value), m0_lo, m0_hi, bool(M0_vary)),
             CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
         ],
     )
@@ -473,9 +485,16 @@ def _fit_rest(
     D0_value: float,
     tc_value: float,
     tc_vary: bool,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
+    tc_bounds: tuple[float, float] | None = None,
 ):
-    D_lo, D_hi = float(D0_value / 100.0), float(D0_value * 100.0)
-    tc_lo, tc_hi = 0.1, 1000.0
+    m0_lo, m0_hi = (0.0, 5.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
+    D_lo, D_hi = (float(D0_value / 100.0), float(D0_value * 100.0)) if d0_bounds is None else (
+        float(d0_bounds[0]),
+        float(d0_bounds[1]),
+    )
+    tc_lo, tc_hi = (0.1, 1000.0) if tc_bounds is None else (float(tc_bounds[0]), float(tc_bounds[1]))
     tc_seed = _best_tc_seed_rest(
         td,
         G,
@@ -493,7 +512,7 @@ def _fit_rest(
         y,
         parameters=[
             CurveFitParameter("tc_ms", float(tc_seed), tc_lo, tc_hi, bool(tc_vary)),
-            CurveFitParameter("M0", float(M0_value), 0.0, 5.0, bool(M0_vary)),
+            CurveFitParameter("M0", float(M0_value), m0_lo, m0_hi, bool(M0_vary)),
             CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
         ],
     )
@@ -523,6 +542,9 @@ def _fit_selected_contrast_model(
     D0_value: float,
     tc_value: float,
     tc_vary: bool,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
+    tc_bounds: tuple[float, float] | None = None,
 ) -> dict[str, float | str | None]:
     if model == "free":
         M0, D0, rmse, chi2, method, M0_err, D0_err = _fit_free(
@@ -534,6 +556,8 @@ def _fit_selected_contrast_model(
             D0_vary=D0_vary,
             M0_value=M0_value,
             D0_value=D0_value,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
         )
         return {
             "M0": float(M0),
@@ -555,6 +579,8 @@ def _fit_selected_contrast_model(
             D0_vary=D0_vary,
             M0_value=M0_value,
             D0_value=D0_value,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
         )
         return {
             "alpha": float(alpha),
@@ -580,6 +606,9 @@ def _fit_selected_contrast_model(
             D0_value=D0_value,
             tc_value=tc_value,
             tc_vary=tc_vary,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
+            tc_bounds=tc_bounds,
         )
         return {
             "tc_ms": float(tc),
@@ -617,10 +646,13 @@ def fit_nogse_contrast_long(
     D0_vary: bool = True,
     M0_value: float = 1.0,
     D0_value: float = 2.3e-12,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
     source_file: str | None = None,
     analysis_id: str | None = None,
     tc_value: float = 5.0,
     tc_vary: bool = True,
+    tc_bounds: tuple[float, float] | None = None,
     peak_grid_n: int = 1000,
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
@@ -881,6 +913,9 @@ def fit_nogse_contrast_long(
                 D0_value=D0_value,
                 tc_value=tc_value,
                 tc_vary=tc_vary,
+                m0_bounds=m0_bounds,
+                d0_bounds=d0_bounds,
+                tc_bounds=tc_bounds,
             )
             g2_max_raw = float(np.nanmax(G2_raw_arr)) if G2_raw_arr is not None and len(G2_raw_arr) else None
             g2_max_corr = float(np.nanmax(G2_corr)) if G2_corr is not None and len(G2_corr) else None

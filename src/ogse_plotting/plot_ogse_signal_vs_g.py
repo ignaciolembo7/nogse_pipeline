@@ -186,6 +186,13 @@ def build_ogse_signal_fit_label(fit_row: dict[str, object]) -> str:
     return ", ".join(parts)
 
 
+def build_ogse_signal_fit_title(*, roi: str, direction: str, td_txt: str, n_txt: str, model: str) -> str:
+    return (
+        f"OGSE signal fit | ROI={roi} | direction={direction} | "
+        f"model={model} | td_ms={td_txt} | N={n_txt}"
+    )
+
+
 def plot_ogse_signal_fit(
     *,
     x: np.ndarray,
@@ -202,28 +209,19 @@ def plot_ogse_signal_fit(
     direction = str(fit_row.get("direction", "direction"))
     td_txt = compact_float(fit_row.get("td_ms"))
     n_txt = compact_float(fit_row.get("N"), digits=0)
-
-    text_lines = [
-        f"model={fit_row.get('model', 'unknown')}",
-        f"M0={compact_float(fit_row.get('M0'))}",
-        (
-            f"D0={compact_float(fit_row.get('D0_mm2_s'))} mm2/s"
-            if "D0_mm2_s" in fit_row
-            else f"D0={compact_float(fit_row.get('D0_m2_ms'))} m2/ms"
-        ),
-        f"rmse={compact_float(fit_row.get('rmse'), digits=4)}",
-        f"R2={compact_float(fit_row.get('r2'), digits=4)}",
-    ]
-
+    model = str(fit_row.get("model", "unknown"))
     k = max(0, int(fit_points))
     fit_label = build_ogse_signal_fit_label(fit_row)
     render_xy_plot(
         x=np.asarray(x, dtype=float),
         y=np.asarray(y, dtype=float),
         out_png=out_png,
-        title=(
-            f"OGSE signal fit | ROI={roi} | direction={direction} | "
-            f"{fit_label} | td_ms={td_txt} | N={n_txt}"
+        title=build_ogse_signal_fit_title(
+            roi=roi,
+            direction=direction,
+            td_txt=td_txt,
+            n_txt=n_txt,
+            model=model,
         ),
         xlabel=str(x_label),
         ylabel=ycol,
@@ -235,6 +233,5 @@ def plot_ogse_signal_fit(
         highlight_x=np.asarray(x[:k], dtype=float) if k > 0 else None,
         highlight_y=np.asarray(y[:k], dtype=float) if k > 0 else None,
         highlight_label=f"fit first {k}",
-        text_lines=text_lines,
         yscale="log",
     )

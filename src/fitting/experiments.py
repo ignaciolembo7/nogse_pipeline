@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from nogse_fitting.fit_nogse_signal_vs_g import VALID_MODELS as NOGSE_SIGNAL_MODEL_REGISTRY
+
 CONTRAST_MODELS = ("free", "rest", "tort")
-NOGSE_SIGNAL_MODELS = ("free_cpmg", "free_hahn")
+NOGSE_SIGNAL_MODELS = tuple(sorted(str(model) for model in NOGSE_SIGNAL_MODEL_REGISTRY))
 OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse")
 
 

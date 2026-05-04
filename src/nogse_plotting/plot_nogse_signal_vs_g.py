@@ -68,6 +68,10 @@ def prepare_signal_series(
 
 def fit_parameter_fragments(fit_row: dict[str, object]) -> list[str]:
     fragments: list[str] = []
+    if "tc_ms" in fit_row:
+        fragments.append(f"tc_ms={compact_float(fit_row.get('tc_ms'))}")
+    if "alpha" in fit_row:
+        fragments.append(f"alpha={compact_float(fit_row.get('alpha'))}")
     if "M0" in fit_row:
         fragments.append(f"M0={compact_float(fit_row.get('M0'))}")
     if "D0_m2_ms" in fit_row:
@@ -85,20 +89,23 @@ def build_fit_label(fit_row: dict[str, object]) -> str:
 
 def build_title(
     *,
-    analysis_id: str,
+    analysis_id: str | None,
     roi: str,
     direction: str,
+    tn: object | None,
     signal_type: str | None,
     model: str | None,
-    fit_row: dict[str, object] | None,
 ) -> str:
-    parts = [analysis_id, f"ROI={roi}", f"direction={direction}"]
+    parts: list[str] = []
+    if analysis_id:
+        parts.append(str(analysis_id))
+    parts.extend([f"ROI={roi}", f"direction={direction}"])
+    if tn is not None:
+        parts.append(f"TN={compact_float(tn)}")
     if signal_type:
         parts.append(f"type={signal_type}")
     if model:
         parts.append(f"model={model}")
-    if fit_row and bool(fit_row.get("ok", True)):
-        parts.extend(fit_parameter_fragments(fit_row))
     return " | ".join(parts)
 
 
@@ -132,13 +139,14 @@ def plot_nogse_signal_group(
         return
 
     model = str(fit_row.get("model")) if fit_row is not None and fit_row.get("model") is not None else None
+    tn = fit_row.get("TN") if fit_row is not None else unique_scalar(avg_df, "TN")
     title = build_title(
-        analysis_id=analysis_id,
+        analysis_id="",
         roi=str(roi),
         direction=str(direction),
+        tn=tn,
         signal_type=None if signal_type is None else str(signal_type),
         model=model,
-        fit_row=fit_row,
     )
 
     fit_x = None
@@ -159,15 +167,6 @@ def plot_nogse_signal_group(
         highlight_y = np.asarray(y_vals[:k], dtype=float)
         highlight_label = f"fit first {k}"
 
-    text_lines = None
-    if fit_row is not None:
-        text_lines = [
-            f"model={fit_row.get('model', 'fit')}",
-            *fit_parameter_fragments(fit_row),
-            f"rmse={compact_float(fit_row.get('rmse'), digits=4)}",
-            f"R2={compact_float(fit_row.get('r2'), digits=4)}",
-        ]
-
     render_xy_plot(
         x=x_vals,
         y=y_vals,
@@ -184,7 +183,6 @@ def plot_nogse_signal_group(
         highlight_x=highlight_x,
         highlight_y=highlight_y,
         highlight_label=highlight_label,
-        text_lines=text_lines,
     )
 
 

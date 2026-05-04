@@ -376,6 +376,7 @@ def compute_d0_monoexp_reference(
         root,
         patterns=[
             'fit_params*.csv', 'fit_params*.xlsx', 'fit_params*.xls', 'fit_params*.parquet',
+            'fit_params*.csv', 'fit_params*.xlsx', 'fit_params*.xls', 'fit_params*.parquet',
             '*.fit_params.csv', '*.fit_params.xlsx', '*.fit_params.xls', '*.fit_params.parquet',
         ],
     )
@@ -468,6 +469,7 @@ def load_nogse_expected_keys(
         p,
         patterns=[
             '*.fit_*.parquet',
+            'fit_params*.parquet', 'fit_params*.csv', 'fit_params*.xlsx', 'fit_params*.xls',
             'fit_params*.parquet', 'fit_params*.csv', 'fit_params*.xlsx', 'fit_params*.xls',
             '*.fit_params.parquet', '*.fit_params.csv', '*.fit_params.xlsx', '*.fit_params.xls',
         ],

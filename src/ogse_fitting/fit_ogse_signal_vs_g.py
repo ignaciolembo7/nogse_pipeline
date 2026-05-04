@@ -7,7 +7,7 @@ from typing import Mapping, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from data_processing.io import write_table_outputs
+from data_processing.io import fit_params_output_basename, write_table_outputs
 from data_processing.schema import finalize_clean_dproj_long
 from fitting.b_from_g import (
     VALID_AXIS_BASES,
@@ -920,8 +920,14 @@ def run_fit_ogse_signal_vs_g_from_parquet(
         fp["td_ms"] = td_ms if td_ms is not None else _unique_float_any(df, ["td_ms"], required=False, name="td_ms")
         fp = standardize_fit_params(fp, fit_kind="ogse_signal", source_file=p.name)
 
-    out_params_parquet = tables_dir / "fit_params.parquet"
-    out_params_xlsx = tables_dir / "fit_params.xlsx"
+    fit_params_name = fit_params_output_basename(
+        model=str(model),
+        axis=str(g_type),
+        ycol=str(ycol),
+        directions=None if dirs is None else [str(v) for v in dirs],
+    )
+    out_params_parquet = tables_dir / f"{fit_params_name}.parquet"
+    out_params_xlsx = tables_dir / f"{fit_params_name}.xlsx"
     out_points_parquet = tables_dir / "fit_points.parquet"
     out_points_xlsx = tables_dir / "fit_points.xlsx"
 

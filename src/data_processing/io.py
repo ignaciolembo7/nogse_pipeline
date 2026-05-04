@@ -119,6 +119,44 @@ def write_table_outputs(
     return out_parquet
 
 
+def sanitize_output_token(value: object) -> str:
+    text = str(value).strip()
+    if not text:
+        return "NA"
+    token = re.sub(r"[^A-Za-z0-9._-]+", "-", text)
+    token = token.strip("-")
+    return token or "NA"
+
+
+def _direction_token(values: list[str] | tuple[str, ...] | None) -> str:
+    if values is None:
+        return "direction_ALL"
+    normalized = sorted({sanitize_output_token(v) for v in values if str(v).strip()})
+    if not normalized:
+        return "direction_ALL"
+    if len(normalized) == 1:
+        return f"direction_{normalized[0]}"
+    return f"direction_{'-'.join(normalized)}"
+
+
+def fit_params_output_basename(
+    *,
+    model: str,
+    axis: str,
+    ycol: str,
+    directions: list[str] | tuple[str, ...] | None,
+) -> str:
+    return ".".join(
+        [
+            "fit_params",
+            sanitize_output_token(model),
+            sanitize_output_token(axis),
+            sanitize_output_token(ycol),
+            _direction_token(directions),
+        ]
+    )
+
+
 def write_xlsx_csv_outputs(
     df: pd.DataFrame,
     xlsx_path: str | Path,

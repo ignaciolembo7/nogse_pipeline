@@ -21,15 +21,23 @@ from fitting.core import r2_score, rmse as fit_rmse
 from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_group
 from models.model_fitting import M_nogse_free
 from tools.fit_params_schema import standardize_fit_params
-from data_processing.io import write_table_outputs
+from data_processing.io import fit_params_output_basename, write_table_outputs
 from tools.value_formatting import scalar_or_compact_column
+
+
+@dataclass(frozen=True)
+class FitParameterSpec:
+    name: str
+    p0: float
+    bounds: tuple[float, float]
+    log_scale: bool = False
 
 
 @dataclass(frozen=True)
 class SignalModelSpec:
     name: str
-    x_model_ms: Callable[[float], float]
-    evaluator: Callable[[float, np.ndarray, int, float, float, float], np.ndarray]
+    evaluator: Callable[..., np.ndarray]
+    fit_params: tuple[FitParameterSpec, ...]
 
 
 @dataclass(frozen=True)
@@ -44,21 +52,28 @@ class BuiltModel:
     param_names: list[str]
     p0: list[float]
     bounds: tuple[list[float], list[float]]
+    log_params: list[str]
 
 
 SIGNAL_MODELS: dict[str, SignalModelSpec] = {
     "free_cpmg": SignalModelSpec(
         name="free_cpmg",
-        x_model_ms=lambda tn_ms: 0.5 * float(tn_ms),
         evaluator=M_nogse_free,
+        fit_params=(
+            FitParameterSpec(name="M0", p0=1.0, bounds=(0.0, np.inf), log_scale=False),
+            FitParameterSpec(name="D0_m2_ms", p0=2.3e-12, bounds=(1e-16, np.inf), log_scale=True),
+        ),
     ),
     "free_hahn": SignalModelSpec(
         name="free_hahn",
-        x_model_ms=lambda _tn_ms: 0.0,
         evaluator=M_nogse_free,
+        fit_params=(
+            FitParameterSpec(name="M0", p0=1.0, bounds=(0.0, np.inf), log_scale=False),
+            FitParameterSpec(name="D0_m2_ms", p0=2.3e-12, bounds=(1e-16, np.inf), log_scale=True),
+        ),
     ),
 }
-VALID_MODELS = set(SIGNAL_MODELS)
+VALID_MODELS = tuple(sorted(SIGNAL_MODELS))
 GAMMA_DEFAULT = 267.5221900
 
 
@@ -91,17 +106,6 @@ def _unique_scalar(df: pd.DataFrame, col: str, *, required: bool = False):
     if len(values) > 1:
         raise ValueError(f"Column {col!r} is not unique inside the group: {values}")
     return values[0]
-
-
-def _resolve_tn_ms(df: pd.DataFrame) -> float:
-    for col in ("TN", "td_ms"):
-        value = _unique_scalar(df, col, required=False)
-        if value is None:
-            continue
-        value = float(value)
-        if np.isfinite(value):
-            return value
-    raise ValueError("Could not infer TN/td_ms from the signal table.")
 
 
 def _resolve_sigma(avg_df: pd.DataFrame, std_df: pd.DataFrame | None, *, xcol: str, ycol: str) -> np.ndarray | None:
@@ -169,11 +173,64 @@ def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None) -> str:
     return resolved_plot
 
 
+def _resolve_model_geometry(
+    df: pd.DataFrame,
+    *,
+    n_value: int,
+) -> tuple[float, float, float]:
+    x_value = _unique_scalar(df, "x", required=True)
+    y_value = _unique_scalar(df, "y", required=True)
+    x_model_ms = float(x_value)
+    y_model_ms = float(y_value)
+    if not np.isfinite(x_model_ms) or not np.isfinite(y_model_ms):
+        raise ValueError(f"Invalid x/y geometry in signal table: x={x_value!r}, y={y_value!r}.")
+    te_model_ms = y_model_ms + (float(n_value) - 1.0) * x_model_ms
+    if not np.isfinite(te_model_ms):
+        raise ValueError(f"Invalid TE reconstructed from x/y geometry: x={x_model_ms}, y={y_model_ms}, N={n_value}.")
+    return float(te_model_ms), float(x_model_ms), float(y_model_ms)
+
+
+def _coerce_optional_time(value: object | None) -> float | None:
+    if value is None:
+        return None
+    numeric = float(value)
+    if not np.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _validate_time_consistency(label: str, value_ms: float | None, te_model_ms: float) -> None:
+    if value_ms is None:
+        return
+    if np.isclose(float(value_ms), float(te_model_ms), rtol=0.0, atol=1e-6):
+        return
+    raise ValueError(
+        f"{label}={value_ms} is inconsistent with x/y-derived TE={te_model_ms}. "
+        "The modern NOGSE signal fit requires a single table-defined geometry."
+    )
+
+
+def _resolve_runtime_parameter(
+    param: FitParameterSpec,
+    *,
+    fix_m0: float | None,
+    fix_d0: float | None,
+    m0_bounds: tuple[float, float],
+    d0_bounds: tuple[float, float],
+) -> tuple[float | None, tuple[float, float]]:
+    if param.name == "M0":
+        return fix_m0, m0_bounds
+    if param.name == "D0_m2_ms":
+        return fix_d0, d0_bounds
+    return None, param.bounds
+
+
 def _build_model(
     model_name: str,
     *,
-    tn_ms: float,
     n_value: int,
+    te_model_ms: float,
+    x_model_ms: float,
     fix_m0: float | None,
     fix_d0: float | None,
     m0_bounds: tuple[float, float],
@@ -183,33 +240,46 @@ def _build_model(
         raise ValueError(f"Unsupported NOGSE signal model {model_name!r}. Allowed values: {sorted(SIGNAL_MODELS)}.")
 
     spec = SIGNAL_MODELS[model_name]
-    x_model_ms = float(spec.x_model_ms(float(tn_ms)))
-    m0_lo, m0_hi = m0_bounds
-    d0_lo, d0_hi = d0_bounds
 
     param_names: list[str] = []
     p0: list[float] = []
     lower: list[float] = []
     upper: list[float] = []
+    log_params: list[str] = []
+    fixed_params: dict[str, float] = {}
 
-    if fix_m0 is None:
-        param_names.append("M0")
-        p0.append(_clamp_p0(1.0, m0_bounds))
-        lower.append(m0_lo)
-        upper.append(m0_hi)
-    if fix_d0 is None:
-        param_names.append("D0_m2_ms")
-        p0.append(_clamp_p0(2.3e-12, d0_bounds))
-        lower.append(d0_lo)
-        upper.append(d0_hi)
+    for param in spec.fit_params:
+        fixed_value, runtime_bounds = _resolve_runtime_parameter(
+            param,
+            fix_m0=fix_m0,
+            fix_d0=fix_d0,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
+        )
+        if fixed_value is not None:
+            fixed_params[param.name] = float(fixed_value)
+            continue
+        param_names.append(param.name)
+        p0.append(_clamp_p0(float(param.p0), runtime_bounds))
+        lower.append(float(runtime_bounds[0]))
+        upper.append(float(runtime_bounds[1]))
+        if param.log_scale:
+            log_params.append(param.name)
 
     def model(g: np.ndarray, *values: float) -> np.ndarray:
-        fitted = dict(zip(param_names, values))
-        m0 = float(fix_m0) if fix_m0 is not None else float(fitted["M0"])
-        d0 = float(fix_d0) if fix_d0 is not None else float(fitted["D0_m2_ms"])
-        return spec.evaluator(float(tn_ms), g, int(n_value), x_model_ms, m0, d0)
+        fitted = dict(fixed_params)
+        fitted.update(zip(param_names, values))
+        ordered_values = [float(fitted[param.name]) for param in spec.fit_params]
+        return spec.evaluator(float(te_model_ms), g, int(n_value), x_model_ms, *ordered_values)
 
-    return BuiltModel(model=model, x_model_ms=x_model_ms, param_names=param_names, p0=p0, bounds=(lower, upper))
+    return BuiltModel(
+        model=model,
+        x_model_ms=x_model_ms,
+        param_names=param_names,
+        p0=p0,
+        bounds=(lower, upper),
+        log_params=log_params,
+    )
 
 
 def fit_one_group(
@@ -231,13 +301,22 @@ def fit_one_group(
     if data.empty:
         raise ValueError("No valid points remain after numeric filtering.")
 
-    tn_ms = _resolve_tn_ms(data)
+    tn_value = _coerce_optional_time(_unique_scalar(data, "TN", required=False))
+    td_value = _coerce_optional_time(_unique_scalar(data, "td_ms", required=False))
     n_value = int(round(float(_unique_scalar(data, "N", required=True))))
+    te_model_ms, x_model_ms, _y_model_ms = _resolve_model_geometry(
+        data,
+        n_value=n_value,
+    )
+    _validate_time_consistency("TN", tn_value, te_model_ms)
+    _validate_time_consistency("td_ms", td_value, te_model_ms)
+    tn_ms = float(tn_value) if tn_value is not None else float(td_value) if td_value is not None else float(te_model_ms)
 
     built = _build_model(
         model_name,
-        tn_ms=tn_ms,
         n_value=n_value,
+        te_model_ms=te_model_ms,
+        x_model_ms=x_model_ms,
         fix_m0=fix_m0,
         fix_d0=fix_d0,
         m0_bounds=m0_bounds,
@@ -260,10 +339,10 @@ def fit_one_group(
             param_names=built.param_names,
             p0=p0,
             bounds=built.bounds,
-            log_params=["D0_m2_ms"] if "D0_m2_ms" in built.param_names else [],
+            log_params=built.log_params,
             sigma=sigma,
             max_nfev=200000,
-            method="least_squares_logD" if "D0_m2_ms" in built.param_names else "least_squares",
+            method="least_squares_logD" if built.log_params else "least_squares",
         )
         yhat = fit.yhat
         values = fit.values
@@ -328,7 +407,6 @@ def plot_fit_one_group(
     y_data: np.ndarray,
     fit_curve: np.ndarray,
     out_png: Path,
-    title: str,
 ) -> None:
     analysis_id = str(fit_row.get("analysis_id", "")) or "nogse_signal"
     plot_nogse_signal_group(
@@ -514,8 +592,6 @@ def fit_nogse_signal_long(
                 delta_ms=None if delta_ms is None else float(delta_ms),
                 Delta_app_ms=None if Delta_app_ms is None else float(Delta_app_ms),
             )
-            signal_type = _unique_scalar(group, "type", required=False)
-            title = f"{analysis_id} | roi={roi} | direction={direction} | type={signal_type} | model={model}"
             out_png = outdir_plots / f"{analysis_id}.roi-{roi}.dir-{direction}.{model}.png"
             plot_fit_one_group(
                 group_fit,
@@ -527,7 +603,6 @@ def fit_nogse_signal_long(
                 y_data=y_data,
                 fit_curve=fit_curve_plot,
                 out_png=out_png,
-                title=title,
             )
             print("Saved:", out_png)
 
@@ -583,12 +658,18 @@ def run_fit_from_parquet(
         outdir_plots=out_dir,
     )
 
-    out_parquet = out_dir / "fit_params.parquet"
+    fit_params_name = fit_params_output_basename(
+        model=str(model),
+        axis=str(xcol),
+        ycol=str(ycol),
+        directions=None if directions is None else [str(v) for v in directions],
+    )
+    out_parquet = out_dir / f"{fit_params_name}.parquet"
     write_table_outputs(
         outs.fit_params,
         out_parquet,
         xlsx_path=out_parquet.with_suffix(".xlsx"),
-        csv_path=out_dir / "fit_params.csv",
+        csv_path=out_dir / f"{fit_params_name}.csv",
     )
     print("Saved fit table:", out_parquet)
     return outs, out_dir

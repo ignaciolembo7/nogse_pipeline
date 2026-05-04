@@ -174,6 +174,8 @@ NOGSE_SIGNAL_COLS = [
     'n_fit',
     'M0',
     'M0_err',
+    'tc_ms',
+    'tc_err_ms',
     'D0_m2_ms',
     'D0_err_m2_ms',
     'D0_mm2_s',

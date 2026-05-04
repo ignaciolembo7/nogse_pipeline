@@ -21,9 +21,9 @@ def _pick_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
 
 
 def _read_all_fit_params(root: Path) -> pd.DataFrame:
-    files = sorted(root.rglob("fit_params.csv"))
+    files = sorted(root.rglob("fit_params*.csv"))
     if not files:
-        raise SystemExit(f"Could not find fit_params.csv under: {root}")
+        raise SystemExit(f"Could not find fit_params*.csv under: {root}")
 
     frames = []
     for fp in files:
@@ -49,7 +49,7 @@ def _read_all_fit_params(root: Path) -> pd.DataFrame:
         frames.append(df)
 
     if not frames:
-        raise SystemExit("Found fit_params.csv files, but none had a usable D0 column.")
+        raise SystemExit("Found fit_params*.csv files, but none had a usable D0 column.")
 
     out = pd.concat(frames, ignore_index=True)
     return out
@@ -94,7 +94,7 @@ def _relevant_cols(df: pd.DataFrame) -> list[str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Collect D0 from all fit_params.csv files, then average by max_dur and plot D0 vs td."
+        description="Collect D0 from all fit_params*.csv files, then average by max_dur and plot D0 vs td."
     )
     ap.add_argument("--root", type=Path, default=None, help="root directory")
     ap.add_argument("--roi", type=str, default="Agua", help="ROI to filter. Use ALL to skip filtering.")
@@ -116,7 +116,7 @@ def main() -> None:
 
     df = df[np.isfinite(df["D0_mm2_s"])].copy()
     if "max_dur_ms" not in df.columns:
-        raise SystemExit("Could not find max_dur_ms in fit_params.csv files, so ordering/grouping is not possible.")
+        raise SystemExit("Could not find max_dur_ms in fit_params*.csv files, so ordering/grouping is not possible.")
     df = df[np.isfinite(df["max_dur_ms"])].copy()
 
     # ROI filter.

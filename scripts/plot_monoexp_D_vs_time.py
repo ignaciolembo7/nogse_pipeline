@@ -25,11 +25,11 @@ def _clear_compare_n_pngs(out_dir: Path, xcol: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Build monoexp D vs td_ms and Delta_app_ms plots from fit_params.parquet."
+        description="Build monoexp D vs td_ms and Delta_app_ms plots from fit_params*.parquet."
     )
-    ap.add_argument("--fits-root", required=True, help="Root folder with monoexp fit_params.parquet files.")
+    ap.add_argument("--fits-root", required=True, help="Root folder with monoexp fit_params*.parquet files.")
     ap.add_argument("--out-dir", required=True, help="Output folder for combined tables and PNGs.")
-    ap.add_argument("--pattern", default="**/fit_params.parquet", help="Relative glob inside fits-root.")
+    ap.add_argument("--pattern", default="**/fit_params*.parquet", help="Relative glob inside fits-root.")
     subj_group = ap.add_mutually_exclusive_group()
     subj_group.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include.")
     subj_group.add_argument("--brains", nargs="+", dest="subjs", help="Legacy alias for --subjs.")

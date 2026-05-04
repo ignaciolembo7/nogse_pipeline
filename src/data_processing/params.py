@@ -3,12 +3,24 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+def _normalize_header_token(value) -> str:
+    token = str(value).strip().lower()
+    token = token.replace("*", "")
+    token = " ".join(token.split())
+    return token
+
+
 def _find_protocol_header_row(df: pd.DataFrame) -> int:
-    col0 = df.iloc[:, 0].astype(str)
-    hits = col0.str.contains("Protocol", case=False, na=False)
-    if not hits.any():
-        raise ValueError("Could not find a row with 'Protocol*' in this sheet.")
-    return int(hits.idxmax())  # First match.
+    for idx in range(len(df)):
+        row = {_normalize_header_token(v) for v in df.iloc[idx].tolist() if pd.notna(v)}
+        if "protocol" in row and ("seq" in row or "sequence" in row):
+            return int(idx)
+    raise ValueError("Could not find a header row with protocol/sequence columns in this sheet.")
+
+
+def _already_has_header(df: pd.DataFrame) -> bool:
+    cols = {_normalize_header_token(c) for c in df.columns if pd.notna(c)}
+    return "protocol" in cols and ("seq" in cols or "sequence" in cols)
 
 def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     """
@@ -19,12 +31,14 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
     out = []
 
     for sheet in xls.sheet_names:
-        raw = pd.read_excel(xls, sheet_name=sheet)
+        sub = pd.read_excel(xls, sheet_name=sheet)
 
-        hdr = _find_protocol_header_row(raw)
-        sub = raw.iloc[hdr:, :].copy()
-        sub.columns = sub.iloc[0].tolist()
-        sub = sub.iloc[1:].reset_index(drop=True)
+        if not _already_has_header(sub):
+            raw = pd.read_excel(xls, sheet_name=sheet, header=None)
+            hdr = _find_protocol_header_row(raw)
+            sub = raw.iloc[hdr:, :].copy()
+            sub.columns = sub.iloc[0].tolist()
+            sub = sub.iloc[1:].reset_index(drop=True)
 
         # Drop empty columns.
         sub = sub.loc[:, [c for c in sub.columns if str(c) != "nan"]]
@@ -34,6 +48,7 @@ def read_sequence_params_xlsx(path: str | Path) -> pd.DataFrame:
             "Protocol*": "protocol",
             "Protocol": "protocol",
             "seq": "seq",
+            "sequence": "seq",
             "Frecuency [Hz]": "Hz",
             "bval_max [s/mm2]": "bmax",
             "delta [ms]": "delta_ms",

@@ -17,7 +17,7 @@ from fitting.gradient_correction import (
     unique_int,
 )
 from nogse_fitting.fit_nogse_contrast_vs_g import fit_nogse_contrast_long, plot_nogse_contrast_fit_one_group
-from data_processing.io import write_table_outputs
+from data_processing.io import fit_params_output_basename, write_table_outputs
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 
 
@@ -26,6 +26,29 @@ def _analysis_id_from_path(p: Path) -> str:
     if stem.endswith(".long"):
         stem = stem[: -len(".long")]
     return stem
+
+
+def _validate_bounds(name: str, bounds: tuple[float, float]) -> tuple[float, float]:
+    lower, upper = float(bounds[0]), float(bounds[1])
+    if not lower < upper:
+        raise ValueError(f"{name} lower bound must be smaller than upper bound: {lower}, {upper}")
+    return lower, upper
+
+
+def _validate_fixed_value(name: str, value: float | None, bounds: tuple[float, float] | None) -> None:
+    if value is None or bounds is None:
+        return
+    lower, upper = bounds
+    if not lower <= float(value) <= upper:
+        raise ValueError(f"{name} fixed value {value} is outside bounds [{lower}, {upper}].")
+
+
+def _validate_log_bounds(name: str, bounds: tuple[float, float] | None) -> None:
+    if bounds is None:
+        return
+    lower, _upper = bounds
+    if lower <= 0:
+        raise ValueError(f"{name} lower bound must be positive when fitting in log-space: {lower}")
 
 
 def main() -> None:
@@ -79,6 +102,19 @@ def main() -> None:
         default=None,
         help="Keep D0 free. Optional value is the initial seed. Default seed: 2.3e-12.",
     )
+    grp_tc = ap.add_mutually_exclusive_group()
+    grp_tc.add_argument("--fix_tc", type=float, default=None, help="Fix tc in ms. Used only for model=rest.")
+    grp_tc.add_argument(
+        "--free_tc",
+        nargs="?",
+        const=5.0,
+        type=float,
+        default=None,
+        help="Keep tc free. Optional value is the initial seed. Default seed: 5.0. Used only for model=rest.",
+    )
+    ap.add_argument("--M0_bounds", "--M0-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
+    ap.add_argument("--D0_bounds", "--D0-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
+    ap.add_argument("--tc_bounds", "--tc-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
 
     ap.add_argument("--n_fit", type=int, default=None, help="Use only the first n_fit points after sorting by x.")
     ap.add_argument("--peak_grid_n", type=int, default=1000, help="Number of points used to search for the fitted peak.")
@@ -157,6 +193,25 @@ def main() -> None:
         D0_vary = True
         D0_value = 2.3e-12
 
+    if args.fix_tc is not None:
+        tc_vary = False
+        tc_value = float(args.fix_tc)
+    elif args.free_tc is not None:
+        tc_vary = True
+        tc_value = float(args.free_tc)
+    else:
+        tc_vary = True
+        tc_value = 5.0
+
+    m0_bounds = _validate_bounds("M0", tuple(args.M0_bounds)) if args.M0_bounds is not None else None
+    d0_bounds = _validate_bounds("D0", tuple(args.D0_bounds)) if args.D0_bounds is not None else None
+    tc_bounds = _validate_bounds("tc", tuple(args.tc_bounds)) if args.tc_bounds is not None else None
+    _validate_fixed_value("M0", None if M0_vary else M0_value, m0_bounds)
+    _validate_fixed_value("D0", None if D0_vary else D0_value, d0_bounds)
+    if args.model == "rest":
+        _validate_fixed_value("tc", None if tc_vary else tc_value, tc_bounds)
+    _validate_log_bounds("D0", d0_bounds)
+
     # Normalize filters
     directions = args.directions
     if directions is not None and len(directions) == 1 and str(directions[0]).upper() == "ALL":
@@ -194,20 +249,31 @@ def main() -> None:
         D0_vary=D0_vary,
         M0_value=M0_value,
         D0_value=D0_value,
+        m0_bounds=m0_bounds,
+        d0_bounds=d0_bounds,
         source_file=args.contrast_parquet.name,
         analysis_id=analysis_id,
+        tc_value=tc_value,
+        tc_vary=tc_vary,
+        tc_bounds=tc_bounds,
         peak_grid_n=int(args.peak_grid_n),
         peak_D0_fix=float(args.peak_D0_fix),
         peak_gamma=float(args.peak_gamma),
         oneg=bool(args.oneg),
     )
 
-    out_parquet = tables_dir / "fit_params.parquet"
+    fit_params_name = fit_params_output_basename(
+        model=str(args.model),
+        axis=str(args.gbase),
+        ycol=str(args.ycol),
+        directions=None if directions is None else [str(v) for v in directions],
+    )
+    out_parquet = tables_dir / f"{fit_params_name}.parquet"
     write_table_outputs(
         fit_df,
         out_parquet,
         xlsx_path=out_parquet.with_suffix(".xlsx"),
-        csv_path=tables_dir / "fit_params.csv",
+        csv_path=tables_dir / f"{fit_params_name}.csv",
     )
 
     print("Saved fit table:", out_parquet)
