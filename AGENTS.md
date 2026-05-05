@@ -83,3 +83,4 @@ For any requested change, use this priority order:
 
 ## Scientific logic preservation
 - The agent MUST NOT add or change scientific/physical logic without an explicit user request. It MUST preserve the exact physical correction scheme already specified by the user and MUST NOT invent combined, averaged, surrogate, or “equivalent” correction factors.
+- The agent MUST NOT add scientific or mathematical explanations to guides, docs, comments, or responses unless the user explicitly asks for an explanation. When documentation changes are requested, preserve user-provided reasoning and avoid inventing interpretive rationale.
