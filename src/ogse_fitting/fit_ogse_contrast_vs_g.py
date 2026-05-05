@@ -90,13 +90,8 @@ def _gcols(gbase: str) -> tuple[str, str]:
 
 
 def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
-    """
-    Keep the thorsten scaling convention: sqrt(2) * abs(g_thorsten).
-    """
-    b = _normalize_gbase(gbase)
-    if b == "g_thorsten":
-        return np.sqrt(2.0) * np.abs(arr)
-    return arr
+    del gbase
+    return np.asarray(arr, dtype=float)
 
 
 def _coerce_correction_pair(value: Any) -> tuple[float, float]:

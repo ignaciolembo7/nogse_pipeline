@@ -12,11 +12,9 @@ def load_long_parquet(path: str | Path) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def compute_gradient_axis(values: pd.Series, *, xcol: str, use_sqrt2: bool = True) -> np.ndarray:
-    x = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
-    if xcol.startswith("g_thorsten") and use_sqrt2:
-        x = np.sqrt(2.0) * np.abs(x)
-    return x
+def compute_gradient_axis(values: pd.Series, *, xcol: str) -> np.ndarray:
+    del xcol
+    return pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
 
 
 def _prepare_avg_std(df: pd.DataFrame, *, xcol: str, ycol: str, stat: str) -> pd.DataFrame:
@@ -71,14 +69,13 @@ def plot_ogse_signal_summary(
     xcol: str = "g_thorsten",
     ycol: str = "value_norm",
     stat: str = "avg",
-    use_sqrt2: bool = True,
     ylim: tuple[float, float] | None = (0.0, 1.0),
 ) -> list[Path]:
     out_dir = Path(out_dir)
     ensure_dir(out_dir)
 
     merged = _prepare_avg_std(df, xcol=xcol, ycol=ycol, stat=stat)
-    merged["x"] = compute_gradient_axis(merged["x_raw"], xcol=xcol, use_sqrt2=use_sqrt2)
+    merged["x"] = compute_gradient_axis(merged["x_raw"], xcol=xcol)
 
     directions = sorted(merged["direction"].dropna().astype(str).unique().tolist())
     rois = sorted(merged["roi"].dropna().astype(str).unique().tolist())

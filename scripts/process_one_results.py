@@ -470,6 +470,8 @@ def _extract_clean_sequence_params(row: pd.Series, meta) -> CleanSequenceParams:
     g_thorsten = _to_float(_row_get(row, ["g_thorsten", "G thorsten [mT/m]"], np.nan))
     if not np.isfinite(g_thorsten):
         g_thorsten = None
+    else:
+        g_thorsten = float(np.sqrt(2.0) * abs(g_thorsten))
 
     return CleanSequenceParams(
         sheet=sheet,

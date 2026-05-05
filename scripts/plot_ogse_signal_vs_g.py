@@ -15,7 +15,6 @@ def main() -> None:
     ap.add_argument("--ycol", "--y_col", dest="ycol", default="value_norm")
     ap.add_argument("--xcol", default="g_thorsten")
     ap.add_argument("--stat", default="avg")
-    ap.add_argument("--no_sqrt2", action="store_true")
     ap.add_argument("--no_ylim", action="store_true")
     args = ap.parse_args()
 
@@ -29,7 +28,6 @@ def main() -> None:
         xcol=str(args.xcol),
         ycol=str(args.ycol),
         stat=str(args.stat),
-        use_sqrt2=not bool(args.no_sqrt2),
         ylim=ylim,
     )
 

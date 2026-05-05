@@ -96,10 +96,8 @@ def _gcol(df: pd.DataFrame, gbase: str, *, side: int = 1) -> str:
 
 
 def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
-    b = _normalize_gbase(gbase)
-    if b == "g_thorsten":
-        return np.sqrt(2.0) * np.abs(arr)
-    return arr
+    del gbase
+    return np.asarray(arr, dtype=float)
 
 
 def _coerce_correction_pair(value: Any) -> tuple[float, float]:

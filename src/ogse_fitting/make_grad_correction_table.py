@@ -275,9 +275,8 @@ def _side_col(base: str, side: int) -> str:
 
 
 def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
-    if _normalize_gbase(gbase) == 'g_thorsten':
-        return np.sqrt(2.0) * np.abs(arr)
-    return arr
+    del gbase
+    return np.asarray(arr, dtype=float)
 
 
 def _analysis_id_from_contrast_path(path: Path) -> str:

@@ -58,9 +58,7 @@ def b_from_g(
     g_type: str,
 ) -> np.ndarray:
     """
-    Match the notebook formula:
-      if g_type == 'g_thorsten': g = sqrt(2)*|g|
-      b = N * gamma^2 * delta^2 * delta_app * g^2 / 1e9
+    Compute b = N * gamma^2 * delta^2 * delta_app * g^2 / 1e9.
 
     Expected units:
       gamma: 1/(ms*mT)
@@ -71,8 +69,6 @@ def b_from_g(
     g = np.asarray(g_mTm, dtype=float)
     if g_type not in VALID_G_TYPES:
         raise ValueError(f"b_from_g: unrecognized g_type {g_type!r}. Allowed values: {sorted(VALID_G_TYPES)}.")
-    if g_type == "g_thorsten":
-        g = np.sqrt(2.0) * np.abs(g)
     return N * (gamma**2) * (delta_ms**2) * delta_app_ms * (g**2) / 1e9
 
 
@@ -144,8 +140,6 @@ def extract_gradient_array(
     if col not in df.columns:
         raise KeyError(f"Missing required gradient column {col!r}. Columns={list(df.columns)}")
     arr = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
-    if gradient_base_for_axis(axis) == "g_thorsten":
-        arr = np.sqrt(2.0) * np.abs(arr)
     return arr
 
 

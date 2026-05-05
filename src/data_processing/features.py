@@ -52,7 +52,8 @@ def add_ogse_features(
     out["g_lin_max"] = out["g_max"] * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
 
     if g_thorsten_val is not None:
-        out["g_thorsten"] = float(g_thorsten_val) * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
+        g_thorsten_eff = float(np.sqrt(2.0) * abs(g_thorsten_val))
+        out["g_thorsten"] = g_thorsten_eff * (pd.to_numeric(out["b_step"], errors="coerce") / float(b_step_max))
 
     # --- normalization only for stat==norm_stat ---
     out["value_norm"] = np.nan

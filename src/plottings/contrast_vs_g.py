@@ -22,10 +22,7 @@ def canonical_ycol(ycol: str) -> str:
 
 
 def plot_x_series(df: pd.DataFrame, xcol: str) -> np.ndarray:
-    x = pd.to_numeric(df[xcol], errors="coerce").to_numpy(dtype=float)
-    if xcol.startswith("g_thorsten_"):
-        x = np.sqrt(2.0) * np.abs(x)
-    return x
+    return pd.to_numeric(df[xcol], errors="coerce").to_numpy(dtype=float)
 
 
 def require_columns(df: pd.DataFrame, cols: list[str], *, label: str) -> None:
