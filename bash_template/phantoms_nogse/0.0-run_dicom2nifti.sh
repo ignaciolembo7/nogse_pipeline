@@ -12,12 +12,17 @@ source "$SCRIPT_HOME/../helpers/dicom2nifti_batch_lib.sh"
 PROJECT_ROOT="${PROJECT_ROOT:-$(resolve_default_project_root "$REPO_ROOT")}"
 INPUT_ROOT="${INPUT_ROOT:-$PROJECT_ROOT/Data-DICOM}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$PROJECT_ROOT/Data-NIFTI}"
-LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms}"
 
 init_run "run_phantoms_dicom2nifti"
 
-run_case "20260122-PHANTOM_FIBER"
-run_case "20260122-PHANTOM_NISO4"
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms-3_nogse}"
+
+run_case "20260505_PHANTOM_FIBER"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 finish_run
 exit $?

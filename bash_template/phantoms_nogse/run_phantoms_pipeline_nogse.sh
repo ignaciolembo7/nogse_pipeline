@@ -5,18 +5,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 RUNNER_LIB="$REPO_ROOT/bash_template/helpers/pipeline_runner_lib.sh"
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+PY="${PY:-python}"
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
-LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms-2_nogse}"
+LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms-3_nogse}"
 ONEG="${ONEG:-true}"
-export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
-
 RUN_SCRIPTS=(
 # Common setup / extraction steps
-# "0.0-run_dicom2nifti.sh"
+"0.0-run_dicom2nifti.sh"
 # "0.1-run_make_gval_gvec.sh"
 # "0.2-prep_phantom_b0.sh"
 # "0.3-copy_selected_files.sh"
@@ -29,7 +28,7 @@ RUN_SCRIPTS=(
 # NOGSE contrast analysis
 # "3.0-run_make_nogse_contrast_selected.sh"
 # "3.1-run_plot_all_nogse_contrast_vs_g.sh"
-"3.2-run_fit_free_all_nogse_contrast_vs_g.sh"
+# "3.2-run_fit_free_all_nogse_contrast_vs_g.sh"
 # "5.2-run_make_grad_correction_table.sh"
 # "5.3-run_fit_free_all_nogse_contrast_vs_g_corr.sh"
 # "6.1-run_fit_rest_all_nogse_contrast_vs_g_corr.sh"
