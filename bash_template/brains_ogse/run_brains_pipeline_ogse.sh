@@ -25,7 +25,7 @@ fi
 
 RUN_SCRIPTS+=(
 #   "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
-#   "2.0-run_process_all_results.sh"
+  "2.0-run_process_all_results.sh"
 #   "3.0-run_rotate_all_signals.sh"
 #   "3.1-run_make_contrast_selected_rotated.sh"
 #   "3.2-run_plot_all_ogse_contrast_vs_g.sh"
@@ -38,7 +38,7 @@ RUN_SCRIPTS+=(
 #   "5.3-run_fit_free_all_ogse_contrast_vs_g_corr.sh"
 #   "6.1-run_fit_rest_all_ogse_contrast_vs_g_corr.sh"
 #   "6.2-run_make_groupfits_rest.sh"
-  "6.3-run_tc_vs_td_pseudohuber_fixed_macro.sh"
+#   "6.3-run_tc_vs_td_pseudohuber_fixed_macro.sh"
 )
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------

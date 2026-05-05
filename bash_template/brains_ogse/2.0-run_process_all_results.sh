@@ -6,10 +6,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
-
-# ------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -17,6 +13,10 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
