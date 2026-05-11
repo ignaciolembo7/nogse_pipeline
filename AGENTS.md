@@ -2,6 +2,7 @@
 
 ## Mandatory rules
 - All script comments MUST be in English.
+- All documentation MUST be in English.
 - `nogse_pipeline/bash_template` is the canonical source for pipeline scripts.
 - Files under `nogse_pipeline/bash` MUST NOT be edited.
 
