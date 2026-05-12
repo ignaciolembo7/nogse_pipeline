@@ -9,6 +9,8 @@ from plottings.signal_image_grid import (
     build_grid_cells,
     collect_signal_image_entries,
     default_output_stem,
+    infer_selection_output_stem,
+    infer_selection_title,
     render_signal_image_grid,
     write_grid_manifest,
 )
@@ -88,8 +90,12 @@ def main() -> None:
         volume_index=args.volume_index,
     )
 
-    title = args.title or f"exp={experiment} / name={name}"
-    out_stem = args.out_stem or default_output_stem(experiment, name, args.gradient_type, args.rows, gradient_values)
+    title = args.title or infer_selection_title(entries) or f"exp={experiment} / name={name}"
+    out_stem = (
+        args.out_stem
+        or infer_selection_output_stem(experiment, name, entries)
+        or default_output_stem(experiment, name, args.gradient_type, args.rows, gradient_values)
+    )
     out_png = args.out_root / f"{out_stem}.png"
     out_csv = args.out_root / f"{out_stem}.manifest.csv"
 

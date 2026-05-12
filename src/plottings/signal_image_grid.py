@@ -30,6 +30,59 @@ class GridCell:
     is_difference: bool
 
 
+NOGSE_SELECTION_RE = re.compile(
+    r"(?:^|_)(?P<group>\d{3})_NOGSE_(?:CPMG|HAHN)_N\d+(?:p\d+)?_TN(?P<TN>\d+(?:p\d+)?)(?:_|$)",
+    re.IGNORECASE,
+)
+
+
+def _unique_preserve_order(values: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
+
+
+def _selection_metadata(entries: Sequence[SignalImageEntry]) -> tuple[list[str], list[str]]:
+    metadata = [match.groupdict() for entry in entries if (match := NOGSE_SELECTION_RE.search(entry.sequence_name))]
+    if not metadata:
+        return [], []
+
+    tn_values = _unique_preserve_order(f"TN{item['TN']}" for item in metadata)
+    group_values = _unique_preserve_order(item["group"] for item in metadata)
+    return tn_values, group_values
+
+
+def infer_selection_title(entries: Sequence[SignalImageEntry]) -> str | None:
+    tn_values, group_values = _selection_metadata(entries)
+
+    parts: list[str] = []
+    if tn_values:
+        parts.append(", ".join(tn_values))
+    if group_values:
+        label = "groups" if len(group_values) > 1 else "group"
+        parts.append(f"{label} " + ", ".join(group_values))
+    return " | ".join(parts) if parts else None
+
+
+def infer_selection_output_stem(experiment: str, name: str, entries: Sequence[SignalImageEntry]) -> str | None:
+    tn_values, group_values = _selection_metadata(entries)
+    if not tn_values and not group_values:
+        return None
+
+    parts = [sanitize_token(experiment), sanitize_token(name)]
+    if tn_values:
+        parts.append("-".join(sanitize_token(value) for value in tn_values))
+    if group_values:
+        group_label = "groups" if len(group_values) > 1 else "group"
+        parts.append(f"{group_label}-" + "-".join(sanitize_token(value) for value in group_values))
+    return ".".join(parts)
+
+
 def _normalize_text(value: object) -> str:
     text = str(value).lower()
     return re.sub(r"[^a-z0-9.]+", " ", text).strip()
