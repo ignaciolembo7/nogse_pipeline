@@ -14,7 +14,7 @@ PY="${PY:-python}"
 # Configuration
 # ------------------------------------------------------------------
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments}"
-TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables}"
+TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables/20260506-PHANTOM_FIBER}"
 OUT_ROOT="${OUT_ROOT:-$ANALYSIS_ROOT/contrast_data/plots}"
 PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_nogse_contrast_vs_g.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"

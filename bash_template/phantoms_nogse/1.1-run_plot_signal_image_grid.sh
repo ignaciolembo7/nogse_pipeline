@@ -12,25 +12,25 @@ PY="${PY:-python}"
 # Configuration
 # ------------------------------------------------------------------
 SIGNAL_ROOT="${SIGNAL_ROOT:-$PROJECT_ROOT/Data-signals}"
-EXPERIMENT="${EXPERIMENT:-20260122-PHANTOM_NISO4}"
+EXPERIMENT="${EXPERIMENT:-20260506-PHANTOM_FIBER}"
 NAME="${NAME:-QUALITY_JACK_19800122TMSF}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments/signal_image_grids}"
 IMAGE_NAME="${IMAGE_NAME:-mean.nii.gz}"
 
 GRADIENT_TYPE="${GRADIENT_TYPE:-g}"
-GRADIENT_VALUES="${GRADIENT_VALUES:-0 8 16 24 32 40 48 56 64 72}"
+GRADIENT_VALUES="${GRADIENT_VALUES:-0 8 16 24 32 40 48 56 64}"
 
 # Use comma-separated row labels. Difference rows use " - " between labels.
 ROWS_CSV="${ROWS_CSV:-CPMG,HAHN,CPMG - HAHN}"
 
 # Use this to disambiguate acquisitions that share type and gradient.
 # For example, use "TN50,002" or "TN65,003".
-INCLUDE_TOKENS_CSV="${INCLUDE_TOKENS_CSV:-TN50,002}"
+INCLUDE_TOKENS_CSV="${INCLUDE_TOKENS_CSV:-TN80,004}"
 EXCLUDE_TOKENS_CSV="${EXCLUDE_TOKENS_CSV:-}"
 
-TITLE="${TITLE:-exp=$EXPERIMENT - name=$NAME - tokens=$INCLUDE_TOKENS_CSV}"
+TITLE="${TITLE:-}"
 OUT_STEM="${OUT_STEM:-}"
-ALLOW_MISSING="${ALLOW_MISSING:-0}"
+ALLOW_MISSING="${ALLOW_MISSING:-1}"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 

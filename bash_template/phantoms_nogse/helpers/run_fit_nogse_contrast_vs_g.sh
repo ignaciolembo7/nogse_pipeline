@@ -22,7 +22,7 @@ PY="${PY:-$DEFAULT_PY}"
 # ------------------------------------------------------------------
 
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments}"
-TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables}"
+TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables/20260506-PHANTOM_FIBER}"
 FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fit_nogse_contrast_vs_g.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
 
@@ -50,6 +50,10 @@ D0_MIN="${D0_MIN:-}"
 D0_MAX="${D0_MAX:-}"
 TC_MIN="${TC_MIN:-}"
 TC_MAX="${TC_MAX:-}"
+FIX_G0="${FIX_G0:-}"
+FREE_G0="${FREE_G0:-}"
+G0_MIN="${G0_MIN:-}"
+G0_MAX="${G0_MAX:-}"
 PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}"
 
 # ------------------------------------------------------------------
@@ -125,6 +129,20 @@ if [[ -n "${TC_MIN// }" || -n "${TC_MAX// }" ]]; then
     fi
     bounds_args+=(--tc_bounds "$TC_MIN" "$TC_MAX")
 fi
+if [[ -n "${G0_MIN// }" || -n "${G0_MAX// }" ]]; then
+    if [[ -z "${G0_MIN// }" || -z "${G0_MAX// }" ]]; then
+        echo "ERROR: G0_MIN and G0_MAX must be provided together." >&2
+        exit 1
+    fi
+    bounds_args+=(--g0_bounds "$G0_MIN" "$G0_MAX")
+fi
+
+g0_args=()
+if [[ -n "${FREE_G0// }" ]]; then
+    g0_args+=(--free_g0 "$FREE_G0")
+elif [[ -n "${FIX_G0// }" ]]; then
+    g0_args+=(--fix_g0 "$FIX_G0")
+fi
 
 oneg_args=()
 if [[ "${ONEG,,}" == "true" ]]; then
@@ -175,6 +193,7 @@ while read -r file; do
         "${corr_args[@]}" \
         "${m0_args[@]}" \
         "${d0_args[@]}" \
+        "${g0_args[@]}" \
         "${bounds_args[@]}" \
         "${roi_args[@]}"; then
         ok=$((ok + 1))

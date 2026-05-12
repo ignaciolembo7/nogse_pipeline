@@ -24,6 +24,7 @@ source "$RUNNER_LIB"
 RUN_SCRIPTS=(
 # Common setup / extraction steps
 # "0.0-run_dicom2nifti.sh"
+# DICOM metadata extraction is centralized in bash_template/dicom_params.
 # "0.1-run_make_gval_gvec.sh"
 # "0.2-prep_phantom_b0.sh"
 # "0.3-copy_selected_files.sh"

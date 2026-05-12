@@ -20,16 +20,17 @@ MAKE_CONTRAST_SCRIPT="$REPO_ROOT/scripts/make_contrast.py"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260122-PHANTOM_FIBER"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260506-PHANTOM_FIBER"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/contrast_data"
 DIRECTIONS=(1)
 ONEG="${ONEG:-true}"
 
 # Add the contrast pairs manually.
 declare -a PAIRS=(
-# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260122092639_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260122092639_results.long.parquet"
-"$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260122125354_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260122125354_results.long.parquet"
-"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_20260122125354_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_20260122125354_results.long.parquet"
+# "$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_20260505155315_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_002_NOGSE_HAHN_N2_TN50_20260505155315_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_CPMG_N2_TN30_20260506144857_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_001_NOGSE_HAHN_N2_TN30_20260506144857_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_CPMG_N2_TN65_20260506144857_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_003_NOGSE_HAHN_N2_TN65_20260506144857_results.long.parquet"
+"$DATA_ROOT/QUALITY_JACK_19800122TMSF_004_NOGSE_CPMG_N2_TN80_20260506144857_results.long.parquet|$DATA_ROOT/QUALITY_JACK_19800122TMSF_004_NOGSE_HAHN_N2_TN80_20260506144857_results.long.parquet"
 )
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------

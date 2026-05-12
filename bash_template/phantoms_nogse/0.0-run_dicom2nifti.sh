@@ -18,9 +18,9 @@ init_run "run_phantoms_dicom2nifti"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms-3_nogse}"
+LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms-4_nogse}"
 
-run_case "20260505_PHANTOM_FIBER"
+run_case "20260506_PHANTOM_FIBER"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 

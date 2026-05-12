@@ -23,6 +23,11 @@ if [[ "${INCLUDE_DICOM2NIFTI,,}" == "true" ]]; then
     RUN_SCRIPTS+=("0.0-run_dicom2nifti.sh")
 fi
 
+INCLUDE_DICOM_METADATA="${INCLUDE_DICOM_METADATA:-false}"
+if [[ "${INCLUDE_DICOM_METADATA,,}" == "true" ]]; then
+    echo "INFO: DICOM metadata extraction is centralized in bash_template/dicom_params; skipping local runner step." >&2
+fi
+
 RUN_SCRIPTS+=(
 #   "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
   "2.0-run_process_all_results.sh"
@@ -54,6 +59,7 @@ echo "PY                 : $PY"
 echo "PYTHONPATH         : $PYTHONPATH"
 echo "Log root           : $LOG_ROOT"
 echo "Include dicom2nifti: $INCLUDE_DICOM2NIFTI"
+echo "Include DICOM meta : $INCLUDE_DICOM_METADATA"
 echo "Gradient ROI       : Syringe"
 echo "============================================================"
 

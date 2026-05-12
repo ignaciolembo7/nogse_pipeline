@@ -6,10 +6,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
-
-# ------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -17,11 +13,15 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments"
 DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
-PHANTOM_SUBJ_REL="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
+PHANTOM_SUBJ_REL="20260506-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 ONEG="${ONEG:-true}"

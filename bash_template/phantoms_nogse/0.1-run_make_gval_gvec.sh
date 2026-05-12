@@ -5,14 +5,16 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-SUBJ="20260122-PHANTOM_NISO4/QUALITY_JACK_19800122TMSF"
+SUBJ="20260506-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
 EXP_PARENT="Data-NIFTI"
-DWI_GLOB="*_001_NOGSE*.nii.gz, *_002_NOGSE*.nii.gz"
+DWI_GLOB="*_001_NOGSE*.nii.gz, *_003_NOGSE*.nii.gz, *_004_NOGSE*.nii.gz"
 DIR_X="1"
 DIR_Y="0"
 DIR_Z="0"
 OVERWRITE=1
 DRY_RUN=0
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 PY="${PY:-python}"
 
 usage() {

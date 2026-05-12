@@ -11,11 +11,13 @@ PY="${PY:-python}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms-3_nogse}"
+LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms-20260506_nogse}"
 ONEG="${ONEG:-true}"
 RUN_SCRIPTS=(
 # Common setup / extraction steps
-"0.0-run_dicom2nifti.sh"
+# "0.0-run_dicom2nifti.sh"
+
+# DICOM metadata extraction is centralized in bash_template/dicom_params.
 # "0.1-run_make_gval_gvec.sh"
 # "0.2-prep_phantom_b0.sh"
 # "0.3-copy_selected_files.sh"
@@ -23,14 +25,19 @@ RUN_SCRIPTS=(
 # "1.1-run_plot_signal_image_grid.sh"
 # "2.0-run_process_all_results.sh"
 # "2.1-run_plot_selected_nogse_signals.sh"
-# "2.2-run_fit_nogse_signal_vs_g.sh"
+"2.2-run_fit_nogse_signal_vs_g.sh"
 
 # NOGSE contrast analysis
 # "3.0-run_make_nogse_contrast_selected.sh"
 # "3.1-run_plot_all_nogse_contrast_vs_g.sh"
 # "3.2-run_fit_free_all_nogse_contrast_vs_g.sh"
-# "5.2-run_make_grad_correction_table.sh"
-# "5.3-run_fit_free_all_nogse_contrast_vs_g_corr.sh"
+
+# 
+# "5.0-run_make_grad_correction_table.sh"
+# "5.1-run_fit_free_all_nogse_contrast_vs_g.sh"
+# "5.2-run_fit_free_grad_offset_all_nogse_contrast_vs_g.sh"
+
+# 
 # "6.1-run_fit_rest_all_nogse_contrast_vs_g_corr.sh"
 # "6.2-run_make_groupfits_rest.sh"
 # "6.3-run_tc_vs_td_pseudohuber_fixed_macro.sh"
