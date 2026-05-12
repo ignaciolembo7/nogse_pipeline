@@ -119,7 +119,7 @@ def _resolve_sigma(avg_df: pd.DataFrame, std_df: pd.DataFrame | None, *, xcol: s
     if err.empty:
         return None
 
-    sigma = err["value"].to_numpy(dtype=float)
+    sigma = err["value"].to_numpy(dtype=float).copy()
     if ycol == "value_norm":
         s0 = pd.to_numeric(avg_df["S0"], errors="coerce").to_numpy(dtype=float)
         with np.errstate(divide="ignore", invalid="ignore"):
