@@ -98,6 +98,8 @@ NOGSE_CONTRAST_COLS = [
     'D0_err_m2_ms',
     'D0_mm2_s',
     'D0_err_mm2_s',
+    'g0_mTm',
+    'g0_err_mTm',
     'rmse',
     'chi2',
     'gbase',

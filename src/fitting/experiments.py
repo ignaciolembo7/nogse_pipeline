@@ -5,7 +5,8 @@ from typing import Iterable
 
 from nogse_fitting.fit_nogse_signal_vs_g import VALID_MODELS as NOGSE_SIGNAL_MODEL_REGISTRY
 
-CONTRAST_MODELS = ("free", "rest", "tort")
+NOGSE_CONTRAST_MODELS = ("free", "nogse_free_grad_offset", "rest", "tort")
+OGSE_CONTRAST_MODELS = ("free", "rest", "tort")
 NOGSE_SIGNAL_MODELS = tuple(sorted(str(model) for model in NOGSE_SIGNAL_MODEL_REGISTRY))
 OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse")
 
@@ -25,7 +26,7 @@ CANONICAL_EXPERIMENTS: dict[str, ExperimentFamily] = {
     ),
     "nogse_contrast_vs_g": ExperimentFamily(
         name="nogse_contrast_vs_g",
-        models=CONTRAST_MODELS,
+        models=NOGSE_CONTRAST_MODELS,
         supports_correction=True,
     ),
     "ogse_signal_vs_g": ExperimentFamily(
@@ -35,7 +36,7 @@ CANONICAL_EXPERIMENTS: dict[str, ExperimentFamily] = {
     ),
     "ogse_contrast_vs_g": ExperimentFamily(
         name="ogse_contrast_vs_g",
-        models=CONTRAST_MODELS,
+        models=OGSE_CONTRAST_MODELS,
         supports_correction=True,
     ),
 }

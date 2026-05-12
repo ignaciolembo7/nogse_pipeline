@@ -11,12 +11,12 @@ def M_nogse_free(TE, G, N, x, M0, D0):
     x = np.array(x)
     TE = np.array(TE)
     N = np.array(N)
-    G = np.array(G)
+    G = np.array(G) 
 
 
     y = TE - (N-1) * x
 
-    return M0*np.exp(-1.0/12 * g**2 * G**2 * D0 * ((N-1) * x**3 + y**3))
+    return M0*np.exp(-1.0/12 * g**2 * (G)**2 * D0 * ((N-1) * x**3 + y**3))
 
 def M_nogse_free_offset(TE, G, N, x, M0, D0, C):
 
@@ -75,6 +75,10 @@ def M_nogse_mixto_offset(TE, G, N, x, tc, alpha, M0, D0, C): # alpha is 1/alpha
 
 def NOGSE_contrast_vs_g_free(TE, G, N, M0, D0):
     return M_nogse_free(TE, G, N, TE/N, M0, D0) - M_nogse_free(TE, G, N, 0, M0, D0)
+
+def NOGSE_contrast_vs_g_free_grad_offset(TE, G, N, M0, D0, g0_mTm):
+    G_eff = np.array(G) + float(g0_mTm)
+    return NOGSE_contrast_vs_g_free(TE, G_eff, N, M0, D0)
 
 def NOGSE_contrast_vs_g_rest(TE, G, N, tc, M0, D0):
     return M_nogse_rest(TE, G, N, TE/N, tc, M0, D0) - M_nogse_rest(TE, G, N, 0, tc, M0, D0)

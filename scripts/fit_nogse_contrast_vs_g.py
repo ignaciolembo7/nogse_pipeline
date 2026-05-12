@@ -112,9 +112,36 @@ def main() -> None:
         default=None,
         help="Keep tc free. Optional value is the initial seed. Default seed: 5.0. Used only for model=rest.",
     )
+    grp_g0 = ap.add_mutually_exclusive_group()
+    grp_g0.add_argument(
+        "--fix_g0",
+        type=float,
+        default=None,
+        help="Fix g0 in mT/m. Used only for model=nogse_free_grad_offset.",
+    )
+    grp_g0.add_argument(
+        "--free_g0",
+        nargs="?",
+        const=0.0,
+        type=float,
+        default=None,
+        help=(
+            "Keep g0 free in mT/m. Optional value is the initial seed. "
+            "Default seed: 0.0. Used only for model=nogse_free_grad_offset."
+        ),
+    )
     ap.add_argument("--M0_bounds", "--M0-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
     ap.add_argument("--D0_bounds", "--D0-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
     ap.add_argument("--tc_bounds", "--tc-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
+    ap.add_argument(
+        "--g0_bounds",
+        "--g0-bounds",
+        nargs=2,
+        type=float,
+        default=None,
+        metavar=("MIN", "MAX"),
+        help="g0 bounds in mT/m. Default for model=nogse_free_grad_offset: -20 20.",
+    )
 
     ap.add_argument("--n_fit", type=int, default=None, help="Use only the first n_fit points after sorting by x.")
     ap.add_argument("--peak_grid_n", type=int, default=1000, help="Number of points used to search for the fitted peak.")
@@ -203,13 +230,32 @@ def main() -> None:
         tc_vary = True
         tc_value = 5.0
 
+    if args.fix_g0 is not None:
+        g0_vary = False
+        g0_value = float(args.fix_g0)
+    elif args.free_g0 is not None:
+        g0_vary = True
+        g0_value = float(args.free_g0)
+    else:
+        g0_vary = args.model == "nogse_free_grad_offset"
+        g0_value = 0.0
+
     m0_bounds = _validate_bounds("M0", tuple(args.M0_bounds)) if args.M0_bounds is not None else None
     d0_bounds = _validate_bounds("D0", tuple(args.D0_bounds)) if args.D0_bounds is not None else None
     tc_bounds = _validate_bounds("tc", tuple(args.tc_bounds)) if args.tc_bounds is not None else None
+    g0_bounds = (
+        _validate_bounds("g0", tuple(args.g0_bounds))
+        if args.g0_bounds is not None
+        else (-20.0, 20.0)
+        if args.model == "nogse_free_grad_offset"
+        else None
+    )
     _validate_fixed_value("M0", None if M0_vary else M0_value, m0_bounds)
     _validate_fixed_value("D0", None if D0_vary else D0_value, d0_bounds)
     if args.model == "rest":
         _validate_fixed_value("tc", None if tc_vary else tc_value, tc_bounds)
+    if args.model == "nogse_free_grad_offset":
+        _validate_fixed_value("g0", None if g0_vary else g0_value, g0_bounds)
     _validate_log_bounds("D0", d0_bounds)
 
     # Normalize filters
@@ -249,8 +295,11 @@ def main() -> None:
         D0_vary=D0_vary,
         M0_value=M0_value,
         D0_value=D0_value,
+        g0_value=g0_value,
+        g0_vary=g0_vary,
         m0_bounds=m0_bounds,
         d0_bounds=d0_bounds,
+        g0_bounds=g0_bounds,
         source_file=args.contrast_parquet.name,
         analysis_id=analysis_id,
         tc_value=tc_value,

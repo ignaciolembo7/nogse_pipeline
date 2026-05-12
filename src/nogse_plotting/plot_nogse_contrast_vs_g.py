@@ -24,6 +24,8 @@ def fit_parameter_fragments(fit_row: dict[str, object]) -> list[str]:
         fragments.append(f"alpha={compact_float(fit_row.get('alpha'))}")
     if model == "rest" and "tc_ms" in fit_row:
         fragments.append(f"tc_ms={compact_float(fit_row.get('tc_ms'))}")
+    if model == "nogse_free_grad_offset" and "g0_mTm" in fit_row:
+        fragments.append(f"g0={compact_float(fit_row.get('g0_mTm'))} mT/m")
 
     if "M0" in fit_row:
         fragments.append(f"M0={compact_float(fit_row.get('M0'))}")

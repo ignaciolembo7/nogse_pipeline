@@ -68,6 +68,8 @@ def parameter_error_column(param_name: str) -> str:
         return "D0_err_mm2_s"
     if param_name == "tc_ms":
         return "tc_err_ms"
+    if param_name == "g0_mTm":
+        return "g0_err_mTm"
     return f"{param_name}_err"
 
 

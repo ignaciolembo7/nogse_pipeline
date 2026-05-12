@@ -24,6 +24,7 @@ from fitting.core import rmse as _rmse
 from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
 from models.model_fitting import (
     NOGSE_contrast_vs_g_free,
+    NOGSE_contrast_vs_g_free_grad_offset,
     NOGSE_contrast_vs_g_rest,
     NOGSE_contrast_vs_g_tort,
 )
@@ -153,6 +154,17 @@ def _eval_free(td_ms: float, G: np.ndarray, n_value: int, params: dict[str, Any]
     return NOGSE_contrast_vs_g_free(td_ms, G, n_value, float(params["M0"]), float(params["D0_m2_ms"]))
 
 
+def _eval_free_grad_offset(td_ms: float, G: np.ndarray, n_value: int, params: dict[str, Any]) -> np.ndarray:
+    return NOGSE_contrast_vs_g_free_grad_offset(
+        td_ms,
+        G,
+        n_value,
+        float(params["M0"]),
+        float(params["D0_m2_ms"]),
+        float(params["g0_mTm"]),
+    )
+
+
 def _eval_tort(td_ms: float, G: np.ndarray, n_value: int, params: dict[str, Any]) -> np.ndarray:
     return NOGSE_contrast_vs_g_tort(
         td_ms,
@@ -177,6 +189,11 @@ def _eval_rest(td_ms: float, G: np.ndarray, n_value: int, params: dict[str, Any]
 
 CONTRAST_MODEL_SPECS: dict[str, ContrastModelSpec] = {
     "free": ContrastModelSpec(name="free", evaluator=_eval_free, maxfev=400000),
+    "nogse_free_grad_offset": ContrastModelSpec(
+        name="nogse_free_grad_offset",
+        evaluator=_eval_free_grad_offset,
+        maxfev=600000,
+    ),
     "tort": ContrastModelSpec(name="tort", evaluator=_eval_tort, maxfev=600000),
     "rest": ContrastModelSpec(name="rest", evaluator=_eval_rest, maxfev=600000),
 }
@@ -440,6 +457,53 @@ def _fit_tort(
     )
 
 
+def _fit_free_grad_offset(
+    td: float,
+    G: np.ndarray,
+    n_value: int,
+    y: np.ndarray,
+    *,
+    M0_vary: bool,
+    D0_vary: bool,
+    g0_vary: bool,
+    M0_value: float,
+    D0_value: float,
+    g0_value: float,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
+    g0_bounds: tuple[float, float] | None = None,
+):
+    m0_lo, m0_hi = (0.0, 5.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
+    D_lo, D_hi = (float(D0_value / 10.0), float(D0_value * 10.0)) if d0_bounds is None else (
+        float(d0_bounds[0]),
+        float(d0_bounds[1]),
+    )
+    g0_lo, g0_hi = (-20.0, 20.0) if g0_bounds is None else (float(g0_bounds[0]), float(g0_bounds[1]))
+    fit = _fit_contrast_model(
+        CONTRAST_MODEL_SPECS["nogse_free_grad_offset"],
+        td,
+        G,
+        n_value,
+        y,
+        parameters=[
+            CurveFitParameter("M0", float(M0_value), m0_lo, m0_hi, bool(M0_vary)),
+            CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
+            CurveFitParameter("g0_mTm", float(g0_value), g0_lo, g0_hi, bool(g0_vary)),
+        ],
+    )
+    return (
+        float(fit.values["M0"]),
+        float(fit.values["D0_m2_ms"]),
+        float(fit.values["g0_mTm"]),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("M0_err", np.nan)) if M0_vary else None,
+        float(fit.errors.get("D0_err_m2_ms", np.nan)) if D0_vary else None,
+        float(fit.errors.get("g0_err_mTm", np.nan)) if g0_vary else None,
+    )
+
+
 def _best_tc_seed_rest(
     td: float,
     G: np.ndarray,
@@ -540,9 +604,12 @@ def _fit_selected_contrast_model(
     D0_value: float,
     tc_value: float,
     tc_vary: bool,
+    g0_value: float,
+    g0_vary: bool,
     m0_bounds: tuple[float, float] | None = None,
     d0_bounds: tuple[float, float] | None = None,
     tc_bounds: tuple[float, float] | None = None,
+    g0_bounds: tuple[float, float] | None = None,
 ) -> dict[str, float | str | None]:
     if model == "free":
         M0, D0, rmse, chi2, method, M0_err, D0_err = _fit_free(
@@ -562,6 +629,34 @@ def _fit_selected_contrast_model(
             "M0_err": None if M0_err is None else float(M0_err),
             "D0_m2_ms": float(D0),
             "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "rmse": float(rmse),
+            "chi2": float(chi2),
+            "method": str(method),
+        }
+
+    if model == "nogse_free_grad_offset":
+        M0, D0, g0, rmse, chi2, method, M0_err, D0_err, g0_err = _fit_free_grad_offset(
+            td,
+            G,
+            n_value,
+            y,
+            M0_vary=M0_vary,
+            D0_vary=D0_vary,
+            g0_vary=g0_vary,
+            M0_value=M0_value,
+            D0_value=D0_value,
+            g0_value=g0_value,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
+            g0_bounds=g0_bounds,
+        )
+        return {
+            "M0": float(M0),
+            "M0_err": None if M0_err is None else float(M0_err),
+            "D0_m2_ms": float(D0),
+            "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "g0_mTm": float(g0),
+            "g0_err_mTm": None if g0_err is None else float(g0_err),
             "rmse": float(rmse),
             "chi2": float(chi2),
             "method": str(method),
@@ -644,8 +739,11 @@ def fit_nogse_contrast_long(
     D0_vary: bool = True,
     M0_value: float = 1.0,
     D0_value: float = 2.3e-12,
+    g0_value: float = 0.0,
+    g0_vary: bool = False,
     m0_bounds: tuple[float, float] | None = None,
     d0_bounds: tuple[float, float] | None = None,
+    g0_bounds: tuple[float, float] | None = None,
     source_file: str | None = None,
     analysis_id: str | None = None,
     tc_value: float = 5.0,
@@ -911,9 +1009,12 @@ def fit_nogse_contrast_long(
                 D0_value=D0_value,
                 tc_value=tc_value,
                 tc_vary=tc_vary,
+                g0_value=g0_value,
+                g0_vary=g0_vary,
                 m0_bounds=m0_bounds,
                 d0_bounds=d0_bounds,
                 tc_bounds=tc_bounds,
+                g0_bounds=g0_bounds,
             )
             g2_max_raw = float(np.nanmax(G2_raw_arr)) if G2_raw_arr is not None and len(G2_raw_arr) else None
             g2_max_corr = float(np.nanmax(G2_corr)) if G2_corr is not None and len(G2_corr) else None
@@ -995,6 +1096,15 @@ def plot_nogse_contrast_fit_one_group(
 
     if model == "free" and bool(fit_row.get("ok", True)):
         ys = NOGSE_contrast_vs_g_free(td, Gs, n_value, float(fit_row["M0"]), float(fit_row["D0_m2_ms"]))
+    if model == "nogse_free_grad_offset" and bool(fit_row.get("ok", True)):
+        ys = NOGSE_contrast_vs_g_free_grad_offset(
+            td,
+            Gs,
+            n_value,
+            float(fit_row["M0"]),
+            float(fit_row["D0_m2_ms"]),
+            float(fit_row["g0_mTm"]),
+        )
     if model == "tort" and bool(fit_row.get("ok", True)):
         ys = NOGSE_contrast_vs_g_tort(
             td,
