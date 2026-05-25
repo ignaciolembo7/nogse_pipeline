@@ -7,9 +7,13 @@ from pathlib import Path
 import re
 import pandas as pd
 
-from data_processing.io import write_table_outputs
+from data_processing.io import fit_params_output_basename, write_table_outputs
 from fitting.contrast import make_contrast
+from fitting.experiments import experiment_models, validate_experiment_model
+from ogse_fitting.contrast import build_fitted_resampled_ogse_contrast
+from ogse_fitting.fit_ogse_signal_vs_g import VALID_G_TYPES
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
+from tools.fit_params_schema import standardize_fit_params
 from tools.strict_columns import find_unrecognized_column_names
 from tools.value_formatting import compact_unique_values, truthy_series
 
@@ -310,7 +314,68 @@ def main():
     ap.add_argument("--out_root", default="analysis/ogse_experiments/contrast", help="directory root")
     ap.add_argument("--exp", default=None, help="Override the sheet name used for naming only.")
     ap.add_argument("--oneg", action="store_true", help="Allow one-g-per-sequence inputs and compact sequence labels.")
+    ap.add_argument(
+        "--contrast-source",
+        choices=["direct", "fitted_resampled"],
+        default="direct",
+        help="Build contrasts by direct point subtraction, or by fitting each signal curve and subtracting both fits on a common gradient grid.",
+    )
+    ap.add_argument(
+        "--signal-model",
+        default="monoexp",
+        choices=sorted(experiment_models("ogse_signal_vs_g")),
+        help="OGSE signal model used when --contrast-source=fitted_resampled.",
+    )
+    ap.add_argument(
+        "--ycol",
+        default="value_norm",
+        choices=["value", "value_norm"],
+        help="Signal column fitted when --contrast-source=fitted_resampled.",
+    )
+    ap.add_argument(
+        "--g_type",
+        default="g",
+        choices=sorted(VALID_G_TYPES),
+        help="Gradient axis used for signal fitting and the common resampling grid when --contrast-source=fitted_resampled.",
+    )
+    ap.add_argument("--resample_grid_n", type=int, default=None, help="Number of points in the fitted/resampled common gradient grid. Defaults to the smaller input curve length.")
+    ap.add_argument("--resample_grid_min_mTm", type=float, default=None, help="Minimum common gradient in mT/m for fitted/resampled signal contrasts.")
+    ap.add_argument("--resample_grid_max_mTm", type=float, default=None, help="Maximum common gradient in mT/m for fitted/resampled signal contrasts.")
+    fit_group = ap.add_mutually_exclusive_group()
+    fit_group.add_argument("--fit_points", type=int, default=6, help="Fixed number of leading points used for each fitted/resampled signal fit.")
+    fit_group.add_argument("--auto_fit_points", action="store_true", help="Automatically choose the number of leading points for each fitted/resampled signal fit.")
+    ap.add_argument("--auto_fit_tol", type=float, default=0.05, help="Relative tolerance for --auto_fit_points.")
+    ap.add_argument("--auto_fit_err_floor", type=float, default=0.005, help="Absolute rmse_log floor for --auto_fit_points.")
+    ap.add_argument("--auto_fit_min_points", type=int, default=3, help="First k value tested by --auto_fit_points.")
+    ap.add_argument("--auto_fit_max_points", type=int, default=9, help="Last k value tested by --auto_fit_points.")
+    ap.add_argument("--gamma", type=float, default=267.5221900, help="Gyromagnetic ratio used when deriving b-values from gradients.")
+    ap.add_argument("--td_ms", type=float, default=None, help="Optional td_ms override for fitted/resampled signal fits.")
+    ap.add_argument("--delta_ms", type=float, default=None, help="Optional delta_ms override for fitted/resampled signal fits.")
+    ap.add_argument("--Delta_app_ms", type=float, default=None, help="Optional Delta_app_ms override for fitted/resampled signal fits.")
+    ap.add_argument("--D0_init", type=float, default=0.0023, help="Initial D0 seed in mm^2/s for fitted/resampled signal fits.")
+    ap.add_argument("--peak_D0_fix", type=float, default=3.2e-12, help="Fixed D0 in m^2/ms used to convert the resampled contrast peak into tc_peak_ms.")
+    ap.add_argument("--fix_M0", type=float, default=1.0, help="Fixed M0 value for fitted/resampled signal fits unless --free_M0 is used.")
+    ap.add_argument("--free_M0", action="store_true", help="Fit M0 for fitted/resampled signal fits instead of fixing it.")
     args = ap.parse_args()
+    validate_experiment_model("ogse_signal_vs_g", args.signal_model)
+
+    if args.resample_grid_n is not None and args.resample_grid_n <= 0:
+        raise ValueError("--resample_grid_n must be > 0.")
+    if (args.resample_grid_min_mTm is None) != (args.resample_grid_max_mTm is None):
+        raise ValueError("Pass both --resample_grid_min_mTm and --resample_grid_max_mTm, or neither.")
+    if args.resample_grid_min_mTm is not None and args.resample_grid_max_mTm is not None:
+        if float(args.resample_grid_max_mTm) <= float(args.resample_grid_min_mTm):
+            raise ValueError("--resample_grid_max_mTm must be greater than --resample_grid_min_mTm.")
+    if args.fit_points is not None and args.fit_points <= 0:
+        raise ValueError("--fit_points must be > 0.")
+    if args.auto_fit_tol < 0:
+        raise ValueError("--auto_fit_tol must be >= 0.")
+    if args.auto_fit_err_floor < 0:
+        raise ValueError("--auto_fit_err_floor must be >= 0.")
+    if args.auto_fit_min_points < 1:
+        raise ValueError("--auto_fit_min_points must be >= 1.")
+    if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
+        raise ValueError("--auto_fit_max_points must be >= --auto_fit_min_points.")
 
     directions = _normalize_direction_list(args.direction)
     subjs = args.subjs
@@ -341,6 +406,9 @@ def main():
 
     analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp, oneg=oneg_mode)
     old_analysis_id, _ = build_analysis_id_without_sequence(df_ref, df_cmp, directions, args.exp)
+    if args.contrast_source == "fitted_resampled":
+        source_tag = _sanitize(f"fitresamp-{args.signal_model}-{args.g_type}")
+        analysis_id = _sanitize(f"{analysis_id}_{source_tag}")[:160]
     sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
     subj = _one(df_ref, "subj", _one(df_cmp, "subj", infer_subj_label(sheet, source_name=analysis_id)))
 
@@ -348,23 +416,61 @@ def main():
         print(f"Skipped: {analysis_id} (subj={subj})")
         return
 
-    # Core contrast table: value/value_norm plus side-specific value_1/value_2 columns.
-    res = make_contrast(
-        df_ref,
-        df_cmp,
-        axes=tuple(directions) if directions else None,
-        y_col="value",
-        y_norm_col="value_norm",
-        key_cols=KEY_COLS,
-    )
-    out = res.df.copy()
+    signal_fit_params = pd.DataFrame()
+    contrast_peak_params = pd.DataFrame()
+    if args.contrast_source == "direct":
+        # Core contrast table: value/value_norm plus side-specific value_1/value_2 columns.
+        res = make_contrast(
+            df_ref,
+            df_cmp,
+            axes=tuple(directions) if directions else None,
+            y_col="value",
+            y_norm_col="value_norm",
+            key_cols=KEY_COLS,
+        )
+        out = res.df.copy()
+
+        _validate_input(out, "contrast_out")
+        out = _normalize_key_dtypes(out, "contrast_out")
+
+        # Carry all extra columns from ref and cmp.
+        out = _merge_side_columns(out, df_ref, side=1)
+        out = _merge_side_columns(out, df_cmp, side=2)
+    else:
+        res_fit = build_fitted_resampled_ogse_contrast(
+            df_ref,
+            df_cmp,
+            axes=tuple(directions) if directions else None,
+            ycol=args.ycol,
+            signal_model=args.signal_model,
+            g_type=args.g_type,
+            grid_n=args.resample_grid_n,
+            grid_min=args.resample_grid_min_mTm,
+            grid_max=args.resample_grid_max_mTm,
+            fit_points=None if args.auto_fit_points else args.fit_points,
+            auto_fit_points=bool(args.auto_fit_points),
+            auto_fit_min_points=int(args.auto_fit_min_points),
+            auto_fit_max_points=args.auto_fit_max_points,
+            auto_fit_rel_tol=float(args.auto_fit_tol),
+            auto_fit_err_floor=float(args.auto_fit_err_floor),
+            free_M0=bool(args.free_M0),
+            fix_M0=float(args.fix_M0),
+            D0_init=float(args.D0_init),
+            gamma=float(args.gamma),
+            peak_D0_fix=float(args.peak_D0_fix),
+            delta_ms=args.delta_ms,
+            Delta_app_ms=args.Delta_app_ms,
+            td_ms=args.td_ms,
+            key_cols=KEY_COLS,
+        )
+        out = res_fit.df.copy()
+        signal_fit_params = res_fit.signal_fit_params.copy()
+        contrast_peak_params = res_fit.contrast_peak_params.copy()
+        if out.empty:
+            raise ValueError("fitted_resampled contrast build produced no rows.")
 
     _validate_input(out, "contrast_out")
     out = _normalize_key_dtypes(out, "contrast_out")
-
-    # Carry all extra columns from ref and cmp
-    out = _merge_side_columns(out, df_ref, side=1)
-    out = _merge_side_columns(out, df_cmp, side=2)
 
     # Strict cleanup
     out = _drop_aux_prefixed_cols(out)
@@ -383,8 +489,33 @@ def main():
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
     write_table_outputs(out, out_parquet, xlsx_path=out_parquet.with_suffix(".xlsx"))
 
+    if args.contrast_source == "fitted_resampled" and not signal_fit_params.empty:
+        signal_fit_params["analysis_id"] = str(analysis_id)
+        signal_fit_params["sheet"] = sheet
+        signal_fit_params["subj"] = str(subj)
+        fit_params_parquet = tables_dir / f"{analysis_id}.signal_fit_params.parquet"
+        write_table_outputs(signal_fit_params, fit_params_parquet, xlsx_path=fit_params_parquet.with_suffix(".xlsx"))
+
+    if args.contrast_source == "fitted_resampled" and not contrast_peak_params.empty:
+        contrast_peak_params["analysis_id"] = str(analysis_id)
+        contrast_peak_params["sheet"] = sheet
+        contrast_peak_params["subj"] = str(subj)
+        contrast_peak_params = standardize_fit_params(
+            contrast_peak_params,
+            fit_kind="ogse_contrast",
+            source_file=Path(args.ref_parquet).name,
+        )
+        fit_params_name = fit_params_output_basename(
+            model=str(args.signal_model),
+            axis=str(args.g_type),
+            ycol=str(args.ycol),
+            directions=directions or None,
+        )
+        peak_params_parquet = tables_dir / f"{fit_params_name}.parquet"
+        write_table_outputs(contrast_peak_params, peak_params_parquet, xlsx_path=peak_params_parquet.with_suffix(".xlsx"))
+
     # Remove older duplicate outputs that used the pre-sequence naming scheme.
-    if old_analysis_id != analysis_id:
+    if args.contrast_source == "direct" and old_analysis_id != analysis_id:
         old_parquet = tables_dir / f"{old_analysis_id}.long.parquet"
         old_xlsx = old_parquet.with_suffix(".xlsx")
         for old_path in (old_parquet, old_xlsx):
