@@ -53,24 +53,24 @@ def nogse_image_params(method_path):
         DwUsedSliceThick = float(txt[start_idx + len("DwUsedSliceThick="):end_idx])
 
         PVM_Fov = []
-        with open(method_path, 'r') as archivo:
+        with open(method_path, 'r') as file_obj:
         # Set a flag indicating when values should be read
-            leyendo_valores = False
+            reading_values = False
 
             # Read the file line by line
-            for linea in archivo:
+            for line in file_obj:
                 # Search for the line containing the target field
-                if "PVM_Fov=" in linea:
+                if "PVM_Fov=" in line:
                     # Enable reading values from subsequent lines
-                    leyendo_valores = True
-                elif leyendo_valores:
+                    reading_values = True
+                elif reading_values:
                     # Extract values from the line after trimming whitespace
-                    valores_str = linea.strip().split()
+                    value_tokens = line.strip().split()
 
                     # Check whether the line contains only floating-point numbers
-                    if all(valor.replace(".", "", 1).isdigit() or (valor[0] == '-' and valor[1:].replace(".", "", 1).isdigit()) for valor in valores_str):
+                    if all(value.replace(".", "", 1).isdigit() or (value[0] == '-' and value[1:].replace(".", "", 1).isdigit()) for value in value_tokens):
                         # Convert values to floats and append them to the vector
-                        PVM_Fov.extend([float(valor) for valor in valores_str])
+                        PVM_Fov.extend([float(value) for value in value_tokens])
                     else:
                         # Stop reading when the line no longer contains floating-point values
                         break
@@ -78,24 +78,24 @@ def nogse_image_params(method_path):
         PVM_Fov = str(PVM_Fov[0]) + " mm" + " x " + str(PVM_Fov[1]) + " mm"
 
         PVM_SpatResol = []
-        with open(method_path, 'r') as archivo:
+        with open(method_path, 'r') as file_obj:
         # Set a flag indicating when values should be read
-            leyendo_valores = False
+            reading_values = False
 
             # Read the file line by line
-            for linea in archivo:
+            for line in file_obj:
                 # Search for the line containing the target field
-                if "PVM_SpatResol" in linea:
+                if "PVM_SpatResol" in line:
                     # Enable reading values from subsequent lines
-                    leyendo_valores = True
-                elif leyendo_valores:
+                    reading_values = True
+                elif reading_values:
                     # Extract values from the line after trimming whitespace
-                    valores_str = linea.strip().split()
+                    value_tokens = line.strip().split()
 
                     # Check whether the line contains only floating-point numbers
-                    if all(valor.replace(".", "", 1).isdigit() or (valor[0] == '-' and valor[1:].replace(".", "", 1).isdigit()) for valor in valores_str):
+                    if all(value.replace(".", "", 1).isdigit() or (value[0] == '-' and value[1:].replace(".", "", 1).isdigit()) for value in value_tokens):
                         # Convert values to floats and append them to the vector
-                        PVM_SpatResol.extend([float(valor) for valor in valores_str])
+                        PVM_SpatResol.extend([float(value) for value in value_tokens])
                     else:
                         # Stop reading when the line no longer contains floating-point values
                         break
@@ -103,24 +103,24 @@ def nogse_image_params(method_path):
         PVM_SpatResol = str(PVM_SpatResol[0]*1000) + " um" + " x " + str(PVM_SpatResol[1]*1000) + " um"
 
         PVM_Matrix = []
-        with open(method_path, 'r') as archivo:
+        with open(method_path, 'r') as file_obj:
         # Set a flag indicating when values should be read
-            leyendo_valores = False
+            reading_values = False
 
             # Read the file line by line
-            for linea in archivo:
+            for line in file_obj:
                 # Search for the line containing the target field
-                if "PVM_Matrix" in linea:
+                if "PVM_Matrix" in line:
                     # Enable reading values from subsequent lines
-                    leyendo_valores = True
-                elif leyendo_valores:
+                    reading_values = True
+                elif reading_values:
                     # Extract values from the line after trimming whitespace
-                    valores_str = linea.strip().split()
+                    value_tokens = line.strip().split()
 
                     # Check whether the line contains only floating-point numbers
-                    if all(valor.replace(".", "", 1).isdigit() or (valor[0] == '-' and valor[1:].replace(".", "", 1).isdigit()) for valor in valores_str):
+                    if all(value.replace(".", "", 1).isdigit() or (value[0] == '-' and value[1:].replace(".", "", 1).isdigit()) for value in value_tokens):
                         # Convert values to floats and append them to the vector
-                        PVM_Matrix.extend([float(valor) for valor in valores_str])
+                        PVM_Matrix.extend([float(value) for value in value_tokens])
                     else:
                         # Stop reading when the line no longer contains floating-point values
                         break

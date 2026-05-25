@@ -36,12 +36,12 @@ def ffloat(x: float) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv_path", help="Results.csv")
-    ap.add_argument("--out_dir", default="Results_converted", help="Carpeta destino")
-    ap.add_argument("--exp", default="CSVSET", help="Prefijo/experimento (ej 20230619_BRAIN-3)")
+    ap.add_argument("--out_dir", default="Results_converted", help="Destination folder.")
+    ap.add_argument("--exp", default="CSVSET", help="Prefix/experiment, for example 20230619_BRAIN-3.")
     ap.add_argument("--Hz", type=float, default=0.0)
     ap.add_argument("--delta_ms", type=float, default=10.0)
     ap.add_argument("--deltas", default=",".join(str(x) for x in DEFAULT_DELTAS),
-                    help="Lista Delta_app (ms) separada por coma, ej: 36,42,48,...,89.6")
+                    help="Comma-separated Delta_app (ms) list, for example: 36,42,48,...,89.6")
     ap.add_argument("--ndirs", type=int, default=3)
     ap.add_argument("--nbvals", type=int, default=10)
     args = ap.parse_args()
@@ -67,8 +67,8 @@ def main():
     rows_per_block = len(BVALUES_32)
     if len(df) != rows_per_block * len(deltas):
         raise ValueError(
-            f"Rowcount no coincide: tengo {len(df)} filas, esperaba {rows_per_block*len(deltas)} "
-            f"({len(deltas)} bloques × {rows_per_block} filas)."
+            f"Row count mismatch: got {len(df)} rows, expected {rows_per_block*len(deltas)} "
+            f"({len(deltas)} blocks x {rows_per_block} rows)."
         )
 
     # bmax used for naming (rounded pattern maximum).

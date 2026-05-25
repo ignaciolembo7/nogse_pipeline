@@ -112,7 +112,7 @@ def _build_dproj_row(
 
 
 def design_matrix(n_dirs: np.ndarray) -> np.ndarray:
-    """A @ d = y, con d = [Dxx, Dyy, Dzz, Dxy, Dxz, Dyz]."""
+    """A @ d = y, with d = [Dxx, Dyy, Dzz, Dxy, Dxz, Dyz]."""
     nx, ny, nz = n_dirs[:, 0], n_dirs[:, 1], n_dirs[:, 2]
     A = np.stack([nx * nx, ny * ny, nz * nz, 2 * nx * ny, 2 * nx * nz, 2 * ny * nz], axis=1)
     return A
@@ -139,12 +139,12 @@ def fit_tensor_from_signals(
     eps: float = 1e-12,
 ) -> np.ndarray:
     """
-    Ajusta tensor D desde señales normalizadas (S/S0) por direction:
+    Fit tensor D from normalized signals (S/S0) by direction:
       -log(S/S0)/b = n^T D n
     """
     s_norm = np.asarray(s_norm, dtype=float)
     if np.any(~np.isfinite(s_norm)):
-        raise ValueError("s_norm contiene NaN/inf")
+        raise ValueError("s_norm contains NaN/inf")
 
     s_clip = np.clip(s_norm, eps, None)
     y = -np.log(s_clip) / float(b)
@@ -183,12 +183,12 @@ def rotate_signals_tensor(
     dirs_file: str | Path | None = None,
 ) -> RotResult:
     """
-    Toma el long DF de 1 archivo y produce:
-      1) señales rotadas con el mismo formato limpio que process_one_results
-      2) una tabla D_proj por eje rotado
+    Take one long-format file DataFrame and produce:
+      1) rotated signals with the same clean format as process_one_results
+      2) one D_proj table by rotated axis
     """
     if b_col != "bvalue":
-        raise ValueError("rotate_signals_tensor espera tablas limpias y usa b_col='bvalue'.")
+        raise ValueError("rotate_signals_tensor expects clean tables and uses b_col='bvalue'.")
 
     clean = finalize_clean_signal_long(df_long)
     gradient_axis_kind = _unique_str_from_aliases(clean, ["gradient_axis_kind"])
@@ -206,7 +206,7 @@ def rotate_signals_tensor(
 
     dfa = clean[clean["stat"] == stat_avg].copy()
     if dfa.empty:
-        raise ValueError(f"No hay filas con stat='{stat_avg}'.")
+        raise ValueError(f"No rows found with stat='{stat_avg}'.")
 
     Nval = _unique_scalar_from_aliases(dfa, ["N"], cast=int)
     delta_ms = _unique_scalar_from_aliases(dfa, ["delta_ms"], cast=float)
@@ -228,12 +228,12 @@ def rotate_signals_tensor(
         d_roi = d_roi.sort_values(["direction", "b_step"], kind="stable")
         d_b0 = d_roi[pd.to_numeric(d_roi["b_step"], errors="coerce") == 0].copy()
         if d_b0.empty:
-            raise ValueError(f"ROI={roi}: no encontré b_step==0 (S0).")
+            raise ValueError(f"ROI={roi}: b_step==0 (S0) was not found.")
 
         dir1_b0 = d_b0[d_b0["direction"] == 1]
         if s0_mode == "dir1":
             if dir1_b0.empty:
-                raise ValueError(f"ROI={roi}: no encontré direction==1 en b0 para s0_mode='dir1'.")
+                raise ValueError(f"ROI={roi}: direction==1 was not found in b0 for s0_mode='dir1'.")
             b0_template = dir1_b0.iloc[0].copy()
             S0 = float(pd.to_numeric(dir1_b0["value"], errors="coerce").iloc[0])
         elif s0_mode == "mean":
@@ -244,7 +244,7 @@ def rotate_signals_tensor(
 
         d_dir1_nz = d_roi[(d_roi["direction"] == 1) & (pd.to_numeric(d_roi["b_step"], errors="coerce") > 0)].copy()
         if d_dir1_nz.empty:
-            raise ValueError(f"ROI={roi}: no hay datos dir1 con b_step>0 para calcular rotación.")
+            raise ValueError(f"ROI={roi}: no dir1 data with b_step>0 was found for rotation.")
 
         max_step = int(pd.to_numeric(d_dir1_nz["b_step"], errors="coerce").max())
         idx_maxb = pd.to_numeric(d_dir1_nz["bvalue"], errors="coerce").idxmax()
@@ -275,11 +275,11 @@ def rotate_signals_tensor(
         for b_step, d_bs in d_roi[pd.to_numeric(d_roi["b_step"], errors="coerce") > 0].groupby("b_step", sort=False):
             d_bs = d_bs.sort_values("direction", kind="stable")
             if len(d_bs) != ndirs:
-                raise ValueError(f"ROI={roi}, b_step={b_step}: esperaba {ndirs} dirs, tengo {len(d_bs)}.")
+                raise ValueError(f"ROI={roi}, b_step={b_step}: expected {ndirs} dirs, got {len(d_bs)}.")
 
             dir1_rows = d_bs[d_bs["direction"] == 1]
             if dir1_rows.empty:
-                raise ValueError(f"ROI={roi}, b_step={b_step}: no encontré direction==1.")
+                raise ValueError(f"ROI={roi}, b_step={b_step}: direction==1 was not found.")
             template = dir1_rows.iloc[0].copy()
 
             g_dir1 = _first_finite(dir1_rows["g"]) if "g" in dir1_rows.columns else np.nan
@@ -326,15 +326,15 @@ def rotate_signals_tensor(
 
             if g_type == "g":
                 if not np.isfinite(bvalue_g):
-                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g' pero falta bvalue_g.")
+                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g' but bvalue_g is missing.")
                 b_fit = bvalue_g
             elif g_type == "g_thorsten":
                 if not np.isfinite(bvalue_thorsten):
-                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g_thorsten' pero falta bvalue_thorsten.")
+                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g_thorsten' but bvalue_thorsten is missing.")
                 b_fit = bvalue_thorsten
             else:
                 if not np.isfinite(bvalue_g_lin_max):
-                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g_lin_max' pero falta bvalue_g_lin_max.")
+                    raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g_lin_max' but bvalue_g_lin_max is missing.")
                 b_fit = bvalue_g_lin_max
 
             s = pd.to_numeric(d_bs["value"], errors="coerce").to_numpy(dtype=float)
