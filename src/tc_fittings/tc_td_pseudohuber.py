@@ -246,8 +246,8 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
 # ---------------------------
 # Block helpers
 # ---------------------------
-def _region2color(regiones: list[str], palette: list[str]) -> Dict[str, str]:
-    return {r: palette[i % len(palette)] for i, r in enumerate(regiones)}
+def _region2color(regions: list[str], palette: list[str]) -> Dict[str, str]:
+    return {r: palette[i % len(palette)] for i, r in enumerate(regions)}
 
 def _shade(color: str, factor: float):
     import matplotlib.colors as mcolors
@@ -323,12 +323,12 @@ def fit_tc_vs_td_pseudohuber(
 
     _ensure_required_cols(df, ["td_ms", y_col], "fit_tc_vs_td_pseudohuber")
 
-    regiones = [r.replace("_norm","") for r in cfg_regions if r.replace("_norm","") in df["roi"].unique()]
-    if not regiones:
-        regiones = sorted(df["roi"].unique())
+    regions = [r.replace("_norm","") for r in cfg_regions if r.replace("_norm","") in df["roi"].unique()]
+    if not regions:
+        regions = sorted(df["roi"].unique())
 
     subjs = sorted(df["subj"].unique())
-    region2color = _region2color(regiones, palette)
+    region2color = _region2color(regions, palette)
     markers = _markers_for_subjs(subjs)
 
     rows = []
@@ -348,7 +348,7 @@ def fit_tc_vs_td_pseudohuber(
         df_dir = df[df["direction"] == dir_actual]
 
         for subj in subjs:
-            for region in regiones:
+            for region in regions:
                 sub = df_dir[(df_dir["subj"] == subj) & (df_dir["roi"] == region)].sort_values("td_ms")
                 if sub.empty:
                     continue
@@ -554,14 +554,14 @@ def fit_tc_vs_td_pseudohuber(
                 })
 
         # Plot regions as a grid for this direction.
-        if len(regiones) == 0:
+        if len(regions) == 0:
             continue
 
-        nrows, ncols = _make_grid(len(regiones), ncols=3)
+        nrows, ncols = _make_grid(len(regions), ncols=3)
         fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 4.6*nrows), sharex=True, sharey=False)
         axes = np.array(axes).reshape(-1)
 
-        for ax, region in zip(axes, regiones):
+        for ax, region in zip(axes, regions):
             base_color = region2color.get(region, "#1f77b4")
             any_line = False
 
@@ -603,7 +603,7 @@ def fit_tc_vs_td_pseudohuber(
                 ax.legend(fontsize=9)
 
         # Clear empty axes when there are more axes than regions.
-        for ax in axes[len(regiones):]:
+        for ax in axes[len(regions):]:
             ax.axis("off")
 
         plt.suptitle(f"PseudoHuber model fit | y={y_col} | dir={dir_actual} | mode={mode} | k_last={k_last}", fontsize=18)
@@ -642,9 +642,9 @@ def block2_region_plots(
     df_fit = _ensure_direction(df_fit)
     df_fit = _ensure_sqrt_q_cols(df_fit)
 
-    regiones = [r.replace("_norm","") for r in cfg_regions if r.replace("_norm","") in df_fit["roi"].unique()]
-    if not regiones:
-        regiones = sorted(df_fit["roi"].unique())
+    regions = [r.replace("_norm","") for r in cfg_regions if r.replace("_norm","") in df_fit["roi"].unique()]
+    if not regions:
+        regions = sorted(df_fit["roi"].unique())
 
     subjs = sorted(df_fit["subj"].unique())
     dirs = _directions_present(df_fit)
@@ -656,10 +656,10 @@ def block2_region_plots(
 
             for subj in subjs:
                 sub = df_fit[(df_fit["direction"] == dir_actual) & (df_fit["subj"] == subj)]
-                xs = np.arange(len(regiones))
+                xs = np.arange(len(regions))
 
                 ys, es = [], []
-                for r in regiones:
+                for r in regions:
                     row = sub[sub["roi"] == r]
                     if row.empty:
                         ys.append(np.nan); es.append(0.0)
@@ -674,8 +674,8 @@ def block2_region_plots(
                     ax.fill_between(xs, ys-es, ys+es, alpha=0.2)
                 any_line = True
 
-            ax.set_xticks(np.arange(len(regiones)))
-            ax.set_xticklabels(regiones, rotation=45, ha="right")
+            ax.set_xticks(np.arange(len(regions)))
+            ax.set_xticklabels(regions, rotation=45, ha="right")
             ax.set_title(f"{title} | dir={dir_actual}", fontsize=16)
             ax.grid(True)
             if any_line:
@@ -746,7 +746,7 @@ def block2b_cc_vars_long_tra_sameY(
     df_fit: pd.DataFrame,
     out_dir: Path,
     cfg_regions: list[str],
-    palette: list[str],  # mantenemos API
+    palette: list[str],  # Keep API compatibility.
     *,
     show_errorbars: bool = True,
     tag: str | None = None,
@@ -756,7 +756,7 @@ def block2b_cc_vars_long_tra_sameY(
     Generic comparative plot by direction:
     - Previously: 2 columns (long/tra)
     - Now: 1xN columns for every available direction, ordering long/tra first when present.
-    - Misma escala Y por fila (sharey='row')
+    - Same Y scale by row (sharey='row')
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -766,10 +766,10 @@ def block2b_cc_vars_long_tra_sameY(
     df_fit = _ensure_A_se(df_fit)
     df_fit = _ensure_sqrt_q_cols(df_fit)
 
-    regiones = [r.replace("_norm", "") for r in cfg_regions]
-    regiones = [r for r in regiones if r in df_fit["roi"].unique()]
-    if not regiones:
-        regiones = sorted(df_fit["roi"].unique())
+    regions = [r.replace("_norm", "") for r in cfg_regions]
+    regions = [r for r in regions if r in df_fit["roi"].unique()]
+    if not regions:
+        regions = sorted(df_fit["roi"].unique())
 
     subjs = sorted(df_fit["subj"].unique())
     markers = _markers_for_subjs(subjs)
@@ -779,7 +779,7 @@ def block2b_cc_vars_long_tra_sameY(
         print("[INFO] var-grid plot: no directions found -> skip.")
         return
 
-    x = np.arange(len(regiones))
+    x = np.arange(len(regions))
 
     specs = [
         ("q_quad", "q_quad_se", r"$q=\alpha_{macro}/(2\delta)$"),
@@ -811,8 +811,8 @@ def block2b_cc_vars_long_tra_sameY(
             any_line = False
 
             for subj in subjs:
-                sub = df_dir[df_dir["subj"] == subj].set_index("roi").reindex(regiones)
-                y = sub[var].to_numpy(dtype=float) if var in sub.columns else np.full(len(regiones), np.nan)
+                sub = df_dir[df_dir["subj"] == subj].set_index("roi").reindex(regions)
+                y = sub[var].to_numpy(dtype=float) if var in sub.columns else np.full(len(regions), np.nan)
                 if err in sub.columns:
                     e = sub[err].to_numpy(dtype=float)
                 else:
@@ -846,7 +846,7 @@ def block2b_cc_vars_long_tra_sameY(
     # X ticks only on the bottom row.
     for ax in axes[-1, :]:
         ax.set_xticks(x)
-        ax.set_xticklabels(regiones, rotation=25, ha="right", fontsize=10)
+        ax.set_xticklabels(regions, rotation=25, ha="right", fontsize=10)
 
     # Set row-wise Y limits using all points.
     def _set_row_ylim(row_idx: int, var: str, err: str):
@@ -877,7 +877,7 @@ def block2b_cc_vars_long_tra_sameY(
         dirs_tag = "_".join(directions)
         fname = f"vars_sameY_dirs={dirs_tag}_{tag}.png"
 
-    fig.suptitle("Pseudo-Huber: q (Taylor), $\\alpha_{macro}$, $\\delta$, A, c, $\\sqrt{q}$ vs regiones", fontsize=14)
+    fig.suptitle("Pseudo-Huber: q (Taylor), $\\alpha_{macro}$, $\\delta$, A, c, $\\sqrt{q}$ vs regions", fontsize=14)
     plt.tight_layout(rect=[0, 0.02, 1, 0.95])
     plt.savefig(out_dir / fname, dpi=300)
     plt.close()
@@ -913,8 +913,8 @@ def block3_alpha_macro_summary_vs_fit(
         print("[INFO] No overlap between pseudo-huber fits and summary alpha_macro -> skipping summary-vs-fit plot.")
         return
 
-    regiones = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
-    region2color = _region2color(regiones, palette)
+    regions = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
+    region2color = _region2color(regions, palette)
 
     volunteers = sorted(dfm["subj"].unique())
     markers = _markers_for_subjs(volunteers)
@@ -989,16 +989,16 @@ def block1b_alpha_vs_Td(
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
+    regions = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
 
     for dir_actual in directions:
         # grid adaptable
-        nrows, ncols = _make_grid(len(regiones), ncols=3)
+        nrows, ncols = _make_grid(len(regions), ncols=3)
         fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 4.6*nrows), sharex=True)
         axes = np.array(axes).reshape(-1)
 
-        for ax, region in zip(axes, regiones):
+        for ax, region in zip(axes, regions):
             any_line = False
             for subj in subjs:
                 sub_data = df_params[
@@ -1040,7 +1040,7 @@ def block1b_alpha_vs_Td(
             if any_line:
                 ax.legend(fontsize=9)
 
-        for ax in axes[len(regiones):]:
+        for ax in axes[len(regions):]:
             ax.axis("off")
 
         plt.suptitle(f"alpha(Td) + small-Td limit | dir={dir_actual}", fontsize=16)
@@ -1066,15 +1066,15 @@ def block1c_smallTd_tc_approx(
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
+    regions = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
 
     for dir_actual in directions:
-        nrows, ncols = _make_grid(len(regiones), ncols=3)
+        nrows, ncols = _make_grid(len(regions), ncols=3)
         fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 4.6*nrows), sharex=True)
         axes = np.array(axes).reshape(-1)
 
-        for ax, region in zip(axes, regiones):
+        for ax, region in zip(axes, regions):
             any_line = False
             for subj in subjs:
                 sub_data = df_params[
@@ -1118,7 +1118,7 @@ def block1c_smallTd_tc_approx(
             if any_line:
                 ax.legend(fontsize=9)
 
-        for ax in axes[len(regiones):]:
+        for ax in axes[len(regions):]:
             ax.axis("off")
 
         plt.suptitle(f"{y_col}(Td) vs small-Td quadratic approximation | dir={dir_actual}", fontsize=16)
@@ -1147,18 +1147,18 @@ def block1d_fullrange_tc_with_approximations(
     df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit.copy())))
 
     subjs = sorted(df_fit["subj"].unique())
-    regiones = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
+    regions = _ordered_regions(region_order, df_fit["roi"].astype(str).unique().tolist())
     directions = _directions_present(df_fit)
     xx = np.linspace(float(td_min_ms), float(td_max_ms), int(n_points))
 
     curve_rows = []
 
     for dir_actual in directions:
-        nrows, ncols = _make_grid(len(regiones), ncols=3)
+        nrows, ncols = _make_grid(len(regions), ncols=3)
         fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 4.8*nrows), sharex=True)
         axes = np.array(axes).reshape(-1)
 
-        for ax, region in zip(axes, regiones):
+        for ax, region in zip(axes, regions):
             any_line = False
             for subj in subjs:
                 sub_data = df_params[
@@ -1250,7 +1250,7 @@ def block1d_fullrange_tc_with_approximations(
             if any_line:
                 ax.legend(fontsize=8)
 
-        for ax in axes[len(regiones):]:
+        for ax in axes[len(regions):]:
             ax.axis("off")
 
         plt.suptitle(
@@ -1301,8 +1301,8 @@ def block4_qquad_vs_alpha_macro(
         print("[INFO] No overlap between pseudo-huber and summary -> skipping q-vs-alpha plot.")
         return
 
-    regiones = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
-    region2color = _region2color(regiones, palette)
+    regions = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
+    region2color = _region2color(regions, palette)
 
     volunteers = sorted(dfm["subj"].unique())
     markers = _markers_for_subjs(volunteers)
@@ -1356,4 +1356,92 @@ def block4_qquad_vs_alpha_macro(
     plt.suptitle(f"q vs alpha_macro | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig(out_dir / f"q_vs_alpha_macro_{method_tag}.png", dpi=400)
+    plt.close()
+
+
+def block4_delta_vs_alpha_macro(
+    df_fit: pd.DataFrame,
+    out_dir: Path,
+    alpha_macro_df: pd.DataFrame,
+    palette: list[str],
+    method_tag: str,
+    region_order: list[str] | None = None,
+) -> None:
+    import matplotlib.colors as mcolors
+    from matplotlib.lines import Line2D
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit)))
+    alpha_macro_df = _ensure_subj(_ensure_direction(alpha_macro_df))
+    alpha_summary = alpha_macro_df.rename(
+        columns={
+            "alpha_macro": "alpha_macro_summary",
+            "alpha_macro_error": "alpha_macro_summary_error",
+        }
+    )
+
+    dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
+    if dfm.empty:
+        print("[INFO] No overlap between pseudo-huber and summary -> skipping delta-vs-alpha plot.")
+        return
+    if "delta" not in dfm.columns:
+        print("[INFO] pseudo-huber fit table has no delta column -> skipping delta-vs-alpha plot.")
+        return
+
+    regions = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
+    region2color = _region2color(regions, palette)
+
+    volunteers = sorted(dfm["subj"].unique())
+    markers = _markers_for_subjs(volunteers)
+
+    directions = _directions_present(dfm)
+    ncols = len(directions)
+    fig, axes = plt.subplots(1, ncols, figsize=(6*ncols, 6), sharey=True)
+
+    if ncols == 1:
+        axes = [axes]
+
+    for i, dir_actual in enumerate(directions):
+        ax = axes[i]
+        sub = dfm[dfm["direction"] == dir_actual]
+
+        vpos = {v: j for j, v in enumerate(volunteers)}
+        n = max(1, len(volunteers))
+
+        for _, row in sub.iterrows():
+            v = row["subj"]
+            region = row["roi"]
+
+            fade = vpos[v] / (n - 1) if n > 1 else 0.5
+            base = region2color.get(region, "#000000")
+            rgba = (*mcolors.to_rgb(base), 0.35 + 0.65 * (1 - fade))
+
+            x = float(row["alpha_macro_summary"])
+            y = float(row["delta"])
+
+            ax.plot(x, y, linestyle="None", marker=markers[v], markersize=9,
+                    markerfacecolor=rgba, markeredgecolor=rgba)
+
+            ax.text(
+                x, y, region,
+                fontsize=8, color="black", ha="left", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.15", facecolor=rgba, edgecolor="none", alpha=0.25),
+            )
+
+        ax.set_xlabel(r"$\alpha_{macro}$ summary", fontsize=16)
+        if i == 0:
+            ax.set_ylabel(r"$\delta$ [ms]", fontsize=16)
+        ax.set_title(f"dir={dir_actual}", fontsize=14)
+        ax.grid(True)
+
+        handles = [
+            Line2D([0], [0], marker=markers[v], linestyle="None", color="black", label=v, markersize=9)
+            for v in volunteers
+        ]
+        ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
+
+    plt.suptitle(f"delta vs alpha_macro | {method_tag}", fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(out_dir / f"delta_vs_alpha_macro_{method_tag}.png", dpi=400)
     plt.close()

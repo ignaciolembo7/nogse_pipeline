@@ -18,6 +18,7 @@ YCOL_LABELS = {
     "tc_ms": r"$t_c$ [ms]",
     "tc_fit_ms": r"$t_{c,fit}$ [ms]",
     "tc_peak_ms": r"$t_{c,peak}$ [ms]",
+    "tc_peak_resampled_ms": r"$t_{c,peak,resampled}$ [ms]",
     "signal_peak": "Peak amplitude",
 }
 
@@ -25,6 +26,8 @@ YCOL_LABELS = {
 def _tc_vs_td_dirname(y_col: str) -> str:
     if y_col == "tc_peak_ms":
         return "tcpeak_vs_td"
+    if y_col == "tc_peak_resampled_ms":
+        return "tcpeak_resampled_vs_td"
     if y_col in {"tc_ms", "tc_fit_ms"}:
         return "tcfit_vs_td"
     return f"{y_col}_vs_td"
@@ -65,7 +68,7 @@ def _parse_exclude_match(spec: str) -> dict[str, object]:
     raise ValueError(
         "Invalid --exclude-match format. Use 'roi|direction', "
         "'subj|roi|direction', 'roi|direction|td_ms' "
-        "o 'subj|roi|direction|td_ms'."
+        "or 'subj|roi|direction|td_ms'."
     )
 
 
@@ -92,9 +95,8 @@ def _normalize_name_list(values: list[str] | None) -> list[str] | None:
 
 
 def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
-    groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
-    if groupfits_path is not None:
-        path = Path(groupfits_path)
+    if args.groupfits is not None:
+        path = Path(args.groupfits)
         if not path.exists():
             raise FileNotFoundError(path)
         if path.suffix.lower() == ".parquet":
@@ -106,7 +108,7 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
         df = canonicalize_contrast_fit_params(df)
     else:
         if not args.fits:
-            raise ValueError("Pass --groupfits/--globalfit or at least one root/file via --fits.")
+            raise ValueError("Pass --groupfits or at least one root/file via --fits.")
         df = load_contrast_fit_params(
             args.fits,
             pattern=args.pattern,
@@ -153,12 +155,12 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
         df = df.loc[keep].copy()
 
     if args.y_col not in df.columns:
-        raise KeyError(f"No existe y_col={args.y_col!r} en la tabla combinada.")
+        raise KeyError(f"y_col={args.y_col!r} does not exist in the combined table.")
 
     df[args.y_col] = pd.to_numeric(df[args.y_col], errors="coerce")
     df = df[df[args.y_col].notna()].copy()
     if df.empty:
-        raise ValueError(f"No quedó data válida para y_col={args.y_col!r}.")
+        raise ValueError(f"No valid data remained for y_col={args.y_col!r}.")
     return df
 
 
@@ -167,24 +169,23 @@ def main() -> None:
     ap.add_argument("--method", required=True, choices=sorted(METHODS.keys()))
     ap.add_argument("--k-last", type=int, default=None, help="Use the last K points. Defaults to the method setting.")
     ap.add_argument("--groupfits", default=None, help="Already-combined groupfits table (xlsx/csv/parquet).")
-    ap.add_argument("--globalfit", default=None, help="Deprecated alias for --groupfits.")
-    ap.add_argument("--fits", nargs="*", default=None, help="Raíces o archivos fit_params para cargar directamente.")
-    ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo si se usa --fits con directorios.")
+    ap.add_argument("--fits", nargs="*", default=None, help="fit_params roots or files to load directly.")
+    ap.add_argument("--pattern", default="**/fit_params.*", help="Relative glob used when --fits contains directories.")
     ap.add_argument("--models", nargs="+", default=None, help="Filter contrast models.")
-    ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
-    ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
-    ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Filter subjects/phantoms.")
+    ap.add_argument("--directions", nargs="+", default=None, help="Filter directions.")
+    ap.add_argument("--rois", nargs="+", default=None, help="Filter ROIs.")
     ap.add_argument("--y-col", default="tc_peak_ms", help="Column to fit vs td_ms, for example tc_peak_ms or tc_fit_ms.")
-    ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="Lista de td_ms a excluir del ajuste. Ej: --exclude-td-ms 209.1")
+    ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="td_ms values to exclude from the fit. Example: --exclude-td-ms 209.1")
     ap.add_argument(
         "--exclude-match",
         nargs="*",
         default=None,
         help="Exclude specific rows. Format: roi|direction, subj|roi|direction, roi|direction|td_ms, or subj|roi|direction|td_ms.",
     )
-    ap.add_argument("--no-errorbars", action="store_true", help="Si se pasa, los plots de pseudohuber se generan sin barras/bandas de error.")
-    ap.add_argument("--td-min-ms", type=float, default=0.0, help="Límite inferior del eje Td para los plots.")
-    ap.add_argument("--td-max-ms", type=float, default=2000.0, help="Límite superior del eje Td para los plots.")
+    ap.add_argument("--no-errorbars", action="store_true", help="Generate pseudohuber plots without error bars/bands.")
+    ap.add_argument("--td-min-ms", type=float, default=0.0, help="Lower Td-axis limit for plots.")
+    ap.add_argument("--td-max-ms", type=float, default=2000.0, help="Upper Td-axis limit for plots.")
     ap.add_argument("--c-fixed", type=float, default=None, help="Fix c instead of fitting it.")
     ap.add_argument("--c-min", type=float, default=0.0, help="Lower bound for c when fitted.")
     ap.add_argument("--c-max", type=float, default=float("inf"), help="Upper bound for c when fitted.")
@@ -192,10 +193,10 @@ def main() -> None:
     ap.add_argument("--delta-min", type=float, default=1e-6, help="Lower bound for delta [ms] when fitted.")
     ap.add_argument("--delta-max", type=float, default=float("inf"), help="Upper bound for delta [ms] when fitted.")
     ap.add_argument("--alpha-macro-fixed", type=float, default=None, help="Fix alpha_macro in pseudohuber_free.")
-    ap.add_argument("--alpha-macro-min", type=float, default=0.1, help="Límite inferior para alpha_macro en pseudohuber_free.")
-    ap.add_argument("--alpha-macro-max", type=float, default=0.3, help="Límite superior para alpha_macro en pseudohuber_free.")
-    ap.add_argument("--summary-alpha", default=None, help="Ruta a summary_alpha_values.xlsx. Si no, no se usa salvo que el método lo requiera.")
-    ap.add_argument("--out-dir", default=None, help="Directorio de salida. Si no, se arma a partir del input.")
+    ap.add_argument("--alpha-macro-min", type=float, default=0.1, help="Lower alpha_macro bound for pseudohuber_free.")
+    ap.add_argument("--alpha-macro-max", type=float, default=0.3, help="Upper alpha_macro bound for pseudohuber_free.")
+    ap.add_argument("--summary-alpha", default=None, help="Path to summary_alpha_values.xlsx. Optional unless required by the method.")
+    ap.add_argument("--out-dir", default=None, help="Output directory. Defaults to a path derived from the input.")
     args = ap.parse_args()
     args.subjs = _normalize_name_list(args.subjs)
     args.directions = _normalize_name_list(args.directions)
@@ -220,15 +221,14 @@ def main() -> None:
             roi_norm = alpha_macro_df["roi"].astype(str).str.replace("_norm", "", regex=False).str.strip()
             alpha_macro_df = alpha_macro_df[roi_norm.isin(target_rois)].copy()
     elif spec.needs_alpha_macro:
-        raise FileNotFoundError(f"{args.method} requiere --summary-alpha con summary_alpha_values.xlsx")
+        raise FileNotFoundError(f"{args.method} requires --summary-alpha with summary_alpha_values.xlsx")
 
     if args.out_dir is not None:
         out_dir = Path(args.out_dir)
     else:
         tc_dirname = _tc_vs_td_dirname(args.y_col)
-        groupfits_path = args.groupfits if args.groupfits is not None else args.globalfit
-        if groupfits_path is not None:
-            out_dir = Path(groupfits_path).resolve().parent / tc_dirname / args.method # / args.y_col
+        if args.groupfits is not None:
+            out_dir = Path(args.groupfits).resolve().parent / tc_dirname / args.method # / args.y_col
         else:
             first = Path(args.fits[0]).resolve()
             out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method # / args.y_col

@@ -44,7 +44,7 @@ def _select_bvalue_and_bstep(
     group_label: str,
 ) -> tuple[float, int]:
     if len(bvalues) == 0:
-        raise ValueError(f"No hay bvalues disponibles para {group_label}.")
+        raise ValueError(f"No bvalues available for {group_label}.")
     if selected_bstep is not None and selected_bstep < 1:
         raise ValueError("selected_bstep must be >= 1.")
 
@@ -87,12 +87,12 @@ def parse_direction_aliases(items: Sequence[str] | None) -> dict[str, str]:
         return aliases
     for raw in items:
         if "=" not in raw:
-            raise ValueError(f"Alias inválido {raw!r}. Usá formato origen=destino, por ejemplo x=long.")
+            raise ValueError(f"Invalid alias {raw!r}. Use source=target format, for example x=long.")
         source, target = raw.split("=", 1)
         source = source.strip()
         target = target.strip()
         if not source or not target:
-            raise ValueError(f"Alias inválido {raw!r}. Usá formato origen=destino.")
+            raise ValueError(f"Invalid alias {raw!r}. Use source=target format.")
         aliases[source] = target
     return aliases
 
@@ -109,7 +109,7 @@ def load_dproj_measurements(
     bvalue_decimals: int = 1,
 ) -> pd.DataFrame:
     if N is not None and Hz is not None:
-        raise ValueError("Elegí solo uno entre N y Hz para filtrar.")
+        raise ValueError("Choose only one of N and Hz for filtering.")
 
     subj_set = {str(x) for x in subjs} if subjs is not None else None
     roi_set = {str(x) for x in rois} if rois is not None else None
@@ -158,8 +158,8 @@ def load_dproj_measurements(
         frames.append(out)
 
     if not frames:
-        selector = f"N={N}" if N is not None else (f"Hz={Hz}" if Hz is not None else "sin filtro N/Hz")
-        raise ValueError(f"No quedó data luego de filtrar ({selector}).")
+        selector = f"N={N}" if N is not None else (f"Hz={Hz}" if Hz is not None else "no N/Hz filter")
+        raise ValueError(f"No data remained after filtering ({selector}).")
 
     df_all = pd.concat(frames, ignore_index=True)
     df_all["bvalue"] = df_all["bvalue"].round(int(bvalue_decimals))
@@ -400,7 +400,7 @@ def plot_alpha_macro_vs_roi(
     if "direction_kind" in sub.columns and (sub["direction_kind"] == "derived").any():
         sub = sub[sub["direction_kind"] == "derived"].copy()
     if sub.empty:
-        raise ValueError(f"No hay datos para plotear {out_png.name}")
+        raise ValueError(f"No data available for plotting {out_png.name}")
 
     subj_list = list(subjs) if subjs is not None else sorted(sub["subj"].astype(str).unique().tolist())
     fig, axes = plt.subplots(1, len(directions), figsize=(8 * len(directions), 6), sharey=True)

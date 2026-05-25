@@ -27,6 +27,14 @@ def _join_limited_sorted_unique(values: pd.Series, *, max_items: int = 6) -> str
     return "|".join(items[:max_items] + [f"...(+{len(items) - max_items})"])
 
 
+def _rms_numeric(values: pd.Series) -> float:
+    arr = pd.to_numeric(values, errors="coerce").to_numpy(float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(arr))))
+
+
 def _valid_text(value: object) -> str | None:
     token = str(value).strip()
     if not token or token.lower() in {"nan", "none", "<na>"}:
@@ -136,7 +144,7 @@ def load_monoexp_fit_measurements(
         frames.append(out)
 
     if not frames:
-        raise ValueError("No quedaron fits monoexp luego de filtrar.")
+        raise ValueError("No monoexp fits remained after filtering.")
 
     cols = [
         "subj",
@@ -161,21 +169,21 @@ def load_monoexp_fit_measurements(
 
 def aggregate_monoexp_by_x(df: pd.DataFrame, *, xcol: str) -> pd.DataFrame:
     if xcol not in {"td_ms", "Delta_app_ms"}:
-        raise ValueError(f"xcol inválida: {xcol}")
+        raise ValueError(f"Invalid xcol: {xcol}")
 
     work = df.copy()
     work[xcol] = pd.to_numeric(work[xcol], errors="coerce")
     work["N"] = pd.to_numeric(work.get("N", np.nan), errors="coerce")
     work = work.dropna(subset=[xcol, "D0_mm2_s"])
     if work.empty:
-        raise ValueError(f"No quedó data válida para xcol={xcol}.")
+        raise ValueError(f"No valid data remained for xcol={xcol}.")
 
     other_x = "Delta_app_ms" if xcol == "td_ms" else "td_ms"
     grouped = (
         work.groupby(["subj", "sheet", "roi", "direction", "N", xcol], as_index=False)
         .agg(
             D_mean_mm2_s=("D0_mm2_s", "mean"),
-            D_std_mm2_s=("D0_mm2_s", "std"),
+            D_std_mm2_s=("D0_err_mm2_s", _rms_numeric),
             n_measurements=("D0_mm2_s", "count"),
             other_x_mean=(other_x, "mean"),
             source_files=("source_file", _join_sorted_unique),
@@ -261,20 +269,13 @@ def _collapse_compare_n_scope(df: pd.DataFrame, *, xcol: str) -> pd.DataFrame:
         .agg(
             sheet=("sheet", _join_limited_sorted_unique),
             D_mean_mm2_s=("D_mean_mm2_s", "mean"),
-            D_std_mm2_s=("D_mean_mm2_s", "std"),
+            D_std_mm2_s=("D_std_mm2_s", _rms_numeric),
             n_measurements=("n_measurements", "sum"),
             other_x_mean=("other_x_mean", "mean"),
             source_files=("source_files", _join_limited_sorted_unique),
         )
     )
-    fallback_std = (
-        work.groupby(group_cols, as_index=False)["D_std_mm2_s"]
-        .mean()
-        .rename(columns={"D_std_mm2_s": "_fallback_std"})
-    )
-    collapsed = collapsed.merge(fallback_std, on=group_cols, how="left")
-    collapsed["D_std_mm2_s"] = collapsed["D_std_mm2_s"].fillna(collapsed["_fallback_std"]).fillna(0.0)
-    collapsed = collapsed.drop(columns=["_fallback_std"])
+    collapsed["D_std_mm2_s"] = collapsed["D_std_mm2_s"].fillna(0.0)
     return collapsed.sort_values(group_cols, kind="stable").reset_index(drop=True)
 
 
@@ -371,7 +372,7 @@ def plot_compare_N_within_sheet(df_avg: pd.DataFrame, *, xcol: str, out_dir: str
                 curve_col="N",
                 xcol=xcol,
                 out_path=out_path,
-                title=f"{subj} | all sheets | {roi} | dir={direction} | compare N",
+                title=f"{subj} | {roi} | dir={direction} | compare N",
                 xlabel=xlabel,
             )
         )

@@ -20,9 +20,7 @@ def main() -> None:
     ap.add_argument("--dproj-root", required=True, help="Root folder with *.Dproj.long.parquet tables.")
     ap.add_argument("--pattern", default="**/*.Dproj.long.parquet", help="Relative glob inside dproj-root.")
     ap.add_argument("--out-dir", required=True, help="Output folder for plots and the combined table.")
-    subj_group = ap.add_mutually_exclusive_group()
-    subj_group.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
-    subj_group.add_argument("--brains", nargs="+", dest="subjs", help="Legacy alias for --subjs.")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
     ap.add_argument("--rois", nargs="+", default=None, help="ROIs to include.")
     ap.add_argument("--dirs", nargs="+", default=["x", "y", "z"], help="Directions to include.")
 
