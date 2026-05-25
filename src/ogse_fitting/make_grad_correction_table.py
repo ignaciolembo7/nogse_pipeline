@@ -751,7 +751,7 @@ def load_nogse_signal_free_fits(
 ) -> pd.DataFrame:
     files = _discover_contrast_tables(contrast_root_or_file)
     if not files:
-        raise FileNotFoundError(f'No encontré contrast tables bajo: {Path(contrast_root_or_file).resolve()}')
+        raise FileNotFoundError(f'No contrast tables found under: {Path(contrast_root_or_file).resolve()}')
 
     factor_lookup = _build_side_factor_lookup(correction_table, tol_ms) if correction_table is not None else {}
     correction_state = 'corrected' if correction_table is not None else 'raw'
@@ -867,7 +867,7 @@ def load_nogse_signal_free_fits(
     out = pd.DataFrame(rows)
     if out.empty:
         label = 'corrected NOGSE signal fits' if correction_table is not None else 'raw NOGSE signal fits'
-        raise ValueError(f'No pude construir {label}. Revisá ruta, ROI, columnas side-specific y gbase/ycol.')
+        raise ValueError(f'Could not build {label}. Check the path, ROI, side-specific columns, and gbase/ycol.')
 
     out['D0_mm2_s'] = pd.to_numeric(out['D0_m2_ms'], errors='coerce') * 1e9
     out['D0_err_mm2_s'] = pd.to_numeric(out['D0_err_m2_ms'], errors='coerce') * 1e9
@@ -1032,10 +1032,10 @@ def _format_missing_monoexp_reference(missing: pd.DataFrame, monoexp_ref: pd.Dat
     sample_exp_cols = [c for c in ['subj', 'sheet', 'roi', 'direction', 'source_key', 'td_ms', 'N'] if c in monoexp_ref.columns]
     sample_exp = monoexp_ref[sample_exp_cols].drop_duplicates().head(20)
     return (
-        'Faltan referencias monoexp para la clave subj+sheet+roi+td_ms.\n\n'
-        'Ejemplos faltantes:\n'
+        'Missing monoexp references for the subj+sheet+roi+td_ms key.\n\n'
+        'Missing examples:\n'
         f"{sample_missing.to_string(index=False)}\n\n"
-        'Referencias monoexp disponibles (ejemplos):\n'
+        'Available monoexp references (examples):\n'
         f"{sample_exp.to_string(index=False)}"
     )
 
@@ -1077,10 +1077,10 @@ def _format_missing_selected_monoexp(
     sample_exp_cols = [c for c in ['subj', 'sheet', 'roi', 'direction', 'source_key', 'td_ms', 'N'] if c in monoexp_ref.columns]
     sample_exp = monoexp_ref[sample_exp_cols].drop_duplicates().head(20)
     return (
-        f'Faltan referencias monoexp para promediar Ns={list(monoexp_ref_Ns)}.\n\n'
-        'Ejemplos faltantes:\n'
+        f'Missing monoexp references to average Ns={list(monoexp_ref_Ns)}.\n\n'
+        'Missing examples:\n'
         f"{sample_missing.to_string(index=False)}\n\n"
-        'Referencias monoexp disponibles (ejemplos):\n'
+        'Available monoexp references (examples):\n'
         f"{sample_exp.to_string(index=False)}"
     )
 
@@ -1144,7 +1144,7 @@ def _build_side_specific_table(
     if 'ok' in raw.columns:
         raw = raw[raw['ok'].fillna(False).astype(bool)].copy()
     if raw.empty:
-        raise ValueError('No hay fits OGSE individuales crudos válidos para construir la corrección.')
+        raise ValueError('No valid raw individual OGSE fits are available to build the correction.')
 
     merged = raw.copy()
     common = ['subj', 'sheet', 'analysis_id', 'source_file', 'roi', 'direction', 'stat']
@@ -1178,11 +1178,11 @@ def _build_side_specific_table(
         side_blocks.append(sub)
 
     if len(side_blocks) != 2:
-        raise ValueError('No pude construir correcciones para ambos lados OGSE (side=1 y side=2).')
+        raise ValueError('Could not build corrections for both OGSE sides (side=1 and side=2).')
 
     out = side_blocks[0].merge(side_blocks[1], on=common, how='inner')
     if out.empty:
-        raise ValueError('No hubo matches entre side=1 y side=2 para construir la tabla de corrección.')
+        raise ValueError('No matches between side=1 and side=2 were found to build the correction table.')
 
     out['td_ms'] = 0.5 * (
         pd.to_numeric(out['td_ms_1'], errors='coerce') + pd.to_numeric(out['td_ms_2'], errors='coerce')
@@ -1191,7 +1191,7 @@ def _build_side_specific_table(
     if (td_delta > float(tol_ms)).any():
         bad = out.loc[td_delta > float(tol_ms), ['source_file', 'roi', 'direction', 'td_ms_1', 'td_ms_2']].head(10)
         raise ValueError(
-            'td_ms_1 y td_ms_2 no coinciden para algunas curvas OGSE:\n'
+            'td_ms_1 and td_ms_2 do not match for some OGSE curves:\n'
             f'{bad.to_string(index=False)}'
         )
 

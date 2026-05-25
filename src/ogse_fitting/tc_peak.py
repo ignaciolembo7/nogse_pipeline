@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from models.model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_tort, OGSE_contrast_vs_g_rest
+from models.model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_rest, OGSE_contrast_vs_g_tort
 from ogse_fitting.fit_ogse_contrast_vs_g import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
     Requires fit_row.ok == True and valid parameters.
     """
     if not fit_row.get("ok", True):
-        raise ValueError("fit_row no OK; no puedo sacar pico paramétrico.")
+        raise ValueError("fit_row is not OK; cannot extract a parametric peak.")
 
     if "peak_fraction" in fit_row and "signal_peak" in fit_row and pd.notna(fit_row.get("peak_fraction")):
         return PeakResult(
@@ -89,9 +89,9 @@ def peak_from_data_group(
     smooth: bool = True,
     smooth_window: int = 7,
     smooth_poly: int = 2,
-) -> PeakResult:
+    ) -> PeakResult:
     """
-    Pico NO paramétrico: máximo de y(g) en los datos, con opcional suavizado Savitzky-Golay.
+    Non-parametric peak: maximum y(g) in the data, with optional Savitzky-Golay smoothing.
     """
     from scipy.signal import savgol_filter  # type: ignore
 
@@ -159,14 +159,14 @@ def tc_from_peak(
     gamma_rad_per_s_T: float = 2.0 * np.pi * 42.577478518e6,  # rad/s/T
 ) -> float:
     """
-    Conversión “genérica” para tu pipeline:
+    Generic conversion for this pipeline:
       q = gamma * G * delta
       l = 1/q
       tc = l^2 / (tc_factor * D0)
 
-    Unidades asumidas:
-      - G en mT/m  -> se convierte a T/m con 1e-3
-      - delta en ms
+    Assumed units:
+      - G in mT/m -> converted to T/m with 1e-3
+      - delta in ms
       - D0 in m^2/ms, consistent with using Td in ms in these models.
       - gamma en rad/s/T (se convierte a rad/ms/T multiplicando 1e-3)
     """

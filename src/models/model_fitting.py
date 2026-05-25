@@ -126,6 +126,13 @@ def M_ogse_rest(TE, G, N, x, tc, M0, D0):
 
     return M0 * np.exp(-bSE ** 2 * tc ** 2 * (4 * np.exp(-y / tc / 2) - np.exp(-y / tc) - 3 + y / tc)) * np.exp(-bSE ** 2 * tc ** 2 * ((N - 1) * x / tc + (-1) ** (N - 1) * np.exp(-(N - 1) * x / tc) + 1 - 2 * N - 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2 + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) * ((N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + N - 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2)) * np.exp(2 * tc ** 2 * ((np.exp((-y + 2 * x) / tc / 2) + np.exp((x - 2 * y) / tc / 2) - np.exp((x - y) / tc) / 2 - np.exp(-y / tc) / 2 + np.exp(x / tc / 2) + np.exp(-y / tc / 2) - np.exp(x / tc) / 2 - 0.1e1 / 0.2e1) * (-1) ** (2 * N) + 2 * (-1) ** (1 + N) * np.exp(-(2 * N * x - 3 * x + y) / tc / 2) + (np.exp(((3 - 2 * N) * x - 2 * y) / tc / 2) - np.exp((-N * x + 2 * x - y) / tc) / 2 + np.exp(-(2 * N * x - 4 * x + y) / tc / 2) + np.exp(-(2 * N * x - 2 * x + y) / tc / 2) - np.exp((-N * x + x - y) / tc) / 2 + np.exp(-x * (-3 + 2 * N) / tc / 2) - np.exp(-x * (N - 2) / tc) / 2 - np.exp(-(N - 1) * x / tc) / 2) * (-1) ** N + 2 * (-1) ** (1 + 2 * N) * np.exp((x - y) / tc / 2)) * bSE ** 2 / (np.exp(x / tc) + 1))
 
+# def M_ogse_rest_offset(TE, G, N, x, tc, M0, D0, C):
+#     return M_ogse_rest(TE, G, N, x, tc, M0, D0) + C
+
+def M_ogse_rest_offset(TE, G, N, x, tc, M0, D0, C):
+    clean_signal = M_ogse_rest(TE, G, N, x, tc, M0, D0)
+    return np.sqrt(clean_signal**2 + C**2)
+
 def M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0): # alpha is 1/alpha
     return M0 * M_nogse_free(TE, G, N, x, 1, alpha*D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1-alpha)*D0)
 
