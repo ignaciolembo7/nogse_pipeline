@@ -66,7 +66,7 @@ def _resolve_contrast_parquet(
             f"Could not find contrast table for analysis_id={analysis_id!r} in {table_root}"
         )
     raise FileNotFoundError(
-        f"Encontré múltiples tablas para analysis_id={analysis_id!r} en {table_root}: "
+        f"Found multiple tables for analysis_id={analysis_id!r} in {table_root}: "
         f"{[str(p) for p in matches[:5]]}"
     )
 
@@ -101,7 +101,7 @@ def _extract_plot_arrays(df_group: pd.DataFrame, fit_row: pd.Series) -> tuple[np
     y_alias = {"value_norm": "contrast_norm", "value": "contrast"}
     y_eff = ycol if ycol in df_group.columns else y_alias.get(ycol)
     if y_eff is None or y_eff not in df_group.columns:
-        raise KeyError(f"No encuentro ycol={ycol!r} en tabla de contraste.")
+        raise KeyError(f"Could not find ycol={ycol!r} in the contrast table.")
 
     g1c, g2c = _gcols(gbase)
     if g1c not in df_group.columns or g2c not in df_group.columns:
@@ -262,7 +262,7 @@ def plot_contrast_fit_panels(
 
                 if sub_panel.empty:
                     ax.set_title(f"{roi} | {direction}")
-                    ax.text(0.5, 0.5, "Sin datos", ha="center", va="center", transform=ax.transAxes)
+                    ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
                     ax.grid(True, alpha=0.25)
                     continue
 
@@ -307,7 +307,7 @@ def plot_contrast_fit_panels(
             handles=legend_handles,
             loc="center right",
             bbox_to_anchor=(0.995, 0.5),
-            title="Curvas",
+            title="Curves",
             fontsize=9,
             title_fontsize=10,
         )
@@ -331,7 +331,7 @@ def plot_contrast_fit_panels(
 
         if missing_items:
             warnings.warn(
-                "Algunos paneles/curvas no pudieron graficarse:\n" + "\n".join(missing_items[:15]),
+                "Some panels/curves could not be plotted:\n" + "\n".join(missing_items[:15]),
                 stacklevel=2,
             )
 

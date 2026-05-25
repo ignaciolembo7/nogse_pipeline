@@ -20,12 +20,12 @@ def load_many(globs: list[str]) -> pd.DataFrame:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--glob", action="append", required=True,
-                    help="Glob(s) tipo: OGSE_signal/rotated/*BRAIN-3*.rot_tensor.long.parquet")
-    ap.add_argument("--roi", required=True, help="Ej: PostCC")
-    ap.add_argument("--xcol", default="g_lin_max", help="Ej: g_lin_max | g | g_thorsten")
-    ap.add_argument("--ycol", default="value_norm", help="Ej: value_norm | value")
+                    help="Glob(s), for example: OGSE_signal/rotated/*BRAIN-3*.rot_tensor.long.parquet")
+    ap.add_argument("--roi", required=True, help="Example: PostCC")
+    ap.add_argument("--xcol", default="g_lin_max", help="Example: g_lin_max | g | g_thorsten")
+    ap.add_argument("--ycol", default="value_norm", help="Example: value_norm | value")
     ap.add_argument("--directions", nargs="+", default=["x", "y", "z", "eig1", "eig2", "eig3", "long", "tra"])
-    ap.add_argument("--out_root", default="plots", help="Carpeta raíz de plots/")
+    ap.add_argument("--out_root", default="plots", help="Plot root folder.")
     args = ap.parse_args()
 
     df = load_many(args.glob)

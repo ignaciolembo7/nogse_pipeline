@@ -20,48 +20,41 @@ from ogse_fitting.contrast_fit_panels import (
     _sanitize_token,
     _subset_group,
 )
-from ogse_fitting.fit_ogse_contrast_vs_g import _fit_row_correction_pair
+from ogse_fitting.fit_ogse_contrast_vs_g import _model_yhat
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 
 VALID_X_VARS = ("g", "Ld", "lcf", "lcf_a", "tc")
 X_VAR_ALIASES = {"Lcf": "lcf_a"}
+VALID_PEAK_SOURCES = ("standard", "resampled", "both")
 
 
-def _active_raw_x(active_corr: np.ndarray, fit_row: pd.Series) -> np.ndarray:
-    f_corr_1, f_corr_2 = _fit_row_correction_pair(fit_row)
-    f_corr = f_corr_1 if str(fit_row.get("xplot", "1")) == "1" else f_corr_2
-    if not np.isfinite(f_corr) or f_corr == 0.0:
-        return np.full_like(active_corr, np.nan, dtype=float)
-    return np.asarray(active_corr, dtype=float) / f_corr
-
-
-def _derived_axes_from_raw_g(
-    g_raw_mTm: np.ndarray,
+def _derived_axes_from_g(
+    g_mTm: np.ndarray,
     *,
     td_ms: float,
     peak_D0_fix: float,
     peak_gamma: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    g_raw = np.asarray(g_raw_mTm, dtype=float)
-    Ld = np.full_like(g_raw, np.nan, dtype=float)
-    lcf_um = np.full_like(g_raw, np.nan, dtype=float)
-    lcf_a = np.full_like(g_raw, np.nan, dtype=float)
-    tc_ms = np.full_like(g_raw, np.nan, dtype=float)
+    g = np.asarray(g_mTm, dtype=float)
+    Ld = np.full_like(g, np.nan, dtype=float)
+    lcf_um = np.full_like(g, np.nan, dtype=float)
+    lcf_a = np.full_like(g, np.nan, dtype=float)
+    tc_ms = np.full_like(g, np.nan, dtype=float)
 
-    valid = np.isfinite(g_raw) & (g_raw > 0)
+    valid = np.isfinite(g) & (g > 0)
     if not np.any(valid):
         return Ld, lcf_um, lcf_a, tc_ms
 
     D0 = float(peak_D0_fix)
     gamma = float(peak_gamma)
     td = float(td_ms)
-    l_d = np.sqrt(2.0 * D0 * td)
-    l_G = ((2.0 ** (3.0 / 2.0)) * D0 / (gamma * g_raw[valid])) ** (1.0 / 3.0)
+    l_d = np.sqrt(D0 * td)
+    l_G = (D0 / (gamma * g[valid])) ** (1.0 / 3.0)
     Ld_valid = l_d / l_G
     Lcf_valid = ((3.0 / 2.0) ** (1.0 / 4.0)) * (Ld_valid ** (-1.0 / 2.0))
     lcf_valid_um = (Lcf_valid * l_G) * 1e6
-    tc_valid_ms = ((lcf_valid_um * 1e-6) ** 2) / (2.0 * D0)
+    tc_valid_ms = ((lcf_valid_um * 1e-6) ** 2) / D0
 
     Ld[valid] = Ld_valid
     lcf_a[valid] = Lcf_valid
@@ -82,9 +75,8 @@ def _transform_x(
     if xvar == "g":
         return np.asarray(active_corr, dtype=float)
 
-    raw = _active_raw_x(active_corr, fit_row)
-    Ld, lcf_um, lcf_a, tc_ms = _derived_axes_from_raw_g(
-        raw,
+    Ld, lcf_um, lcf_a, tc_ms = _derived_axes_from_g(
+        active_corr,
         td_ms=float(fit_row["td_ms"]),
         peak_D0_fix=peak_D0_fix,
         peak_gamma=peak_gamma,
@@ -106,18 +98,43 @@ def _peak_point_for_xvar(
     xvar: str,
     peak_D0_fix: float,
     peak_gamma: float,
+    peak_source: str = "standard",
 ) -> tuple[float, float]:
-    y_peak = float(pd.to_numeric(pd.Series([fit_row.get("signal_peak", np.nan)]), errors="coerce").iloc[0])
+    source = str(peak_source)
+    if source == "resampled":
+        g_col = "g_peak_resampled_corr_mTm"
+        tc_col = "tc_peak_resampled_ms"
+        g_corr = float(pd.to_numeric(pd.Series([fit_row.get(g_col, np.nan)]), errors="coerce").iloc[0])
+        if not np.isfinite(g_corr) or g_corr <= 0:
+            return np.nan, np.nan
+        if str(fit_row.get("method", "")).startswith("signal_fit_1_minus_signal_fit_2"):
+            y_peak = float(pd.to_numeric(pd.Series([fit_row.get("signal_peak", np.nan)]), errors="coerce").iloc[0])
+        else:
+            y_curve = _model_yhat(
+                model=str(fit_row["model"]),
+                td_ms=float(fit_row["td_ms"]),
+                G1=np.asarray([g_corr], dtype=float),
+                G2=np.asarray([g_corr], dtype=float),
+                n_1=int(fit_row["N_1"]),
+                n_2=int(fit_row["N_2"]),
+                fit_row=fit_row.to_dict(),
+            )
+            y_peak = float(np.asarray(y_curve, dtype=float)[0])
+    else:
+        g_col = "x_peak_corr_mTm"
+        tc_col = "tc_peak_ms"
+        y_peak = float(pd.to_numeric(pd.Series([fit_row.get("signal_peak", np.nan)]), errors="coerce").iloc[0])
+
     if not np.isfinite(y_peak):
         return np.nan, np.nan
 
     if xvar == "g":
-        x_peak = float(pd.to_numeric(pd.Series([fit_row.get("x_peak_corr_mTm", np.nan)]), errors="coerce").iloc[0])
+        x_peak = float(pd.to_numeric(pd.Series([fit_row.get(g_col, np.nan)]), errors="coerce").iloc[0])
         return x_peak, y_peak
 
-    g_raw = float(pd.to_numeric(pd.Series([fit_row.get("x_peak_raw_mTm", np.nan)]), errors="coerce").iloc[0])
-    Ld, lcf_um, lcf_a, tc_ms = _derived_axes_from_raw_g(
-        np.asarray([g_raw], dtype=float),
+    g_corr = float(pd.to_numeric(pd.Series([fit_row.get(g_col, np.nan)]), errors="coerce").iloc[0])
+    Ld, lcf_um, lcf_a, tc_ms = _derived_axes_from_g(
+        np.asarray([g_corr], dtype=float),
         td_ms=float(fit_row["td_ms"]),
         peak_D0_fix=peak_D0_fix,
         peak_gamma=peak_gamma,
@@ -129,12 +146,62 @@ def _peak_point_for_xvar(
     if xvar == "lcf_a":
         return float(lcf_a[0]), y_peak
     if xvar == "tc":
-        return float(tc_ms[0]), y_peak
+        tc_peak = float(pd.to_numeric(pd.Series([fit_row.get(tc_col, np.nan)]), errors="coerce").iloc[0])
+        return float(tc_peak if np.isfinite(tc_peak) else tc_ms[0]), y_peak
     raise ValueError(f"xvar no soportada: {xvar!r}")
 
 
-def _x_label(spec_gbase: str, spec_xplot: str, xvar: str) -> str:
+def _build_resampled_fit_curve(
+    fit_row: pd.Series,
+    *,
+    n_points: int = 300,
+) -> tuple[np.ndarray, np.ndarray]:
+    resampled_max = float(pd.to_numeric(pd.Series([fit_row.get("peak_resample_g_max_corr_mTm", np.nan)]), errors="coerce").iloc[0])
+    if np.isfinite(resampled_max) and resampled_max > 0:
+        G = np.linspace(0.0, resampled_max, max(32, int(n_points)))
+        y_curve = _model_yhat(
+            model=str(fit_row["model"]),
+            td_ms=float(fit_row["td_ms"]),
+            G1=G,
+            G2=G,
+            n_1=int(fit_row["N_1"]),
+            n_2=int(fit_row["N_2"]),
+            fit_row=fit_row.to_dict(),
+        )
+        return G, np.asarray(y_curve, dtype=float)
+
+    maxima = pd.to_numeric(
+        pd.Series(
+            [
+                fit_row.get("g1_search_max_corr_mTm", np.nan),
+                fit_row.get("g2_search_max_corr_mTm", np.nan),
+                fit_row.get("g1_max_corr_mTm", np.nan),
+                fit_row.get("g2_max_corr_mTm", np.nan),
+            ]
+        ),
+        errors="coerce",
+    ).to_numpy(dtype=float)
+    maxima = maxima[np.isfinite(maxima) & (maxima > 0)]
+    if maxima.size == 0:
+        return np.array([]), np.array([])
+
+    G = np.linspace(0.0, float(np.nanmax(maxima)), max(32, int(n_points)))
+    y_curve = _model_yhat(
+        model=str(fit_row["model"]),
+        td_ms=float(fit_row["td_ms"]),
+        G1=G,
+        G2=G,
+        n_1=int(fit_row["N_1"]),
+        n_2=int(fit_row["N_2"]),
+        fit_row=fit_row.to_dict(),
+    )
+    return G, np.asarray(y_curve, dtype=float)
+
+
+def _x_label(spec_gbase: str, spec_xplot: str, xvar: str, *, use_resampled_gradient: bool = False) -> str:
     if xvar == "g":
+        if use_resampled_gradient:
+            return "g_resampled [mT/m]"
         return f"{spec_gbase}_{spec_xplot} [mT/m]"
     if xvar == "Ld":
         return r"$L_d$"
@@ -147,12 +214,32 @@ def _x_label(spec_gbase: str, spec_xplot: str, xvar: str) -> str:
     return xvar
 
 
+def _gradient_output_token(spec_xplot: str, *, use_resampled_gradient: bool) -> str:
+    if use_resampled_gradient:
+        return "gradient=g_resampled"
+    return f"xplot={_sanitize_token(spec_xplot)}"
+
+
 def _validate_x_vars(x_vars: Sequence[str]) -> list[str]:
     out = [X_VAR_ALIASES.get(str(x), str(x)) for x in x_vars]
     invalid = [x for x in out if x not in VALID_X_VARS]
     if invalid:
-            raise ValueError(f"Invalid x_vars: {invalid}. Expected one of {VALID_X_VARS}.")
+        raise ValueError(f"Invalid x_vars: {invalid}. Expected one of {VALID_X_VARS}.")
     return list(dict.fromkeys(out))
+
+
+def _validate_peak_marker_x_vars(x_vars: Sequence[str] | None) -> set[str]:
+    if x_vars is None:
+        return {"tc"}
+    out = [X_VAR_ALIASES.get(str(x), str(x)) for x in x_vars]
+    if any(x.upper() == "NONE" for x in out):
+        return set()
+    if any(x.upper() == "ALL" for x in out):
+        return set(VALID_X_VARS)
+    invalid = [x for x in out if x not in VALID_X_VARS]
+    if invalid:
+        raise ValueError(f"Invalid peak_marker_x_vars: {invalid}. Expected one of {VALID_X_VARS}, ALL, or NONE.")
+    return set(dict.fromkeys(out))
 
 
 def _normalize_x_lims(x_lims: dict[str, tuple[float, float]] | None) -> dict[str, tuple[float, float]]:
@@ -166,7 +253,7 @@ def _normalize_x_lims(x_lims: dict[str, tuple[float, float]] | None) -> dict[str
             raise ValueError(f"x_lims contains invalid xvar: {raw_name!r}. Expected one of {VALID_X_VARS}.")
         xmin, xmax = map(float, raw_lims)
         if not np.isfinite(xmin) or not np.isfinite(xmax) or xmax <= xmin:
-            raise ValueError(f"x_lims inválido para {raw_name!r}: {(xmin, xmax)}")
+            raise ValueError(f"Invalid x_lims for {raw_name!r}: {(xmin, xmax)}")
         out[name] = (xmin, xmax)
     return out
 
@@ -183,13 +270,23 @@ def plot_contrast_tc_peak_panels(
     directions: list[str] | None = None,
     exclude_td_ms: list[float] | None = None,
     x_vars: Sequence[str] = ("g", "Ld", "lcf", "lcf_a", "tc"),
+    peak_marker_x_vars: Sequence[str] | None = ("tc",),
+    peak_source: str = "standard",
+    show_resampled_fit: bool = False,
+    show_data_points: bool = True,
+    resampled_curve_n: int = 300,
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
     x_lims: dict[str, tuple[float, float]] | None = None,
     ok_only: bool = True,
 ) -> list[Path]:
     x_vars = _validate_x_vars(x_vars)
+    peak_marker_x_vars = _validate_peak_marker_x_vars(peak_marker_x_vars)
+    peak_source = str(peak_source)
+    if peak_source not in VALID_PEAK_SOURCES:
+        raise ValueError(f"Invalid peak_source={peak_source!r}. Expected one of {VALID_PEAK_SOURCES}.")
     x_lims = _normalize_x_lims(x_lims)
+    use_resampled_gradient = bool(show_resampled_fit and not show_data_points)
     df = load_contrast_fit_params(
         [fits_root],
         pattern=pattern,
@@ -261,7 +358,7 @@ def plot_contrast_tc_peak_panels(
 
                     if sub_panel.empty:
                         ax.set_title(f"{roi} | {direction}")
-                        ax.text(0.5, 0.5, "Sin datos", ha="center", va="center", transform=ax.transAxes)
+                        ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
                         ax.grid(True, alpha=0.25)
                         continue
 
@@ -269,82 +366,133 @@ def plot_contrast_tc_peak_panels(
                         td_val = float(row["td_ms"])
                         color = td_to_color.get(td_val, "#1f77b4")
                         try:
-                            contrast_path = _resolve_contrast_parquet(
-                                analysis_id=str(row["analysis_id"]),
-                                sheet=row.get("sheet", None),
-                                contrast_root=contrast_root,
-                            )
-                            contrast_df = _load_contrast_table_cached(contrast_path, cache)
-                            df_group = _subset_group(contrast_df, row)
-                            if df_group.empty:
-                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> empty group")
-                                continue
+                            if show_data_points:
+                                contrast_path = _resolve_contrast_parquet(
+                                    analysis_id=str(row["analysis_id"]),
+                                    sheet=row.get("sheet", None),
+                                    contrast_root=contrast_root,
+                                )
+                                contrast_df = _load_contrast_table_cached(contrast_path, cache)
+                                df_group = _subset_group(contrast_df, row)
+                                if df_group.empty:
+                                    missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> empty group")
+                                    continue
 
-                            x_corr, y, G1, G2 = _extract_plot_arrays(df_group, row)
-                            if x_corr.size == 0:
-                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> no finite points")
-                                continue
+                                x_corr, y, G1, G2 = _extract_plot_arrays(df_group, row)
+                                if x_corr.size == 0:
+                                    missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> no finite points")
+                                    continue
 
-                            x_plot = _transform_x(
-                                xvar=xvar,
-                                active_corr=x_corr,
-                                fit_row=row,
-                                peak_D0_fix=peak_D0_fix,
-                                peak_gamma=peak_gamma,
-                            )
-                            m_plot = np.isfinite(x_plot) & np.isfinite(y)
-                            if not np.any(m_plot):
-                                missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} has no valid points")
-                                continue
-                            x_data = x_plot[m_plot]
-                            y_data = y[m_plot]
-                            x_bounds.append(x_data)
-                            ax.plot(x_data, y_data, "o", color=color, markersize=4, alpha=0.95)
+                                x_plot = _transform_x(
+                                    xvar=xvar,
+                                    active_corr=x_corr,
+                                    fit_row=row,
+                                    peak_D0_fix=peak_D0_fix,
+                                    peak_gamma=peak_gamma,
+                                )
+                                m_plot = np.isfinite(x_plot) & np.isfinite(y)
+                                if not np.any(m_plot):
+                                    missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} has no valid points")
+                                    continue
+                                x_data = x_plot[m_plot]
+                                y_data = y[m_plot]
+                                x_bounds.append(x_data)
+                                ax.plot(x_data, y_data, "o", color=color, markersize=4, alpha=0.95)
 
-                            xs_corr, ys = _build_fit_curve(row, G1, G2)
-                            xs_plot = _transform_x(
-                                xvar=xvar,
-                                active_corr=xs_corr,
-                                fit_row=row,
-                                peak_D0_fix=peak_D0_fix,
-                                peak_gamma=peak_gamma,
-                            )
-                            m_fit = np.isfinite(xs_plot) & np.isfinite(ys)
-                            if np.any(m_fit):
+                                xs_corr, ys = _build_fit_curve(row, G1, G2)
+                                xs_plot = _transform_x(
+                                    xvar=xvar,
+                                    active_corr=xs_corr,
+                                    fit_row=row,
+                                    peak_D0_fix=peak_D0_fix,
+                                    peak_gamma=peak_gamma,
+                                )
+                                m_fit = np.isfinite(xs_plot) & np.isfinite(ys)
+                                if not np.any(m_fit):
+                                    continue
                                 x_fit = xs_plot[m_fit]
                                 y_fit = ys[m_fit]
                                 order = np.argsort(x_fit)
                                 x_bounds.append(x_fit)
-                                ax.plot(x_fit[order], y_fit[order], "-", color=color, linewidth=1.8, alpha=0.95)
-
-                            x_peak, y_peak = _peak_point_for_xvar(
-                                row,
-                                xvar=xvar,
-                                peak_D0_fix=peak_D0_fix,
-                                peak_gamma=peak_gamma,
-                            )
-                            tc_peak_ms = float(pd.to_numeric(pd.Series([row.get("tc_peak_ms", np.nan)]), errors="coerce").iloc[0])
-                            if np.isfinite(x_peak) and np.isfinite(y_peak):
-                                ax.scatter(
-                                    [x_peak],
-                                    [y_peak],
-                                    s=36,
-                                    marker="o",
+                                ax.plot(
+                                    x_fit[order],
+                                    y_fit[order],
+                                    "--" if show_resampled_fit else "-",
                                     color=color,
-                                    edgecolors="black",
-                                    linewidths=0.6,
-                                    zorder=4,
+                                    linewidth=1.3 if show_resampled_fit else 1.8,
+                                    alpha=0.35 if show_resampled_fit else 0.95,
                                 )
-                                if np.isfinite(tc_peak_ms):
-                                    ax.annotate(
-                                        f"{tc_peak_ms:.1f} ms",
-                                        (x_peak, y_peak),
-                                        xytext=(4, 4),
-                                        textcoords="offset points",
-                                        fontsize=6.5,
-                                        color=color,
-                                        bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.65),
+
+                            if show_resampled_fit:
+                                if str(row.get("method", "")).startswith("signal_fit_1_minus_signal_fit_2"):
+                                    contrast_path = _resolve_contrast_parquet(
+                                        analysis_id=str(row["analysis_id"]),
+                                        sheet=row.get("sheet", None),
+                                        contrast_root=contrast_root,
                                     )
+                                    contrast_df = _load_contrast_table_cached(contrast_path, cache)
+                                    df_group = _subset_group(contrast_df, row)
+                                    g_res, y_res, _, _ = _extract_plot_arrays(df_group, row)
+                                else:
+                                    g_res, y_res = _build_resampled_fit_curve(row, n_points=int(resampled_curve_n))
+                                x_res = _transform_x(
+                                    xvar=xvar,
+                                    active_corr=g_res,
+                                    fit_row=row,
+                                    peak_D0_fix=peak_D0_fix,
+                                    peak_gamma=peak_gamma,
+                                )
+                                m_res = np.isfinite(x_res) & np.isfinite(y_res)
+                                if np.any(m_res):
+                                    x_res_plot = x_res[m_res]
+                                    y_res_plot = y_res[m_res]
+                                    order = np.argsort(x_res_plot)
+                                    x_bounds.append(x_res_plot)
+                                    ax.plot(
+                                        x_res_plot[order],
+                                        y_res_plot[order],
+                                        "-",
+                                        color=color,
+                                        linewidth=2.1,
+                                        alpha=0.95,
+                                    )
+
+                            if xvar in peak_marker_x_vars:
+                                marker_sources = ("standard", "resampled") if peak_source == "both" else (peak_source,)
+                                for marker_source in marker_sources:
+                                    x_peak, y_peak = _peak_point_for_xvar(
+                                        row,
+                                        xvar=xvar,
+                                        peak_D0_fix=peak_D0_fix,
+                                        peak_gamma=peak_gamma,
+                                        peak_source=marker_source,
+                                    )
+                                    tc_col = "tc_peak_resampled_ms" if marker_source == "resampled" else "tc_peak_ms"
+                                    tc_peak_ms = float(pd.to_numeric(pd.Series([row.get(tc_col, np.nan)]), errors="coerce").iloc[0])
+                                    if not (np.isfinite(x_peak) and np.isfinite(y_peak)):
+                                        continue
+                                    marker = "D" if marker_source == "resampled" else "o"
+                                    ax.scatter(
+                                        [x_peak],
+                                        [y_peak],
+                                        s=42 if marker_source == "resampled" else 34,
+                                        marker=marker,
+                                        color=color,
+                                        edgecolors="black",
+                                        linewidths=0.7,
+                                        zorder=5 if marker_source == "resampled" else 4,
+                                    )
+                                    if np.isfinite(tc_peak_ms):
+                                        label = "r " if marker_source == "resampled" else ""
+                                        ax.annotate(
+                                            f"{label}{tc_peak_ms:.1f} ms",
+                                            (x_peak, y_peak),
+                                            xytext=(4, 4),
+                                            textcoords="offset points",
+                                            fontsize=6.5,
+                                            color=color,
+                                            bbox=dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.65),
+                                        )
                         except Exception as exc:
                             missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> {exc}")
 
@@ -362,7 +510,7 @@ def plot_contrast_tc_peak_panels(
                     ax.set_title(f"{roi} | {direction}", fontsize=11)
                     ax.grid(True, alpha=0.25)
                     if i == len(roi_order) - 1:
-                        ax.set_xlabel(_x_label(spec.gbase, spec.xplot, xvar), fontsize=11)
+                        ax.set_xlabel(_x_label(spec.gbase, spec.xplot, xvar, use_resampled_gradient=use_resampled_gradient), fontsize=11)
                     if j == 0:
                         ax.set_ylabel(spec.ycol, fontsize=11)
 
@@ -384,35 +532,47 @@ def plot_contrast_tc_peak_panels(
                 handles=legend_handles,
                 loc="center right",
                 bbox_to_anchor=(0.995, 0.5),
-                title="Curvas",
+                title="Curves",
                 fontsize=9,
                 title_fontsize=10,
             )
 
+            peak_note = f" | annotated peaks = {peak_source}" if xvar in peak_marker_x_vars else ""
+            gradient_note = " | gradient=g_resampled" if use_resampled_gradient else ""
+            fit_note = " | solid fit = resampled g" if show_resampled_fit and not use_resampled_gradient else ""
             fig.suptitle(
-                (
-                    f"{spec.subj} | model={spec.model} | y={spec.ycol} | x={xvar} "
-                    f"| picos anotados = tc_peak_ms"
-                ),
+                f"{spec.subj} | model={spec.model} | y={spec.ycol} | x={xvar}{gradient_note}{peak_note}{fit_note}",
                 fontsize=14,
             )
             plt.tight_layout(rect=[0.02, 0.02, 0.9, 0.95])
 
+            gradient_token = _gradient_output_token(spec.xplot, use_resampled_gradient=use_resampled_gradient)
             out_path = out_dir / (
                 f"contrast_tc_peak_panels_subj={_sanitize_token(spec.subj)}"
                 f"_model={_sanitize_token(spec.model)}"
                 f"_g={_sanitize_token(spec.gbase)}"
                 f"_y={_sanitize_token(spec.ycol)}"
-                f"_xplot={_sanitize_token(spec.xplot)}"
+                f"_{gradient_token}"
                 f"_xvar={_sanitize_token(xvar)}.png"
             )
+            if use_resampled_gradient:
+                stale_path = out_dir / (
+                    f"contrast_tc_peak_panels_subj={_sanitize_token(spec.subj)}"
+                    f"_model={_sanitize_token(spec.model)}"
+                    f"_g={_sanitize_token(spec.gbase)}"
+                    f"_y={_sanitize_token(spec.ycol)}"
+                    f"_xplot={_sanitize_token(spec.xplot)}"
+                    f"_xvar={_sanitize_token(xvar)}.png"
+                )
+                if stale_path != out_path and stale_path.exists():
+                    stale_path.unlink()
             fig.savefig(out_path, dpi=300)
             plt.close(fig)
             outputs.append(out_path)
 
             if missing_items:
                 warnings.warn(
-                    "Algunos paneles/curvas no pudieron graficarse:\n" + "\n".join(missing_items[:15]),
+                    "Some panels/curves could not be plotted:\n" + "\n".join(missing_items[:15]),
                     stacklevel=2,
                 )
 

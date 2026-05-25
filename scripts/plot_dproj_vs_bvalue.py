@@ -28,10 +28,10 @@ def iter_parquets(globs: list[str]):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--glob", action="append", required=True,
-                    help="Ej: OGSE_signal/rotated/*BRAIN-3*.rot_tensor.Dproj.long.parquet")
+                    help="Example: OGSE_signal/rotated/*BRAIN-3*.rot_tensor.Dproj.long.parquet")
     ap.add_argument("--roi", default="ALL",
-                    help="Nombre de ROI (ej PostCC). Usá ALL para plotear todas.")
-    ap.add_argument("--out_root", default="plots", help="Carpeta raíz de plots/")
+                    help="ROI name, for example PostCC. Use ALL to plot all ROIs.")
+    ap.add_argument("--out_root", default="plots", help="Plot root folder.")
     args = ap.parse_args()
 
     out_root = Path(args.out_root)
@@ -54,7 +54,7 @@ def main():
         elif "param_N" in df.columns:
             n_col = "param_N"
         else:
-            raise ValueError(f"En {path}: falta N (necesaria para separar por N).")
+            raise ValueError(f"In {path}: missing N, which is required to split by N.")
 
         # --- output directory per experiment
         outdir = out_root / exp / "dproj"

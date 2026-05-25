@@ -8,8 +8,8 @@ from monoexp_fitting.plot_all_fits_grid import plot_grid_all_deltas
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-root", required=True, help="Carpeta con .long.parquet (ej OGSE_signal/data/<grupo>)")
-    ap.add_argument("--fits-root", required=True, help="Carpeta con fits por experimento (ej monoexp_fits/<grupo>)")
+    ap.add_argument("--data-root", required=True, help="Folder with .long.parquet files, for example OGSE_signal/data/<group>.")
+    ap.add_argument("--fits-root", required=True, help="Folder with per-experiment fits, for example monoexp_fits/<group>.")
     ap.add_argument("--out-png", required=True, help="PNG output.")
     ap.add_argument("--dirs", nargs="+", default=["x","y","z"])
     ap.add_argument("--rois", nargs="+", default=None)

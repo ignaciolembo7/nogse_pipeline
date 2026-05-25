@@ -34,7 +34,7 @@ def plot_dproj_subplots_by_N(
     title_prefix: str = "",
 ):
     """
-    Replica el plot tipo 'subplots 1 x len(Ns)' del notebook (cell 10).
+    Recreate the notebook 'subplots 1 x len(Ns)' plot (cell 10).
     Requires df_all to have columns: roi, direction, bvalue, D_proj, N.
     """
     out_png = Path(out_png)
@@ -42,7 +42,7 @@ def plot_dproj_subplots_by_N(
 
     d = df_all[df_all["roi"] == roi].copy()
     if d.empty:
-        raise ValueError(f"No hay datos para roi={roi}")
+        raise ValueError(f"No data available for roi={roi}")
 
     fig, axs = plt.subplots(1, len(Ns), figsize=(6 * len(Ns), 5), sharey=True)
     if len(Ns) == 1:
@@ -81,14 +81,14 @@ def plot_dproj_gradient_xyz(
     title_prefix: str = "",
 ):
     """
-    Replica los plots tipo 'x,y,z' con degradado por N (cell 11 y 12).
+    Recreate the 'x,y,z' plots with an N gradient (cells 11 and 12).
     """
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
     d = df_all[(df_all["roi"] == roi) & (df_all["direction"].isin(["x", "y", "z"]))].copy()
     if d.empty:
-        raise ValueError(f"No hay datos xyz para roi={roi}")
+        raise ValueError(f"No xyz data available for roi={roi}")
 
     markers = {"x": "^", "y": "s", "z": "o"}
     base_colors = {"x": "#1f77b4", "y": "#ff7f0e", "z": "#2ca02c"}

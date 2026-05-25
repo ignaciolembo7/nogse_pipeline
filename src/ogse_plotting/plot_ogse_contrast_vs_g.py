@@ -20,9 +20,9 @@ FAMILY_LABEL = "OGSE contrast"
 def fit_parameter_fragments(fit_row: dict[str, object]) -> list[str]:
     model = str(fit_row.get("model", ""))
     fragments: list[str] = []
-    if model == "tort" and "alpha" in fit_row:
+    if model in {"tort", "mixed", "mixed_global"} and "alpha" in fit_row:
         fragments.append(f"alpha={compact_float(fit_row.get('alpha'))}")
-    if model == "rest" and "tc_ms" in fit_row:
+    if model in {"rest", "mixed", "mixed_global"} and "tc_ms" in fit_row:
         fragments.append(f"tc_ms={compact_float(fit_row.get('tc_ms'))}")
 
     if "M0" in fit_row:

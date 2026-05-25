@@ -15,20 +15,20 @@ def main() -> None:
             "Each figure contains an ROI x direction grid and overlays every available td_ms curve."
         )
     )
-    ap.add_argument("fits_root", help="Carpeta raíz con fit_params de contraste.")
+    ap.add_argument("fits_root", help="Root folder with contrast fit_params.")
     ap.add_argument(
         "--contrast-root",
         default="analysis/ogse_experiments/contrast-data-rotated",
-        help="Raíz de tablas de contraste (root que contiene tables/).",
+        help="Contrast table root (the root that contains tables/).",
     )
-    ap.add_argument("--out-dir", type=Path, default=None, help="Directorio de salida. Si no, usa <fits_root>/contrast_fit_panels.")
-    ap.add_argument("--pattern", default="**/fit_params.*", help="Glob relativo para descubrir fit_params.")
+    ap.add_argument("--out-dir", type=Path, default=None, help="Output directory. Defaults to <fits_root>/contrast_fit_panels.")
+    ap.add_argument("--pattern", default="**/fit_params.*", help="Relative glob used to discover fit_params.")
     ap.add_argument("--models", nargs="+", default=None, help="Filter models.")
-    ap.add_argument("--subjs", nargs="+", default=None, help="Filtra subjects/phantoms.")
-    ap.add_argument("--rois", nargs="+", default=None, help="Filtra ROIs.")
-    ap.add_argument("--directions", nargs="+", default=None, help="Filtra directions.")
-    ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="Lista de td_ms a excluir de las figuras.")
-    ap.add_argument("--include-failed", action="store_true", help="Incluye filas con ok=False.")
+    ap.add_argument("--subjs", nargs="+", default=None, help="Filter subjects/phantoms.")
+    ap.add_argument("--rois", nargs="+", default=None, help="Filter ROIs.")
+    ap.add_argument("--directions", nargs="+", default=None, help="Filter directions.")
+    ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="td_ms values to exclude from the figures.")
+    ap.add_argument("--include-failed", action="store_true", help="Include rows with ok=False.")
     args = ap.parse_args()
 
     fits_root = Path(args.fits_root)
@@ -47,7 +47,7 @@ def main() -> None:
         ok_only=not bool(args.include_failed),
     )
 
-    print(f"[OK] Figuras generadas: {len(outputs)}")
+    print(f"[OK] Generated figures: {len(outputs)}")
     for path in outputs:
         print(f"  - {path}")
 

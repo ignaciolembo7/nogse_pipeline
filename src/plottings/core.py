@@ -59,8 +59,14 @@ def distinct_colors(n: int) -> list[str]:
     return colors
 
 
-def _style_legend(ax, *, title: str | None = None) -> None:
-    legend = ax.legend(title=title, frameon=True, fontsize=10, loc="best")
+def _style_legend(
+    ax,
+    *,
+    title: str | None = None,
+    loc: str = "best",
+    bbox_to_anchor: tuple[float, float] | None = None,
+) -> None:
+    legend = ax.legend(title=title, frameon=True, fontsize=10, loc=loc, bbox_to_anchor=bbox_to_anchor)
     frame = legend.get_frame()
     frame.set_facecolor("white")
     frame.set_alpha(0.75)
@@ -85,6 +91,8 @@ def render_xy_plot(
     highlight_y: np.ndarray | None = None,
     highlight_label: str | None = None,
     text_lines: Sequence[str] | None = None,
+    text_position: str = "inside_upper_left",
+    legend_position: str = "best",
     yscale: str | None = None,
     ylim: tuple[float, float] | None = None,
     figsize: tuple[float, float] = (8.0, 6.0),
@@ -116,16 +124,19 @@ def render_xy_plot(
         ax.plot(fit_x, fit_y, "-", linewidth=2.2, color="#c43c35", label=(fit_label or "fit"))
 
     if text_lines:
-        ax.text(
-            0.02,
-            0.98,
-            "\n".join(text_lines),
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-            fontsize=10,
-            bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
-        )
+        text_kwargs = {
+            "s": "\n".join(text_lines),
+            "transform": ax.transAxes,
+            "va": "top",
+            "fontsize": 10,
+            "bbox": {"boxstyle": "round", "facecolor": "white", "alpha": 0.85},
+        }
+        if text_position == "outside_right":
+            ax.text(1.03, 0.98, ha="left", clip_on=False, **text_kwargs)
+        elif text_position == "inside_upper_right":
+            ax.text(0.98, 0.98, ha="right", **text_kwargs)
+        else:
+            ax.text(0.02, 0.98, ha="left", **text_kwargs)
 
     if yscale:
         ax.set_yscale(yscale)
@@ -139,9 +150,17 @@ def render_xy_plot(
 
     handles, _labels = ax.get_legend_handles_labels()
     if handles:
-        _style_legend(ax)
+        if legend_position == "lower_left":
+            _style_legend(ax, loc="lower left")
+        elif text_lines and text_position == "outside_right":
+            _style_legend(ax, loc="lower left", bbox_to_anchor=(1.03, 0.02))
+        else:
+            _style_legend(ax)
 
-    fig.tight_layout()
+    if text_lines and text_position == "outside_right":
+        fig.tight_layout(rect=(0, 0, 0.76, 1))
+    else:
+        fig.tight_layout()
     ensure_dir(out_png.parent)
     fig.savefig(out_png, dpi=dpi)
     plt.close(fig)
