@@ -6,6 +6,13 @@
 - `nogse_pipeline/bash_template` is the canonical source for pipeline scripts.
 - Files under `nogse_pipeline/bash` MUST NOT be edited.
 
+## Repository identity
+- The working repository is the `nogse_pipeline` tree under the current task workspace, not any other checkout with the same directory name.
+- Before reading or editing repository files, the agent MUST confirm the repository root with `git -C <workspace>/nogse_pipeline rev-parse --show-toplevel` or use an absolute path derived from the current task workspace.
+- The agent MUST NOT rely on a login-shell `pwd` alone. Local shell startup files may change directory away from the requested workspace.
+- When running shell commands for repository inspection or edits, prefer `login=false` or absolute paths/`git -C` so commands cannot accidentally operate on a similarly named checkout elsewhere.
+- If the resolved repository root is not inside the current task workspace, stop and resolve the mismatch before reading, editing, or reporting findings.
+
 ## Main decision rule
 For any requested change, use this priority order:
 1. reuse existing code,
