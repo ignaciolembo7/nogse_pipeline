@@ -315,7 +315,7 @@ def _fit_prefix_monoexp(
         D0_err = float(fit.errors.get("D0_err_mm2_s", np.nan))
         method = fit.method
     except Exception as exc:
-        result["msg"] = f"Falló curve_fit: {exc}"
+        result["msg"] = f"curve_fit failed: {exc}"
         return result
 
     yhat = monoexp(b_fit, M0_hat, D0_hat)
@@ -460,6 +460,16 @@ def build_monoexp_fit_label(fit_row: dict[str, object]) -> str:
     return ", ".join(parts)
 
 
+def _format_d0_with_error(fit_row: dict[str, object]) -> str:
+    if "D0_mm2_s" in fit_row:
+        value = compact_float(fit_row.get("D0_mm2_s"))
+        error = compact_float(fit_row.get("D0_err_mm2_s"))
+        return f"D0={value} +/- {error} mm2/s"
+    value = compact_float(fit_row.get("D0_m2_ms"))
+    error = compact_float(fit_row.get("D0_err_m2_ms"))
+    return f"D0={value} +/- {error} m2/ms"
+
+
 def plot_monoexp_signal_fit(
     *,
     b: np.ndarray,
@@ -479,11 +489,7 @@ def plot_monoexp_signal_fit(
     text_lines = [
         f"model={fit_row.get('model', 'monoexp')}",
         f"M0={compact_float(fit_row.get('M0'))}",
-        (
-            f"D0={compact_float(fit_row.get('D0_mm2_s'))} mm2/s"
-            if "D0_mm2_s" in fit_row
-            else f"D0={compact_float(fit_row.get('D0_m2_ms'))} m2/ms"
-        ),
+        _format_d0_with_error(fit_row),
         f"rmse={compact_float(fit_row.get('rmse'), digits=4)}",
         f"R2={compact_float(fit_row.get('r2'), digits=4)}",
     ]
@@ -495,8 +501,8 @@ def plot_monoexp_signal_fit(
         y=np.asarray(y, dtype=float),
         out_png=out_png,
         title=(
-            f"Monoexp signal fit | ROI={roi} | direction={direction} | "
-            f"{fit_label} | td_ms={td_txt} | N={n_txt}"
+            f"Monoexp signal fit\nROI={roi} | direction={direction} | "
+            f"td_ms={td_txt} | N={n_txt}"
         ),
         xlabel="bvalue (s/mm^2)",
         ylabel=ycol,
@@ -509,6 +515,8 @@ def plot_monoexp_signal_fit(
         highlight_y=np.asarray(y[:k], dtype=float) if k > 0 else None,
         highlight_label=f"fit first {k}",
         text_lines=text_lines,
+        text_position="inside_upper_right",
+        legend_position="lower_left",
         yscale="log",
     )
 
@@ -845,7 +853,7 @@ def run_fit_from_parquet(
         fp = standardize_fit_params(fp, fit_kind="monoexp", source_file=p.name)
 
     fit_params_name = fit_params_output_basename(
-        model=str(model),
+        model="monoexp",
         axis=str(g_type),
         ycol=str(ycol),
         directions=None if dirs is None else [str(v) for v in dirs],

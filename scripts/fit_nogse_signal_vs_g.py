@@ -18,6 +18,7 @@ from fitting.gradient_correction import (
 )
 from nogse_fitting.fit_nogse_signal_vs_g import (
     analysis_id_from_path,
+    run_global_mixed_fit_from_parquets,
     run_fit_from_parquet,
     validate_bounds,
     validate_fixed_value,
@@ -88,7 +89,7 @@ def _resolve_direction_factors(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("signal_parquet", type=Path)
+    ap.add_argument("signal_parquet", type=Path, nargs="+")
     ap.add_argument("--model", required=True, choices=sorted(experiment_models(EXPERIMENT)))
     ap.add_argument("--out_root", required=True, type=Path)
     ap.add_argument("--xcol", default="g", choices=sorted(VALID_AXIS_BASES))
@@ -108,6 +109,13 @@ def main() -> None:
 
     ap.add_argument("--M0_bounds", "--M0-bounds", nargs=2, type=float, default=(0.0, float("inf")), metavar=("MIN", "MAX"))
     ap.add_argument("--D0_bounds", "--D0-bounds", nargs=2, type=float, default=(1e-16, float("inf")), metavar=("MIN", "MAX"))
+    ap.add_argument("--tc_init", type=float, default=5.0, help="Initial tc seed in ms for model=mixed_global.")
+    ap.add_argument("--tc_bounds", "--tc-bounds", nargs=2, type=float, default=(0.1, 1000.0), metavar=("MIN", "MAX"))
+    ap.add_argument("--alpha_table", type=Path, default=None, help="Optional table with fixed alpha per subj/roi/direction/td.")
+    ap.add_argument("--alpha_col", default=None, help="Alpha column in --alpha_table. Defaults to alpha, then alpha_macro.")
+    ap.add_argument("--alpha_td_col", default="td_ms", help="td column in --alpha_table used for per-td matching.")
+    ap.add_argument("--alpha_td_tol_ms", type=float, default=1e-3, help="Tolerance in ms for matching alpha by td.")
+    ap.add_argument("--no_plots", action="store_true", help="Skip fit plots.")
 
     corr_group = ap.add_mutually_exclusive_group()
     corr_group.add_argument("--apply_grad_corr", action="store_true")
@@ -128,14 +136,20 @@ def main() -> None:
 
     m0_bounds = validate_bounds("M0", args.M0_bounds)
     d0_bounds = validate_bounds("D0", args.D0_bounds)
+    tc_bounds = validate_bounds("tc", args.tc_bounds)
     validate_fixed_value("M0", fix_m0, m0_bounds)
     validate_fixed_value("D0", fix_d0, d0_bounds)
     if fix_d0 is None:
         validate_log_bounds("D0", d0_bounds)
+    validate_log_bounds("tc", tc_bounds)
+
+    signal_paths = [Path(p) for p in args.signal_parquet]
+    if args.model != "mixed_global" and len(signal_paths) != 1:
+        raise ValueError("Multiple signal parquet inputs are only supported with --model mixed_global.")
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
     f_by_direction = _resolve_direction_factors(
-        signal_parquet=args.signal_parquet,
+        signal_parquet=signal_paths[0],
         apply_grad_corr=apply_corr,
         corr_xlsx=args.corr_xlsx,
         corr_roi=args.corr_roi,
@@ -145,8 +159,33 @@ def main() -> None:
         model=args.model,
     )
 
+    if args.model == "mixed_global":
+        run_global_mixed_fit_from_parquets(
+            signal_paths,
+            out_root=args.out_root,
+            xcol=args.xcol,
+            plot_xcol=args.plot_xcol,
+            ycol=args.ycol,
+            stat_keep=args.stat,
+            rois=split_all_or_values(args.rois),
+            directions=split_all_or_values(args.directions),
+            fix_m0=fix_m0,
+            fix_d0=fix_d0,
+            tc_init=float(args.tc_init),
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
+            tc_bounds=tc_bounds,
+            f_by_direction=f_by_direction,
+            alpha_table=args.alpha_table,
+            alpha_col=args.alpha_col,
+            alpha_td_col=args.alpha_td_col,
+            alpha_td_tol_ms=float(args.alpha_td_tol_ms),
+            no_plots=bool(args.no_plots),
+        )
+        return
+
     run_fit_from_parquet(
-        args.signal_parquet,
+        signal_paths[0],
         model=args.model,
         out_root=args.out_root,
         xcol=args.xcol,

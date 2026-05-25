@@ -22,7 +22,7 @@ from fitting.core import chi2 as _chi2
 from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import rmse_log as _rmse_log
-from models.model_fitting import M_ogse_free
+from models.model_fitting import M_ogse_free, M_ogse_rest, M_ogse_rest_offset
 from monoexp_fitting.fit_monoexp_signal_vs_bval import run_fit_from_parquet as run_fit_monoexp_from_parquet
 from ogse_plotting.plot_ogse_signal_vs_g import plot_ogse_signal_fit
 from tools.fit_params_schema import standardize_fit_params
@@ -48,7 +48,14 @@ GTYPE_ALIASES = {
 VALID_G_TYPES = set(GTYPE_ALIASES)
 OGSE_SIGNAL_MODEL_MONOEXP = "monoexp"
 OGSE_SIGNAL_MODEL_FREE = "free_ogse"
-VALID_OGSE_SIGNAL_MODELS = {OGSE_SIGNAL_MODEL_MONOEXP, OGSE_SIGNAL_MODEL_FREE}
+OGSE_SIGNAL_MODEL_REST = "rest"
+OGSE_SIGNAL_MODEL_REST_OFFSET = "rest_offset"
+VALID_OGSE_SIGNAL_MODELS = {
+    OGSE_SIGNAL_MODEL_MONOEXP,
+    OGSE_SIGNAL_MODEL_FREE,
+    OGSE_SIGNAL_MODEL_REST,
+    OGSE_SIGNAL_MODEL_REST_OFFSET,
+}
 
 
 def infer_exp_id(p: Path) -> str:
@@ -269,6 +276,22 @@ def _ogse_signal_free(
     return M_ogse_free(float(td_ms), np.asarray(G, dtype=float), float(N), x_model_ms, float(M0), float(D0_m2_ms))
 
 
+def _ogse_signal_rest(
+    *,
+    td_ms: float,
+    G: np.ndarray,
+    N: float,
+    tc_ms: float,
+    M0: float,
+    D0_m2_ms: float,
+    C: float = 0.0,
+) -> np.ndarray:
+    x_model_ms = float(td_ms) / float(N)
+    if float(C) == 0.0:
+        return M_ogse_rest(float(td_ms), np.asarray(G, dtype=float), float(N), x_model_ms, float(tc_ms), float(M0), float(D0_m2_ms))
+    return M_ogse_rest_offset(float(td_ms), np.asarray(G, dtype=float), float(N), x_model_ms, float(tc_ms), float(M0), float(D0_m2_ms), float(C))
+
+
 @dataclass(frozen=True)
 class FitOutputs:
     fit_params: pd.DataFrame
@@ -347,7 +370,7 @@ def _fit_prefix_ogse_free(
         D0_err_m2_ms = float(fit.errors.get("D0_err_m2_ms", np.nan))
         method = fit.method
     except Exception as exc:
-        result["msg"] = f"Falló curve_fit: {exc}"
+        result["msg"] = f"curve_fit failed: {exc}"
         return result
 
     yhat = _ogse_signal_free(
@@ -374,10 +397,127 @@ def _fit_prefix_ogse_free(
     return result
 
 
+def _fit_prefix_ogse_rest(
+    G: np.ndarray,
+    y: np.ndarray,
+    *,
+    td_ms: float,
+    n_value: float,
+    fit_points: int,
+    free_M0: bool,
+    fix_M0: float,
+    D0_init: float,
+    offset: bool,
+    tc_init: float = 5.0,
+    C_init: float = 0.0,
+) -> dict:
+    k = min(int(fit_points), len(G))
+    if k <= 0:
+        return {
+            "ok": False,
+            "fit_points": int(k),
+            "n_fit": 0,
+            "fit_mask": np.zeros(len(G), dtype=bool),
+            "msg": "fit_points must be > 0.",
+        }
+
+    prefix_mask = np.zeros(len(G), dtype=bool)
+    prefix_mask[:k] = True
+    valid_mask = np.isfinite(G) & np.isfinite(y) & (y > 0)
+    fit_mask = prefix_mask & valid_mask
+
+    G_fit = G[fit_mask].copy()
+    y_fit = y[fit_mask].copy()
+    result = {
+        "ok": False,
+        "fit_points": int(k),
+        "n_fit": int(len(G_fit)),
+        "fit_mask": fit_mask,
+        "msg": "",
+    }
+    if len(G_fit) < AUTO_FIT_MIN_POINTS:
+        result["msg"] = "Too few valid points."
+        return result
+
+    D0_init_m2_ms = _d0_mm2s_to_m2ms(float(D0_init))
+    model_name = OGSE_SIGNAL_MODEL_REST_OFFSET if offset else OGSE_SIGNAL_MODEL_REST
+
+    try:
+        def model_from_params(params: dict[str, float]) -> np.ndarray:
+            return _ogse_signal_rest(
+                td_ms=float(td_ms),
+                G=G_fit,
+                N=float(n_value),
+                tc_ms=float(params["tc_ms"]),
+                M0=float(params["M0"]),
+                D0_m2_ms=float(params["D0_m2_ms"]),
+                C=float(params.get("C", 0.0)),
+            )
+
+        parameters = [
+            CurveFitParameter("tc_ms", float(tc_init), 0.1, 1000.0, True),
+            CurveFitParameter("M0", 1.0 if free_M0 else float(fix_M0), 0.0, 100.0, bool(free_M0)),
+            CurveFitParameter("D0_m2_ms", float(D0_init_m2_ms), D0_init_m2_ms / 100.0, D0_init_m2_ms * 100.0, True),
+        ]
+        if offset:
+            parameters.append(CurveFitParameter("C", float(C_init), -1.0, 1.0, True))
+
+        fit = fit_curve_fit_parameters(
+            model_from_params,
+            y_fit,
+            parameters=parameters,
+            x=G_fit,
+            maxfev=80000,
+            method=f"curve_fit(M_ogse_{model_name}: tc,M0,D0" + (",C)" if offset else ")"),
+        )
+        tc_hat = float(fit.values["tc_ms"])
+        M0_hat = float(fit.values["M0"])
+        D0_hat_m2_ms = float(fit.values["D0_m2_ms"])
+        C_hat = float(fit.values.get("C", 0.0))
+        tc_err = float(fit.errors.get("tc_err_ms", np.nan))
+        M0_err = float(fit.errors.get("M0_err", np.nan)) if free_M0 else np.nan
+        D0_err_m2_ms = float(fit.errors.get("D0_err_m2_ms", np.nan))
+        C_err = float(fit.errors.get("C_err", np.nan)) if offset else np.nan
+        method = fit.method
+    except Exception as exc:
+        result["msg"] = f"curve_fit failed: {exc}"
+        return result
+
+    yhat = _ogse_signal_rest(
+        td_ms=float(td_ms),
+        G=G_fit,
+        N=float(n_value),
+        tc_ms=float(tc_hat),
+        M0=float(M0_hat),
+        D0_m2_ms=float(D0_hat_m2_ms),
+        C=float(C_hat),
+    )
+    result.update(
+        ok=True,
+        msg="",
+        tc_ms=float(tc_hat),
+        tc_err_ms=float(tc_err) if np.isfinite(tc_err) else np.nan,
+        M0=float(M0_hat),
+        M0_err=float(M0_err) if np.isfinite(M0_err) else np.nan,
+        D0_mm2_s=_d0_m2ms_to_mm2s(float(D0_hat_m2_ms)),
+        D0_err_mm2_s=_d0_m2ms_to_mm2s(float(D0_err_m2_ms)) if np.isfinite(D0_err_m2_ms) else np.nan,
+        D0_m2_ms=float(D0_hat_m2_ms),
+        D0_err_m2_ms=float(D0_err_m2_ms) if np.isfinite(D0_err_m2_ms) else np.nan,
+        C=float(C_hat) if offset else np.nan,
+        C_err=float(C_err) if np.isfinite(C_err) else np.nan,
+        rmse=float(_rmse(y_fit, yhat)),
+        chi2=float(_chi2(y_fit, yhat)),
+        rmse_log=float(_rmse_log(y_fit, yhat)),
+        method=method,
+    )
+    return result
+
+
 def _select_fit_result(
     G: np.ndarray,
     y: np.ndarray,
     *,
+    model: str = OGSE_SIGNAL_MODEL_FREE,
     td_ms: float,
     n_value: float,
     fit_points: Optional[int],
@@ -390,6 +530,36 @@ def _select_fit_result(
     auto_fit_rel_tol: float = AUTO_FIT_REL_TOL,
     auto_fit_err_floor: float = AUTO_FIT_ERR_FLOOR,
 ) -> dict:
+    model_name = str(model)
+    def _fit_candidate(k: int) -> dict:
+        if model_name == OGSE_SIGNAL_MODEL_FREE:
+            return _fit_prefix_ogse_free(
+                G,
+                y,
+                td_ms=float(td_ms),
+                n_value=float(n_value),
+                fit_points=int(k),
+                free_M0=free_M0,
+                fix_M0=fix_M0,
+                D0_init=D0_init,
+            )
+        if model_name in {OGSE_SIGNAL_MODEL_REST, OGSE_SIGNAL_MODEL_REST_OFFSET}:
+            return _fit_prefix_ogse_rest(
+                G,
+                y,
+                td_ms=float(td_ms),
+                n_value=float(n_value),
+                fit_points=int(k),
+                free_M0=free_M0,
+                fix_M0=fix_M0,
+                D0_init=D0_init,
+                offset=model_name == OGSE_SIGNAL_MODEL_REST_OFFSET,
+            )
+        raise ValueError(
+            f"Unsupported OGSE signal model {model_name!r}. "
+            f"Allowed values: {sorted(VALID_OGSE_SIGNAL_MODELS)}."
+        )
+
     if auto_fit_points:
         k_min = max(1, int(auto_fit_min_points))
         k_max = len(G) if auto_fit_max_points is None else min(int(auto_fit_max_points), len(G))
@@ -410,16 +580,7 @@ def _select_fit_result(
         tested_until = k_min - 1
         for k in range(k_min, k_max + 1):
             tested_until = k
-            cand = _fit_prefix_ogse_free(
-                G,
-                y,
-                td_ms=float(td_ms),
-                n_value=float(n_value),
-                fit_points=k,
-                free_M0=free_M0,
-                fix_M0=fix_M0,
-                D0_init=D0_init,
-            )
+            cand = _fit_candidate(k)
             if not cand["ok"]:
                 if last_ok is None:
                     continue
@@ -476,23 +637,14 @@ def _select_fit_result(
         }
 
     selected_fit_points = fit_points if fit_points is not None else 6
-    selected = _fit_prefix_ogse_free(
-        G,
-        y,
-        td_ms=float(td_ms),
-        n_value=float(n_value),
-        fit_points=int(selected_fit_points),
-        free_M0=free_M0,
-        fix_M0=fix_M0,
-        D0_init=D0_init,
-    )
+    selected = _fit_candidate(int(selected_fit_points))
     selected["fit_strategy"] = "fixed"
     selected["auto_fit_metric"] = np.nan
     selected["auto_fit_score"] = np.nan
     return selected
 
 
-def plot_fit_one_group_ogse_free(
+def plot_fit_one_group_ogse_signal(
     df_group: pd.DataFrame,
     fit_row: dict,
     *,
@@ -505,7 +657,7 @@ def plot_fit_one_group_ogse_free(
     df_group = _ensure_keys_types(df_group.copy())
 
     if ycol not in df_group.columns:
-        raise KeyError(f"plot_fit_one_group_ogse_free: missing ycol {ycol!r}. Columns={list(df_group.columns)}")
+        raise KeyError(f"plot_fit_one_group_ogse_signal: missing ycol {ycol!r}. Columns={list(df_group.columns)}")
 
     N = fit_row.get("N")
     delta_ms = fit_row.get("delta_ms")
@@ -554,13 +706,25 @@ def plot_fit_one_group_ogse_free(
     if bool(fit_row.get("ok", True)):
         M0 = float(fit_row["M0"])
         D0_m2_ms = float(fit_row["D0_m2_ms"])
-        ys = _ogse_signal_free(
-            td_ms=float(fit_row["td_ms"]),
-            G=g_dense,
-            N=float(N),
-            M0=M0,
-            D0_m2_ms=D0_m2_ms,
-        )
+        model_name = str(fit_row.get("model", OGSE_SIGNAL_MODEL_FREE))
+        if model_name == OGSE_SIGNAL_MODEL_FREE:
+            ys = _ogse_signal_free(
+                td_ms=float(fit_row["td_ms"]),
+                G=g_dense,
+                N=float(N),
+                M0=M0,
+                D0_m2_ms=D0_m2_ms,
+            )
+        elif model_name in {OGSE_SIGNAL_MODEL_REST, OGSE_SIGNAL_MODEL_REST_OFFSET}:
+            ys = _ogse_signal_rest(
+                td_ms=float(fit_row["td_ms"]),
+                G=g_dense,
+                N=float(N),
+                tc_ms=float(fit_row["tc_ms"]),
+                M0=M0,
+                D0_m2_ms=D0_m2_ms,
+                C=float(fit_row.get("C", 0.0)) if model_name == OGSE_SIGNAL_MODEL_REST_OFFSET else 0.0,
+            )
     plot_ogse_signal_fit(
         x=np.asarray(x_plot, dtype=float),
         y=np.asarray(y, dtype=float),
@@ -577,6 +741,7 @@ def plot_fit_one_group_ogse_free(
 def fit_ogse_signal_vs_g_long(
     df: pd.DataFrame,
     *,
+    model: str = OGSE_SIGNAL_MODEL_FREE,
     dirs: Optional[Sequence[str]] = None,
     roi: str = "ALL",
     rois: Optional[Sequence[str]] = None,
@@ -642,6 +807,7 @@ def fit_ogse_signal_vs_g_long(
     results = []
     points = []
     plot_axis = _resolve_plot_axis(fit_axis=g_type, plot_axis=plot_xcol)
+    model_name = str(model)
 
     for (dir_val, roi_val), d in dfa.groupby(["direction", "roi"], sort=False):
         d = d.sort_values("b_step", kind="stable").copy()
@@ -684,6 +850,7 @@ def fit_ogse_signal_vs_g_long(
         fit_res = _select_fit_result(
             fit_bundle.gradient_corr,
             y,
+            model=model_name,
             td_ms=float(td_value),
             n_value=float(n_value),
             fit_points=fit_points,
@@ -708,7 +875,7 @@ def fit_ogse_signal_vs_g_long(
                     roi=str(roi_val),
                     direction=str(dir_val),
                     stat=str(stat_keep),
-                    model=OGSE_SIGNAL_MODEL_FREE,
+                    model=model_name,
                     ycol=str(ycol),
                     g_type=str(g_type),
                     plot_xcol=str(plot_axis),
@@ -732,7 +899,7 @@ def fit_ogse_signal_vs_g_long(
                 roi=str(roi_val),
                 direction=str(dir_val),
                 stat=str(stat_keep),
-                model=OGSE_SIGNAL_MODEL_FREE,
+                model=model_name,
                 ycol=str(ycol),
                 g_type=str(g_type),
                 plot_xcol=str(plot_axis),
@@ -753,6 +920,10 @@ def fit_ogse_signal_vs_g_long(
                 D0_err_mm2_s=fit_res["D0_err_mm2_s"],
                 D0_m2_ms=float(fit_res["D0_m2_ms"]),
                 D0_err_m2_ms=fit_res["D0_err_m2_ms"],
+                tc_ms=fit_res.get("tc_ms", np.nan),
+                tc_err_ms=fit_res.get("tc_err_ms", np.nan),
+                C=fit_res.get("C", np.nan),
+                C_err=fit_res.get("C_err", np.nan),
                 rmse=float(fit_res["rmse"]),
                 rmse_log=float(fit_res["rmse_log"]),
                 chi2=float(fit_res["chi2"]),
@@ -784,8 +955,8 @@ def fit_ogse_signal_vs_g_long(
             )
 
         if outdir_plots is not None:
-            out_png = outdir_plots / f"{roi_val}.{OGSE_SIGNAL_MODEL_FREE}.{g_type}.{ycol}.direction_{dir_val}.png"
-            plot_fit_one_group_ogse_free(
+            out_png = outdir_plots / f"{roi_val}.{model_name}.{g_type}.{ycol}.direction_{dir_val}.png"
+            plot_fit_one_group_ogse_signal(
                 d,
                 results[-1],
                 out_png=out_png,
@@ -861,7 +1032,7 @@ def run_fit_ogse_signal_vs_g_from_parquet(
             f_by_direction=f_by_direction,
             b_corr_power=2.0,
         )
-    if model_name != OGSE_SIGNAL_MODEL_FREE:
+    if model_name not in {OGSE_SIGNAL_MODEL_FREE, OGSE_SIGNAL_MODEL_REST, OGSE_SIGNAL_MODEL_REST_OFFSET}:
         raise ValueError(
             f"Unsupported OGSE signal model {model_name!r}. "
             f"Allowed values: {sorted(VALID_OGSE_SIGNAL_MODELS)}."
@@ -886,6 +1057,7 @@ def run_fit_ogse_signal_vs_g_from_parquet(
 
     outs = fit_ogse_signal_vs_g_long(
         df,
+        model=model_name,
         dirs=dirs,
         roi=roi,
         rois=rois,

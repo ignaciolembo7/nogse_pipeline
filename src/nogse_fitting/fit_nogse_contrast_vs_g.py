@@ -236,24 +236,24 @@ def _model_yhat(
 def _tc_peak_from_notebook_formula(
     *,
     td_ms: float,
-    g_peak_raw_mTpm: float,
+    g_peak_mTpm: float,
     D0_fix_m2_ms: float,
     gamma_rad_ms_mT: float,
 ) -> tuple[float, float, float, float]:
-    g_raw = float(g_peak_raw_mTpm)
-    if not np.isfinite(g_raw) or g_raw <= 0:
+    g_peak = float(g_peak_mTpm)
+    if not np.isfinite(g_peak) or g_peak <= 0:
         return (np.nan, np.nan, np.nan, np.nan)
 
     D0 = float(D0_fix_m2_ms)
     gamma = float(gamma_rad_ms_mT)
     td = float(td_ms)
 
-    l_G = ((2.0 ** (3.0 / 2.0)) * D0 / (gamma * g_raw)) ** (1.0 / 3.0)
-    l_d = np.sqrt(2.0 * D0 * td)
+    l_G = (D0 / (gamma * g_peak)) ** (1.0 / 3.0)
+    l_d = np.sqrt(D0 * td)
     L_d = l_d / l_G
     L_cf = ((3.0 / 2.0) ** (1.0 / 4.0)) * (L_d ** (-1.0 / 2.0))
     lcf = L_cf * l_G
-    tc_peak_ms = (lcf**2) / (2.0 * D0)
+    tc_peak_ms = (lcf**2) / D0
     return (float(l_G), float(L_cf), float(lcf), float(tc_peak_ms))
 
 
@@ -277,7 +277,8 @@ def _compute_peak_metrics(
 
     n_grid = max(32, int(peak_grid_n))
     frac = np.linspace(0.0, 1.0, n_grid)
-    G = frac * float(g_max_corr)
+    g_search_max_corr = float(g_max_corr)
+    G = frac * float(g_search_max_corr)
     y = _model_yhat(model=model, td_ms=td_ms, G=G, n_value=n_value, fit_row=fit_row)
     if y.size == 0 or not np.isfinite(y).any():
         return {}
@@ -291,10 +292,11 @@ def _compute_peak_metrics(
     f2_val = f_corr_2 if np.isfinite(f_corr_2) and f_corr_2 != 0.0 else np.nan
     g_peak_raw = float(g_peak_corr / f1_val) if np.isfinite(f1_val) else np.nan
     g_max_raw = float(g_max_corr / f1_val) if np.isfinite(f1_val) else np.nan
+    g_search_max_raw = float(g_search_max_corr / f1_val) if np.isfinite(f1_val) else np.nan
 
     l_G, L_cf, lcf_peak_m, tc_peak_ms = _tc_peak_from_notebook_formula(
         td_ms=float(td_ms),
-        g_peak_raw_mTpm=float(g_peak_raw),
+        g_peak_mTpm=float(g_peak_corr),
         D0_fix_m2_ms=float(peak_D0_fix),
         gamma_rad_ms_mT=float(peak_gamma),
     )
@@ -315,6 +317,11 @@ def _compute_peak_metrics(
         "g2_max_raw_mTm": g2_raw,
         "g1_max_corr_mTm": float(g_max_corr),
         "g2_max_corr_mTm": g2_corr,
+        "g1_search_max_raw_mTm": g_search_max_raw,
+        "g2_search_max_raw_mTm": np.nan,
+        "g1_search_max_corr_mTm": float(g_search_max_corr),
+        "g2_search_max_corr_mTm": np.nan,
+        "peak_resample_gradient": False,
         "peak_fraction": f_peak,
         "g1_peak_raw_mTm": g_peak_raw,
         "g2_peak_raw_mTm": np.nan,
@@ -322,11 +329,14 @@ def _compute_peak_metrics(
         "g2_peak_corr_mTm": np.nan,
         "x_peak_raw_mTm": float(g_peak_raw),
         "x_peak_corr_mTm": float(g_peak_corr),
+        "g_peak_resampled_raw_mTm": np.nan,
+        "g_peak_resampled_corr_mTm": np.nan,
         "signal_peak": y_peak,
         "l_G_peak_m": l_G,
         "L_cf_peak": L_cf,
         "lcf_peak_m": lcf_peak_m,
         "tc_peak_ms": tc_peak_ms,
+        "tc_peak_resampled_ms": np.nan,
     }
 
 
