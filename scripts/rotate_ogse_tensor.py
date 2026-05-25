@@ -29,7 +29,7 @@ def _infer_exp_dir(df: pd.DataFrame, long_parquet: Path) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("long_parquet", type=Path)
-    ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data-rotated"))
+    ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data-rotated/tables"))
     ap.add_argument("--solver", type=str, default="lstsq", choices=["lstsq", "solve"])
     ap.add_argument("--s0_mode", type=str, default="dir1", choices=["dir1", "mean"])
     ap.add_argument("--b_col", type=str, default="bvalue")

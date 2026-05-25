@@ -238,6 +238,7 @@ def plot_nogse_signal_table(
             signal_type=None if signal_type is None else str(signal_type),
             connect_data=True,
         )
-        out_paths.append(out_png)
+        if out_png.exists():
+            out_paths.append(out_png)
 
     return out_paths

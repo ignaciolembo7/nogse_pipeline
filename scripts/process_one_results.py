@@ -27,7 +27,7 @@ def _norm_key(s: str) -> str:
 
 
 def _row_get(row: pd.Series, keys: list[str], default=None):
-    """Busca en row por keys (case/space-insensitive) y devuelve el primer valor no-NaN."""
+    """Look up keys in row (case/space-insensitive) and return the first non-NaN value."""
     idx = list(row.index)
     norm_map = {_norm_key(c): c for c in idx}
 
@@ -603,7 +603,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("results_file", type=Path)
     ap.add_argument("params_xlsx", type=Path)
-    ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data"))
+    ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data/tables"))
     ap.add_argument("--gamma", type=float, default=267.5221900, help="1/(ms*mT)")
     ap.add_argument(
         "--oneg",
