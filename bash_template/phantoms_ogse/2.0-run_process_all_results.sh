@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
 # ------------------------------------------------------------------
 # Configuration
@@ -18,12 +19,13 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
-ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments"
+ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms-3/ogse_experiments"
 PHANTOM_SUBJ_REL="20220610-PHANTOM3"
-DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
+DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/$PHANTOM_SUBJ_REL"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
-DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
+DEFAULT_OUT_ROOT="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
+DEFAULT_PLOT_SCRIPT="$REPO_ROOT/scripts/plot_signal_tables_vs_g.py"
 # OUTPUT_STEM_STRIP_TOKENS="${OUTPUT_STEM_STRIP_TOKENS:-}"
 OUTPUT_STEM_STRIP_TOKENS="20220610-PHANTOM3"
 ONEG="${ONEG:-false}"
@@ -34,8 +36,11 @@ ONEG="${ONEG:-false}"
 
 RESULTS_ROOT="${1:-$DEFAULT_RESULTS_ROOT}"
 PARAMS="${2:-$DEFAULT_PARAMS}"
-OUT_DIR="${3:-$DEFAULT_OUT_DIR}"
+OUT_ROOT="${3:-$DEFAULT_OUT_ROOT}"
 PROCESS_SCRIPT="${4:-$DEFAULT_PROCESS_SCRIPT}"
+PLOT_SCRIPT="${PLOT_SCRIPT:-$DEFAULT_PLOT_SCRIPT}"
+TABLES_DIR="$OUT_ROOT/tables"
+PLOTS_DIR="$OUT_ROOT/plots"
 
 if [[ ! -d "$RESULTS_ROOT" ]]; then
     echo "ERROR: Results root not found: $RESULTS_ROOT" >&2
@@ -52,7 +57,12 @@ if [[ ! -f "$PROCESS_SCRIPT" ]]; then
     exit 1
 fi
 
-mkdir -p "$OUT_DIR"
+if [[ ! -f "$PLOT_SCRIPT" ]]; then
+    echo "ERROR: plot script not found: $PLOT_SCRIPT" >&2
+    exit 1
+fi
+
+mkdir -p "$TABLES_DIR" "$PLOTS_DIR"
 
 PROCESS_ARGS=()
 if [[ -n "$OUTPUT_STEM_STRIP_TOKENS" ]]; then
@@ -79,7 +89,7 @@ while read -r file; do
     echo "Processing: $seq_name"
     echo "  File: $file"
 
-    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR" "${PROCESS_ARGS[@]}"; then
+    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$TABLES_DIR" "${PROCESS_ARGS[@]}"; then
         ok=$((ok + 1))
         echo "  OK: $seq_name"
     else
@@ -98,6 +108,11 @@ echo "  Total files   : $total"
 echo "  Successful    : $ok"
 echo "  Failed        : $failed"
 
+if (( total == 0 )); then
+    echo "  Notes         : no *_results.xlsx files were found in $RESULTS_ROOT."
+    echo "                  Existing processed tables under $TABLES_DIR are kept for downstream steps."
+fi
+
 if (( failed > 0 )); then
     echo
     echo "Failed sequences:"
@@ -106,3 +121,7 @@ if (( failed > 0 )); then
     done
     exit 1
 fi
+
+echo
+echo "Plotting signal tables versus g_thorsten..."
+"$PY" "$PLOT_SCRIPT" "$TABLES_DIR" --out_root "$PLOTS_DIR" --xcol g_thorsten --ycols value value_norm

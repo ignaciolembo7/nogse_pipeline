@@ -9,8 +9,17 @@ RUNNER_LIB="$REPO_ROOT/bash_template/helpers/pipeline_runner_lib.sh"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
-LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms/ogse}"
+DEFAULT_PY="python"
+PROJECT_PY="/home/ignacio.lemboferrari@unitn.it/.conda/envs/nogse_pipe_env/bin/python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "$PROJECT_PY" ]]; then
+    DEFAULT_PY="$PROJECT_PY"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
+LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms_ogse}"
 ONEG="${ONEG:-true}"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
@@ -22,7 +31,7 @@ fi
 source "$RUNNER_LIB"
 
 RUN_SCRIPTS=(
-# Common setup / extraction steps
+# 20220610-PHANTOM3 OGSE workflow, aligned with brains_ogse from 2.0 onward.
 # "0.0-run_dicom2nifti.sh"
 # DICOM metadata extraction is centralized in bash_template/dicom_params.
 # "0.1-run_make_gval_gvec.sh"
@@ -30,16 +39,19 @@ RUN_SCRIPTS=(
 # "0.3-copy_selected_files.sh"
 # "1.0-run_PHANTOM-denoised_signal_extraction.sh"
 # "2.0-run_process_all_results.sh"
-# "2.1-run_plot_selected_ogse_signals.sh"
-# "2.2-run_fit_nogse_signal_vs_g.sh"
-
-# OGSE contrast and signal analysis
-"3.1-run_make_contrast_selected.sh"
-"3.2-run_plot_all_ogse_contrast_vs_g.sh"
+# "3.1-run_make_contrast_selected.sh"
+# "3.2-run_plot_all_ogse_contrast_vs_g.sh"
+# "3.3-run_make_alpha_macro_summary.sh"
 # "4.1-run_fit_ogse_signal_vs_g.sh"
 # "4.2-run_plot_monoexp_D_vs_time.sh"
-# "4.3-run_make_alpha_macro_summary.sh"
-# "4.4-run_plot_D0_vs_Delta.sh"
+# "4.3-run_plot_D0_vs_Delta.sh"
+# "5.1-run_fit_free_ogse_contrast_vs_g.sh"
+# "5.2-run_make_grad_correction_table.sh"
+# "5.3-run_fit_free_all_ogse_contrast_vs_g.sh"
+# "5.4-run_fit_rest_all_ogse_contrast_vs_g.sh"
+# "5.5-run_fit_mixed_global_ogse_contrast_vs_g.sh"
+"6.1-run_make_groupfits_rest.sh"
+"6.2-run_tc_vs_td_pseudohuber_fixed_macro.sh"
 )
 
 run_pipeline_steps \

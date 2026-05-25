@@ -11,16 +11,10 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-DEFAULT_PY="python"
-if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
-    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-    DEFAULT_PY="$(command -v python3)"
-fi
-PY="${PY:-$DEFAULT_PY}"
+PY="${PY:-python}"
 SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
-
-DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms-3/ogse_experiments}"
+DPROJ_ROOT="$ANALYSIS_ROOT/data/tables"
 SUBJS="ALL"
 ROIS="ALL"
 DIRS="1 2 3"
@@ -28,7 +22,10 @@ N_VALUE="1"
 PLOT_ROIS="ALL"
 PLOT_DIRECTIONS="ALL"
 BVALMAX="7"
-OUT_SUMMARY="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
+OUT_SUMMARY="$ANALYSIS_ROOT/alpha_macro/N1/summary_alpha_values.xlsx"
+REFERENCE_D0="0.0023"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 
 if [[ ! -f "$SUMMARY_SCRIPT" ]]; then
     echo "ERROR: Script not found: $SUMMARY_SCRIPT" >&2
@@ -51,7 +48,7 @@ extra_args=()
 if [[ "$SUBJS" != "ALL" ]]; then
     read -r -a subj_list <<< "${SUBJS//,/ }"
     if (( ${#subj_list[@]} > 0 )); then
-        extra_args+=(--subj "${subj_list[@]}")
+        extra_args+=(--subjs "${subj_list[@]}")
     fi
 fi
 if [[ "$ROIS" != "ALL" ]]; then
@@ -80,7 +77,7 @@ if [[ "$PLOT_DIRECTIONS" != "ALL" ]]; then
 fi
 
 echo "============================================================"
-echo "Dataset       : phantoms"
+echo "Dataset       : phantoms-3"
 echo "Dproj root    : $DPROJ_ROOT"
 echo "Subjs         : $SUBJS"
 echo "ROIs          : $ROIS"
@@ -89,6 +86,7 @@ echo "N             : $N_VALUE"
 echo "Plot ROIs     : $PLOT_ROIS"
 echo "Plot dirs     : $PLOT_DIRECTIONS"
 echo "Bstep alpha   : $BVALMAX"
+echo "Reference D0  : $REFERENCE_D0"
 echo "Out summary   : $OUT_SUMMARY"
 
 "$PY" "$SUMMARY_SCRIPT" \
@@ -97,7 +95,7 @@ echo "Out summary   : $OUT_SUMMARY"
     --N "$N_VALUE" \
     --bvalmax "$BVALMAX" \
     --out-summary "$OUT_SUMMARY" \
-    --reference-D0 0.0023 
+    --reference-D0 "$REFERENCE_D0"
 
 echo
 echo "Finished."

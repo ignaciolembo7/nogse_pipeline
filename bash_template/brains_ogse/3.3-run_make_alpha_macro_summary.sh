@@ -13,9 +13,9 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
-DPROJ_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated"
+DPROJ_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated/tables"
 SUBJS="BRAIN LUDG MBBL"
-ROIS="AntCC MidAntCC CentralCC MidPostCC PostCC Left-Lateral-Ventricle Right-Lateral-Ventricle Syringe"
+ROIS="AntCC MidAntCC CentralCC MidPostCC PostCC" # Left-Lateral-Ventricle Right-Lateral-Ventricle Syringe"
 DIRS="x y z"
 N_VALUE="1"
 PLOT_ROIS="$ROIS"
@@ -27,10 +27,10 @@ ROI_BVALMAX_OVERRIDES=(
     "CentralCC=10"
     "MidPostCC=10"
     "PostCC=10"
-    "Left-Lateral-Ventricle=6"
-    "Right-Lateral-Ventricle=6"
-    "Syringe=6"
 )
+# "Left-Lateral-Ventricle=6"
+# "Right-Lateral-Ventricle=6"
+# "Syringe=6"
 OUT_SUMMARY="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
@@ -67,7 +67,7 @@ echo "Out summary   : $OUT_SUMMARY"
 cmd=(
     "$PY" "$SUMMARY_SCRIPT"
     --dproj-root "$DPROJ_ROOT"
-    --subj $SUBJS
+    --subjs $SUBJS
     --rois $ROIS
     --dirs $DIRS
     --N "$N_VALUE"

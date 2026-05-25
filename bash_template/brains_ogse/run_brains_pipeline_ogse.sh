@@ -9,7 +9,7 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 # Configuration
 # ------------------------------------------------------------------
 PY="${PY:-python}"
-LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/brains}"
+LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/brains_ogse}"
 INCLUDE_DICOM2NIFTI="${INCLUDE_DICOM2NIFTI:-false}"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
@@ -29,21 +29,22 @@ if [[ "${INCLUDE_DICOM_METADATA,,}" == "true" ]]; then
 fi
 
 RUN_SCRIPTS+=(
-#   "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
-  "2.0-run_process_all_results.sh"
-#   "3.0-run_rotate_all_signals.sh"
-#   "3.1-run_make_contrast_selected_rotated.sh"
-#   "3.2-run_plot_all_ogse_contrast_vs_g.sh"
-#   "4.1-run_fit_monoexp_ogse_signal_vs_g.sh"
-#   "4.2-run_plot_monoexp_D_vs_time.sh"
-#   "4.3-run_make_alpha_macro_summary.sh"
-#   "4.4-run_plot_D0_vs_Delta.sh"
-#   "5.1-run_fit_free_ogse_contrast_vs_g.sh"
-#   "5.2-run_make_grad_correction_table.sh"
-#   "5.3-run_fit_free_all_ogse_contrast_vs_g_corr.sh"
-#   "6.1-run_fit_rest_all_ogse_contrast_vs_g_corr.sh"
-#   "6.2-run_make_groupfits_rest.sh"
-#   "6.3-run_tc_vs_td_pseudohuber_fixed_macro.sh"
+# "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
+"2.0-run_process_all_results.sh"
+"3.0-run_rotate_all_signals.sh"
+# "3.1-run_make_contrast_selected_rotated.sh"
+# "3.2-run_plot_all_ogse_contrast_vs_g.sh"
+# "3.3-run_make_alpha_macro_summary.sh"
+# "4.1-run_fit_monoexp_ogse_signal_vs_g.sh"
+# "4.2-run_plot_monoexp_D_vs_time.sh"
+# "4.3-run_plot_D0_vs_Delta.sh"
+# "5.1-run_fit_free_ogse_contrast_vs_g.sh"
+# "5.2-run_make_grad_correction_table.sh"
+# "5.3-run_fit_free_all_ogse_contrast_vs_g.sh"
+# "5.4-run_fit_rest_all_ogse_contrast_vs_g.sh"
+# "5.5-run_fit_mixed_global_ogse_contrast_vs_g.sh"
+# "6.1-run_make_groupfits_rest.sh"
+# "6.2-run_tc_vs_td_pseudohuber_fixed_macro.sh"
 )
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------

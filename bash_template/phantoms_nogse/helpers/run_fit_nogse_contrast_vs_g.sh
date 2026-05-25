@@ -149,6 +149,8 @@ if [[ "${ONEG,,}" == "true" ]]; then
     oneg_args+=(--oneg)
 fi
 
+peak_args=(--peak_D0_fix "$PEAK_D0_FIX")
+
 roi_args=()
 if [[ "$ROIS" != "ALL" ]]; then
     read -r -a roi_list <<< "${ROIS//,/ }"
@@ -188,7 +190,7 @@ while read -r file; do
         --ycol "$YCOL" \
         "${direction_args[@]}" \
         --out_root "$OUT_ROOT" \
-        --peak_D0_fix "$PEAK_D0_FIX" \
+        "${peak_args[@]}" \
         "${oneg_args[@]}" \
         "${corr_args[@]}" \
         "${m0_args[@]}" \

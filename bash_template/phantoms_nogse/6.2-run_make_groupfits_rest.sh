@@ -34,6 +34,10 @@ EXCLUDE_TD_MS="209.1"
 FIT_PANELS_OUT_DIR="$FIT_ROOT/contrast_fit_panels"
 TC_PEAK_PANELS_OUT_DIR="$FIT_ROOT/tc_peak_panels"
 X_VARS="g,Ld,lcf,lcf_a,tc"
+PEAK_SOURCE="${PEAK_SOURCE:-standard}"
+SHOW_RESAMPLED_FIT="${SHOW_RESAMPLED_FIT:-false}"
+HIDE_DATA_POINTS="${HIDE_DATA_POINTS:-false}"
+RESAMPLED_CURVE_N="${RESAMPLED_CURVE_N:-300}"
 PEAK_D0_FIX="2.3e-12"
 PEAK_GAMMA="267.5221900"
 TC_PEAK_XLIMS=(
@@ -92,6 +96,9 @@ echo "Output Parquet: $OUT_PARQUET"
 echo "Fit panels    : $FIT_PANELS_OUT_DIR"
 echo "tc_peak panels: $TC_PEAK_PANELS_OUT_DIR"
 echo "tc_peak x vars: $X_VARS"
+echo "Peak source   : $PEAK_SOURCE"
+echo "Resampled fit : $SHOW_RESAMPLED_FIT"
+echo "Data points   : $([[ "${HIDE_DATA_POINTS,,}" == "true" ]] && echo hidden || echo shown)"
 
 "$PY" "$PIPELINE_SCRIPT" \
     "$FIT_ROOT" \
@@ -150,6 +157,13 @@ if [[ -n "${EXCLUDE_TD_MS// }" ]]; then
     if (( ${#exclude_td_list[@]} > 0 )); then
         tc_peak_args+=(--exclude-td-ms "${exclude_td_list[@]}")
     fi
+fi
+tc_peak_args+=(--peak-source "$PEAK_SOURCE")
+if [[ "${SHOW_RESAMPLED_FIT,,}" == "true" ]]; then
+    tc_peak_args+=(--show-resampled-fit --resampled-curve-n "$RESAMPLED_CURVE_N")
+fi
+if [[ "${HIDE_DATA_POINTS,,}" == "true" ]]; then
+    tc_peak_args+=(--hide-data-points)
 fi
 for xlim_spec in "${TC_PEAK_XLIMS[@]}"; do
     read -r xvar xmin xmax <<< "$xlim_spec"

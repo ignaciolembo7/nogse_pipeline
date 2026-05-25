@@ -20,7 +20,7 @@ PY="${PY:-$DEFAULT_PY}"
 # Configuration
 # ------------------------------------------------------------------
 FIT_SCRIPT="$REPO_ROOT/scripts/fit_nogse_signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260506-PHANTOM_FIBER"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/tables/20260506-PHANTOM_FIBER"
 FITS_DIR="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/fits"
 EXPERIMENT="nogse_signal_vs_g"
 APPLY_GRAD_CORR="${APPLY_GRAD_CORR:-false}"

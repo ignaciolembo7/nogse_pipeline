@@ -8,9 +8,6 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
-# ------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -18,14 +15,20 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_signal_vs_g_monoexp}"
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
+FITS_ROOT="${1:-$ANALYSIS_ROOT/fits/ogse_signal_vs_g_monoexp}"
 OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
 PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
 ROIS="ALL"
 DIRECTIONS="ALL"
-NS="${NS:-ALL}"
-# NS="1,4,8"
-
+# NS="${NS:-ALL}"
+NS="1,4,8"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
 if [[ ! -d "$FITS_ROOT" ]]; then
     echo "ERROR: Fits root not found: $FITS_ROOT" >&2
     exit 1
@@ -36,7 +39,7 @@ if [[ ! -f "$PLOT_SCRIPT" ]]; then
     exit 1
 fi
 
-if [[ -z "$(find "$FITS_ROOT" -type f -name 'fit_params.parquet' -print -quit)" ]]; then
+if [[ -z "$(find "$FITS_ROOT" -type f -name 'fit_params*.parquet' -print -quit)" ]]; then
     echo "No monoexp fit tables were found in $FITS_ROOT. Skipping summary plots."
     exit 0
 fi

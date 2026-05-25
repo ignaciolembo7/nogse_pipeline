@@ -13,11 +13,32 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 PLOT_HELPER="$REPO_ROOT/bash_template/helpers/run_plot_contrast_vs_g.sh"
 PY="${PY:-python}"
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/brains/ogse_experiments}"
-TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast-data-rotated/tables}"
-OUT_ROOT="${OUT_ROOT:-$ANALYSIS_ROOT/contrast-data-rotated/plots}"
 PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse_contrast_vs_g.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
-XCOL="${XCOL:-g_thorsten_1}"
+CONTRAST_SOURCE="${CONTRAST_SOURCE:-direct}" # direct or fitted_resampled
+SIGNAL_MODEL="${SIGNAL_MODEL:-monoexp}"
+SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
+if [[ -z "${TABLES_ROOT+x}" ]]; then
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-fitresampled-rotated-${SIGNAL_MODEL}-${SIGNAL_G_TYPE}/tables"
+    else
+        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+    fi
+fi
+if [[ -z "${OUT_ROOT+x}" ]]; then
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        OUT_ROOT="$ANALYSIS_ROOT/contrast-data-fitresampled-rotated-${SIGNAL_MODEL}-${SIGNAL_G_TYPE}/plots"
+    else
+        OUT_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/plots"
+    fi
+fi
+if [[ -z "${XCOL+x}" ]]; then
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        XCOL="${SIGNAL_G_TYPE}_1"
+    else
+        XCOL="g_thorsten_1"
+    fi
+fi
 YCOL="${YCOL:-value_norm}"
 STAT="${STAT:-avg}"
 DIRECTIONS="${DIRECTIONS:-long,tra}"

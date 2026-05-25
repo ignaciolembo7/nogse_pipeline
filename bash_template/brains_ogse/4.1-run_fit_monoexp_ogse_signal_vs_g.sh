@@ -12,7 +12,7 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse_signal_vs_g.py}"
-DATA_ROOT="${2:-$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated}"
+DATA_ROOT="${2:-$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated/tables}"
 FITS_DIR="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits"
 EXPERIMENT="ogse_signal_vs_g"
 MODEL="monoexp"

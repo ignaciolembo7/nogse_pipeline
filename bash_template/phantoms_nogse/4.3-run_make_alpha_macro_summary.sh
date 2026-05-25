@@ -20,7 +20,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
 
-DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data"
+DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables"
 SUBJS="ALL"
 ROIS="ALL"
 DIRS="1 2 3"
@@ -51,7 +51,7 @@ extra_args=()
 if [[ "$SUBJS" != "ALL" ]]; then
     read -r -a subj_list <<< "${SUBJS//,/ }"
     if (( ${#subj_list[@]} > 0 )); then
-        extra_args+=(--subj "${subj_list[@]}")
+        extra_args+=(--subjs "${subj_list[@]}")
     fi
 fi
 if [[ "$ROIS" != "ALL" ]]; then

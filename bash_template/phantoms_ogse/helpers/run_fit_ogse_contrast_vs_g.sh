@@ -2,18 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BRAINS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="$(cd "$BRAINS_ROOT/../../.." && pwd)"
+PHANTOMS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$PHANTOMS_ROOT/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
 PY="${PY:-python}"
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/brains/ogse_experiments}"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms-3/ogse_experiments}"
 FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fit_ogse_contrast_vs_g.py}"
 EXPORT_RESAMPLED_SCRIPT="${EXPORT_RESAMPLED_SCRIPT:-$REPO_ROOT/scripts/export_ogse_resampled_contrasts_from_fits.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
@@ -24,21 +25,21 @@ SIGNAL_MODEL="${SIGNAL_MODEL:-monoexp}"
 SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
 MODEL="${MODEL:-free}"
 APPLY_GRAD_CORR="${APPLY_GRAD_CORR:-false}"
-CORR_XLSX="${CORR_XLSX:-$ANALYSIS_ROOT/fits/grad_correction_rotated/Syringe.grad_correction_rotated.xlsx}"
-CORR_ROI="${CORR_ROI:-Syringe}"
+CORR_XLSX="${CORR_XLSX:-$ANALYSIS_ROOT/fits/grad_correction/water.grad_correction.xlsx}"
+CORR_ROI="${CORR_ROI:-water}"
 CORR_TD_MS="${CORR_TD_MS:-}"
 CORR_SHEET="${CORR_SHEET:-}"
 CORR_TOL_MS="${CORR_TOL_MS:-1e-3}"
-GBASE="${GBASE:-g_thorsten}"
+GBASE="${GBASE:-g}"
 YCOL="${YCOL:-value_norm}"
-DEFAULT_DIRECTIONS=(long tra)
+DEFAULT_DIRECTIONS=(1 2 3)
 if [[ -n "${DIRECTIONS:-}" ]]; then
     read -r -a DIRECTIONS <<< "${DIRECTIONS//,/ }"
 else
     DIRECTIONS=("${DEFAULT_DIRECTIONS[@]}")
 fi
-ROIS="${ROIS:-Syringe,Right-Lateral-Ventricle,Left-Lateral-Ventricle}"
-ONEG="${ONEG:-false}"
+ROIS="${ROIS:-ALL}"
+ONEG="${ONEG:-true}"
 FIX_M0="${FIX_M0:-1.0}"
 FREE_M0="${FREE_M0:-}"
 FIX_D0="${FIX_D0:-}"
@@ -49,7 +50,7 @@ TC_INIT="${TC_INIT:-}"
 M0_BOUNDS="${M0_BOUNDS:-}"
 D0_BOUNDS="${D0_BOUNDS:-}"
 TC_BOUNDS="${TC_BOUNDS:-}"
-PEAK_D0_FIX="${PEAK_D0_FIX:-3.2e-12}"
+PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}"
 PEAK_G_MAX_MTM="${PEAK_G_MAX_MTM:-}"
 if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
     PEAK_RESAMPLE_GRADIENT="${PEAK_RESAMPLE_GRADIENT:-true}"
@@ -64,9 +65,9 @@ EXPORT_RESAMPLED_CONTRASTS="${EXPORT_RESAMPLED_CONTRASTS:-}"
 
 if [[ -z "${TABLES_ROOT+x}" ]]; then
     if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
-        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
     else
-        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data/tables"
     fi
 fi
 
@@ -236,7 +237,7 @@ if [[ "$CONTRAST_SOURCE" == "fitted_resampled" && "${EXPORT_RESAMPLED_CONTRASTS:
     echo "Exporting fitted/resampled model contrasts..."
     "$PY" "$EXPORT_RESAMPLED_SCRIPT" \
         "$OUT_ROOT" \
-        --contrast-root "$ANALYSIS_ROOT/contrast-data-rotated" \
+        --contrast-root "$ANALYSIS_ROOT/contrast-data" \
         --out-dir "$OUT_ROOT/contrast" \
         --pattern "$EXPORT_FIT_PARAMS_PATTERN" \
         --grid-min-mTm "$RESAMPLED_GRID_MIN_MTM" \

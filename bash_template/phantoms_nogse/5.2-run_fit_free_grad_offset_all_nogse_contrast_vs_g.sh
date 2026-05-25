@@ -37,4 +37,5 @@ env \
     FIX_G0="${FIX_G0:-0.5}" \
     G0_MIN="${G0_MIN:--20.0}" \
     G0_MAX="${G0_MAX:-20.0}" \
+    PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}" \
 bash "$FIT_HELPER" "$@"

@@ -10,4 +10,4 @@ if [[ ! -f "$FIT_HELPER" ]]; then
     exit 1
 fi
 
-MODEL=free APPLY_GRAD_CORR=false YCOL="value_norm" FIX_M0="1.0" M0_MIN="0.0" M0_MAX="2000.0" bash "$FIT_HELPER" "$@"
+MODEL=free APPLY_GRAD_CORR=false YCOL="value_norm" FIX_M0="1.0" M0_MIN="0.0" M0_MAX="2000.0" PEAK_D0_FIX=2.3e-12 bash "$FIT_HELPER" "$@"

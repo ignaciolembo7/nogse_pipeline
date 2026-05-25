@@ -13,13 +13,16 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 # ------------------------------------------------------------------
 PY="${PY:-python}"
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_D0_vs_Delta.py"
-DPROJ_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments/data-rotated"
-SUBJS="BRAIN LUDG MBBL"
-ROIS="AntCC MidAntCC CentralCC MidPostCC PostCC Left-Lateral-Ventricle Right-Lateral-Ventricle Syringe"
-DIRS="x y z"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
+DPROJ_ROOT="$ANALYSIS_ROOT/data/tables"
+SUBJS="ALL"
+ROIS="ALL"
+DIRS="1 2 3"
 N_VALUE="1"
-OUT_DIR="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1"
+BVALMAX="7"
+OUT_DIR="$ANALYSIS_ROOT/alpha_macro/N1"
 SUMMARY_ALPHA="$OUT_DIR/summary_alpha_values.xlsx"
+REFERENCE_D0="0.0023"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 
@@ -33,15 +36,42 @@ if [[ ! -d "$DPROJ_ROOT" ]]; then
     exit 1
 fi
 
+if [[ -z "$(find "$DPROJ_ROOT" -type f -name '*.Dproj.long.parquet' -print -quit)" ]]; then
+    echo "No monoexp Dproj tables were found in $DPROJ_ROOT. Skipping D0 vs Delta."
+    exit 0
+fi
+
 mkdir -p "$OUT_DIR"
 
+extra_args=()
+if [[ "$SUBJS" != "ALL" ]]; then
+    read -r -a subj_list <<< "${SUBJS//,/ }"
+    if (( ${#subj_list[@]} > 0 )); then
+        extra_args+=(--subjs "${subj_list[@]}")
+    fi
+fi
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
+if [[ "$DIRS" != "ALL" ]]; then
+    read -r -a dir_list <<< "${DIRS//,/ }"
+    if (( ${#dir_list[@]} > 0 )); then
+        extra_args+=(--dirs "${dir_list[@]}")
+    fi
+fi
+
 echo "============================================================"
-echo "Dataset    : brains"
+echo "Dataset    : phantoms-3"
 echo "Dproj root : $DPROJ_ROOT"
 echo "Subjs      : $SUBJS"
 echo "ROIs       : $ROIS"
 echo "Dirs       : $DIRS"
 echo "N          : $N_VALUE"
+echo "Bstep alpha: $BVALMAX"
+echo "Reference D0: $REFERENCE_D0"
 if [[ -f "$SUMMARY_ALPHA" ]]; then
     echo "Summary    : $SUMMARY_ALPHA"
 else
@@ -52,11 +82,11 @@ echo "Output dir : $OUT_DIR"
 cmd=(
     "$PY" "$PLOT_SCRIPT"
     --dproj-root "$DPROJ_ROOT"
-    --brains $SUBJS
-    --rois $ROIS
-    --dirs $DIRS
+    "${extra_args[@]}"
     --N "$N_VALUE"
+    --bvalmax "$BVALMAX"
     --out-dir "$OUT_DIR"
+    --reference-D0 "$REFERENCE_D0"
 )
 
 if [[ -f "$SUMMARY_ALPHA" ]]; then

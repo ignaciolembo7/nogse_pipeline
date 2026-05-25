@@ -20,8 +20,9 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_ogse_signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/20220610-PHANTOM3"
-OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/signal_plots/ogse_signal_vs_g"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms-3/ogse_experiments}"
+DATA_ROOT="$ANALYSIS_ROOT/data/tables/20220610-PHANTOM3"
+OUT_ROOT="$ANALYSIS_ROOT/signal-plots/ogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"
 STAT="avg"

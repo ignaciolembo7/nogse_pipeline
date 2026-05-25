@@ -26,6 +26,7 @@ SUMMARY_ALPHA="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/s
 YCOL="tc_peak_ms"
 EXCLUDE_TD_MS="75.1,209.1"
 SHOW_ERRORBARS="0"
+ROIS="${ROIS:-ALL}"
 TD_MIN_MS="0"
 TD_MAX_MS="250"
 C_FIXED="FREE"
@@ -76,6 +77,12 @@ fi
 if [[ "${SHOW_ERRORBARS}" == "0" || "${SHOW_ERRORBARS,,}" == "false" || "${SHOW_ERRORBARS,,}" == "no" ]]; then
     extra_args+=(--no-errorbars)
 fi
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
 extra_args+=(--td-min-ms "$TD_MIN_MS" --td-max-ms "$TD_MAX_MS")
 extra_args+=(--c-min "$C_MIN" --c-max "$C_MAX")
 extra_args+=(--delta-min "$DELTA_MIN" --delta-max "$DELTA_MAX")
@@ -88,6 +95,7 @@ fi
 
 echo "============================================================"
 echo "Dataset       : phantoms"
+echo "ROIs          : $ROIS"
 echo "Method        : $METHOD"
 echo "Groupfits     : $GROUPFITS"
 echo "Summary alpha : $SUMMARY_ALPHA"

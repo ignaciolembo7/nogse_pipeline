@@ -18,7 +18,7 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse_signal_vs_g.py}"
-DATA_ROOT="${2:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
+DATA_ROOT="${2:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables}"
 FITS_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits"
 EXPERIMENT="ogse_signal_vs_g"
 MODEL="monoexp"
@@ -34,7 +34,7 @@ if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
     DEFAULT_OUT_ROOT="${DEFAULT_OUT_ROOT}_corr"
 fi
 OUT_ROOT="${3:-$DEFAULT_OUT_ROOT}"
-DPROJ_ROOT="${4:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
+DPROJ_ROOT="${4:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables}"
 YCOL="value_norm"
 G_TYPE="bvalue"
 DIRECTIONS="ALL"

@@ -20,7 +20,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_D0_vs_Delta.py"
 
-DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data"
+DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables"
 SUBJS="ALL"
 ROIS="ALL"
 DIRS="1 2 3"
@@ -50,7 +50,7 @@ extra_args=()
 if [[ "$SUBJS" != "ALL" ]]; then
     read -r -a subj_list <<< "${SUBJS//,/ }"
     if (( ${#subj_list[@]} > 0 )); then
-        extra_args+=(--brains "${subj_list[@]}")
+        extra_args+=(--subjs "${subj_list[@]}")
     fi
 fi
 if [[ "$ROIS" != "ALL" ]]; then
@@ -81,7 +81,6 @@ else
 fi
 echo "Output dir : $OUT_DIR"
 
-# Legacy CLI alias accepted by the plotting script.
 cmd=(
     "$PY" "$PLOT_SCRIPT"
     --dproj-root "$DPROJ_ROOT"

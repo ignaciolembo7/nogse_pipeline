@@ -7,44 +7,56 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
+PY="${PY:-python}"
+TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-DEFAULT_PY="python"
-if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
-    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-    DEFAULT_PY="$(command -v python3)"
-fi
-PY="${PY:-$DEFAULT_PY}"
-TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
-
 METHOD="${METHOD:-pseudohuber_fixed_macro}"
-GROUPFITS="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/groupfits_rest.parquet"
-SUMMARY_ALPHA="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
-YCOL="tc_peak_ms"
-EXCLUDE_TD_MS="75.1,209.1"
-SHOW_ERRORBARS="0"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
+CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}" # direct or fitted_resampled
+SIGNAL_MODEL="${SIGNAL_MODEL:-rest}"
+SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
+if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_gresampled_rest_corr}"
+else
+    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_rest_corr}"
+fi
+GROUPFITS="$FIT_ROOT/groupfits_rest.parquet"
+SUMMARY_ALPHA="$ANALYSIS_ROOT/alpha_macro/N1/summary_alpha_values.xlsx"
+YCOL="${YCOL:-tc_peak_ms}" #tc_fit_ms
+EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-209.1}"
+SHOW_ERRORBARS="1"
+ROIS="${ROIS:-ALL}"
+# ROIS="${ROIS:-fiber1,fiber2}"
 TD_MIN_MS="0"
 TD_MAX_MS="250"
 C_FIXED="FREE"
 C_MIN="0"
 C_MAX="INF"
 DELTA_FIXED="FREE"
-# To force delta to 0 ms, uncomment the next line.
-# DELTA_FIXED="0"
 DELTA_MIN="1e-6"
 DELTA_MAX="10000"
 EXCLUDE_MATCHES=()
-if [[ "$YCOL" == "tc_peak_ms" ]]; then
-    TC_DIRNAME="tcpeak_vs_td"
-elif [[ "$YCOL" == "tc_fit_ms" || "$YCOL" == "tc_ms" ]]; then
-    TC_DIRNAME="tcfit_vs_td"
-else
-    TC_DIRNAME="${YCOL}_vs_td"
-fi
-OUT_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/$TC_DIRNAME/$METHOD" #/$YCOL"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+
+case "$YCOL" in
+    tc_peak_ms)
+        TC_DIRNAME="tcpeak_vs_td"
+        ;;
+    tc_peak_resampled_ms)
+        TC_DIRNAME="tcpeak_resampled_vs_td"
+        ;;
+    tc_fit_ms|tc_ms)
+        TC_DIRNAME="tcfit_vs_td"
+        ;;
+    *)
+        TC_DIRNAME="${YCOL}_vs_td"
+        ;;
+esac
+OUT_DIR="$FIT_ROOT/$TC_DIRNAME/$METHOD"
 
 if [[ ! -f "$TC_SCRIPT" ]]; then
     echo "ERROR: Script not found: $TC_SCRIPT" >&2
@@ -76,6 +88,12 @@ fi
 if [[ "${SHOW_ERRORBARS}" == "0" || "${SHOW_ERRORBARS,,}" == "false" || "${SHOW_ERRORBARS,,}" == "no" ]]; then
     extra_args+=(--no-errorbars)
 fi
+if [[ "$ROIS" != "ALL" ]]; then
+    read -r -a roi_list <<< "${ROIS//,/ }"
+    if (( ${#roi_list[@]} > 0 )); then
+        extra_args+=(--rois "${roi_list[@]}")
+    fi
+fi
 extra_args+=(--td-min-ms "$TD_MIN_MS" --td-max-ms "$TD_MAX_MS")
 extra_args+=(--c-min "$C_MIN" --c-max "$C_MAX")
 extra_args+=(--delta-min "$DELTA_MIN" --delta-max "$DELTA_MAX")
@@ -87,7 +105,9 @@ if [[ "$DELTA_FIXED" != "FREE" ]]; then
 fi
 
 echo "============================================================"
-echo "Dataset       : phantoms"
+echo "Dataset       : phantoms-3"
+echo "Contrast source: $CONTRAST_SOURCE"
+echo "ROIs          : $ROIS"
 echo "Method        : $METHOD"
 echo "Groupfits     : $GROUPFITS"
 echo "Summary alpha : $SUMMARY_ALPHA"
@@ -111,6 +131,3 @@ echo "Output dir    : $OUT_DIR"
 
 echo
 echo "Finished."
-
-# To release alpha_macro (fit it instead of using fixed macro values), run:
-# METHOD="pseudohuber_free" bash "$0"

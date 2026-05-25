@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
@@ -21,8 +22,9 @@ SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/brains/ogse_experiments"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_brains.xlsx"
-DEFAULT_OUT_DIR="$ANALYSIS_ROOT/data"
+DEFAULT_OUT_ROOT="$ANALYSIS_ROOT/data"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
+DEFAULT_PLOT_SCRIPT="$REPO_ROOT/scripts/plot_signal_tables_vs_g.py"
 ONEG="${ONEG:-false}"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
@@ -31,8 +33,11 @@ ONEG="${ONEG:-false}"
 
 RESULTS_ROOT="${1:-$DEFAULT_RESULTS_ROOT}"
 PARAMS="${2:-$DEFAULT_PARAMS}"
-OUT_DIR="${3:-$DEFAULT_OUT_DIR}"
+OUT_ROOT="${3:-$DEFAULT_OUT_ROOT}"
 PROCESS_SCRIPT="${4:-$DEFAULT_PROCESS_SCRIPT}"
+PLOT_SCRIPT="${PLOT_SCRIPT:-$DEFAULT_PLOT_SCRIPT}"
+TABLES_DIR="$OUT_ROOT/tables"
+PLOTS_DIR="$OUT_ROOT/plots"
 
 if [[ ! -d "$RESULTS_ROOT" ]]; then
     echo "ERROR: Results root not found: $RESULTS_ROOT" >&2
@@ -49,7 +54,12 @@ if [[ ! -f "$PROCESS_SCRIPT" ]]; then
     exit 1
 fi
 
-mkdir -p "$OUT_DIR"
+if [[ ! -f "$PLOT_SCRIPT" ]]; then
+    echo "ERROR: plot script not found: $PLOT_SCRIPT" >&2
+    exit 1
+fi
+
+mkdir -p "$TABLES_DIR" "$PLOTS_DIR"
 
 PROCESS_ARGS=()
 if [[ "${ONEG,,}" == "true" ]]; then
@@ -70,7 +80,7 @@ while read -r file; do
     echo "Processing: $seq_name"
     echo "  File: $file"
 
-    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$OUT_DIR" "${PROCESS_ARGS[@]}"; then
+    if "$PY" "$PROCESS_SCRIPT" "$file" "$PARAMS" --out_dir "$TABLES_DIR" "${PROCESS_ARGS[@]}"; then
         ok=$((ok + 1))
         echo "  OK: $seq_name"
     else
@@ -97,3 +107,7 @@ if (( failed > 0 )); then
     done
     exit 1
 fi
+
+echo
+echo "Plotting signal tables versus g_thorsten..."
+"$PY" "$PLOT_SCRIPT" "$TABLES_DIR" --out_root "$PLOTS_DIR" --xcol g_thorsten --ycols value value_norm

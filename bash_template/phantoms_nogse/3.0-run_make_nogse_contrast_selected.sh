@@ -20,7 +20,7 @@ MAKE_CONTRAST_SCRIPT="$REPO_ROOT/scripts/make_contrast.py"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260506-PHANTOM_FIBER"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/tables/20260506-PHANTOM_FIBER"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/contrast_data"
 DIRECTIONS=(1)
 ONEG="${ONEG:-true}"

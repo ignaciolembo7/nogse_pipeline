@@ -15,14 +15,23 @@ TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 # Configuration
 # ------------------------------------------------------------------
 METHOD="pseudohuber_fixed_macro"
-GROUPFITS="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_contrast_vs_g_rest_corr/groupfits_rest.parquet"
-SUMMARY_ALPHA="$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.xlsx"
-YCOL="${YCOL:-tc_peak_ms}"
-EXCLUDE_TD_MS="76"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/brains/ogse_experiments}"
+CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}" # direct or fitted_resampled
+SIGNAL_MODEL="${SIGNAL_MODEL:-rest_offset}"
+SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
+if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_gresampled_rest_offset_corr}"
+else
+    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_rest_offset_corr}"
+fi
+GROUPFITS="$FIT_ROOT/groupfits_rest.parquet"
+SUMMARY_ALPHA="$ANALYSIS_ROOT/alpha_macro/N1/summary_alpha_values.xlsx"
+YCOL="${YCOL:-tc_peak_ms}" #tc_fit_ms, tc_peak_ms
+EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
 SHOW_ERRORBARS="1"
-ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC"
-TD_MIN_MS="50"
-TD_MAX_MS="250"
+ROIS="${ROIS:-AntCC,MidAntCC,CentralCC,MidPostCC,PostCC}"
+TD_MIN_MS="75"
+TD_MAX_MS="225"
 C_FIXED="FREE"
 C_MIN="0"
 C_MAX="10"
@@ -30,13 +39,15 @@ DELTA_FIXED="FREE"
 DELTA_MIN="1e-6"
 DELTA_MAX="10000"
 EXCLUDE_MATCHES=()
-OUT_DIR="$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_contrast_vs_g_rest_corr/$TC_DIRNAME/$METHOD" #/$YCOL"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 
 case "$YCOL" in
     tc_peak_ms)
         TC_DIRNAME="tcpeak_vs_td"
+        ;;
+    tc_peak_resampled_ms)
+        TC_DIRNAME="tcpeak_resampled_vs_td"
         ;;
     tc_fit_ms|tc_ms)
         TC_DIRNAME="tcfit_vs_td"
@@ -45,6 +56,8 @@ case "$YCOL" in
         TC_DIRNAME="${YCOL}_vs_td"
         ;;
 esac
+
+OUT_DIR="$FIT_ROOT/$TC_DIRNAME/$METHOD"
 
 if [[ ! -f "$TC_SCRIPT" ]]; then
     echo "ERROR: Script not found: $TC_SCRIPT" >&2
@@ -76,7 +89,7 @@ fi
 if [[ "${SHOW_ERRORBARS}" == "0" || "${SHOW_ERRORBARS,,}" == "false" || "${SHOW_ERRORBARS,,}" == "no" ]]; then
     extra_args+=(--no-errorbars)
 fi
-if [[ -n "${ROIS// }" ]]; then
+if [[ "$ROIS" != "ALL" ]]; then
     read -r -a roi_list <<< "${ROIS//,/ }"
     if (( ${#roi_list[@]} > 0 )); then
         extra_args+=(--rois "${roi_list[@]}")
@@ -94,6 +107,7 @@ fi
 
 echo "============================================================"
 echo "Dataset       : brains"
+echo "Contrast source: $CONTRAST_SOURCE"
 echo "ROIs           : $ROIS"
 echo "Method        : $METHOD"
 echo "Groupfits     : $GROUPFITS"

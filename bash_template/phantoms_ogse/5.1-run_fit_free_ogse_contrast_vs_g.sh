@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Legacy wrapper kept for backward compatibility.
-# Canonical helper: helpers/run_fit_ogse_contrast_vs_g.sh with MODEL=rest and APPLY_GRAD_CORR=true
+# Legacy-style free wrapper for uncorrected OGSE contrast fits.
+# Canonical helper: helpers/run_fit_ogse_contrast_vs_g.sh with MODEL=free and APPLY_GRAD_CORR=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIT_HELPER="$SCRIPT_DIR/helpers/run_fit_ogse_contrast_vs_g.sh"
@@ -13,13 +13,11 @@ fi
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-MODEL=rest \
-APPLY_GRAD_CORR=true \
-CORR_ROI=Syringe \
-ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC,Left-Lateral-Ventricle,Right-Lateral-Ventricle,Syringe" \
-FREE_M0=1.0 \
-FIX_D0=3.2e-12 \
-PEAK_D0_FIX=3.2e-12 \
+MODEL=free \
+APPLY_GRAD_CORR=false \
+CORR_ROI=water \
+GBASE=g \
+PEAK_D0_FIX=2.3e-12 \
 bash "$FIT_HELPER" "$@"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------

@@ -20,6 +20,10 @@ SUBJS="${SUBJS:-ALL}"
 ROIS="${ROIS:-ALL}"
 DIRECTIONS="${DIRECTIONS:-ALL}"
 X_VARS="${X_VARS:-g,Ld,lcf,Lcf}"
+PEAK_SOURCE="${PEAK_SOURCE:-standard}"
+SHOW_RESAMPLED_FIT="${SHOW_RESAMPLED_FIT:-false}"
+HIDE_DATA_POINTS="${HIDE_DATA_POINTS:-false}"
+RESAMPLED_CURVE_N="${RESAMPLED_CURVE_N:-300}"
 PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}"
 PEAK_GAMMA="${PEAK_GAMMA:-267.5221900}"
 EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
@@ -84,6 +88,13 @@ if [[ -n "${EXCLUDE_TD_MS// }" ]]; then
         extra_args+=(--exclude-td-ms "${exclude_td_list[@]}")
     fi
 fi
+extra_args+=(--peak-source "$PEAK_SOURCE")
+if [[ "${SHOW_RESAMPLED_FIT,,}" == "true" ]]; then
+    extra_args+=(--show-resampled-fit --resampled-curve-n "$RESAMPLED_CURVE_N")
+fi
+if [[ "${HIDE_DATA_POINTS,,}" == "true" ]]; then
+    extra_args+=(--hide-data-points)
+fi
 
 echo "============================================================"
 echo "Plotting tc_peak panels"
@@ -94,6 +105,9 @@ echo "  Subjs        : $SUBJS"
 echo "  ROIs         : $ROIS"
 echo "  Directions   : $DIRECTIONS"
 echo "  X vars       : $X_VARS"
+echo "  Peak source  : $PEAK_SOURCE"
+echo "  Resampled fit: $SHOW_RESAMPLED_FIT"
+echo "  Data points  : $([[ "${HIDE_DATA_POINTS,,}" == "true" ]] && echo hidden || echo shown)"
 echo "  peak_D0_fix  : $PEAK_D0_FIX"
 echo "  peak_gamma   : $PEAK_GAMMA"
 echo "  Exclude td_ms: ${EXCLUDE_TD_MS:-<none>}"

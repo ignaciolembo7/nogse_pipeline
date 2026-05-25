@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 
 # ------------------------------------------------------------------
 # Configuration
@@ -18,12 +19,13 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse_signal_vs_g.py}"
-DATA_ROOT="${2:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
-FITS_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
+DATA_ROOT="${2:-$ANALYSIS_ROOT/data/tables}"
+FITS_DIR="$ANALYSIS_ROOT/fits"
 EXPERIMENT="ogse_signal_vs_g"
 MODEL="monoexp"
 APPLY_GRAD_CORR="${APPLY_GRAD_CORR:-false}"
-CORR_XLSX="${CORR_XLSX:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.xlsx}"
+CORR_XLSX="${CORR_XLSX:-$ANALYSIS_ROOT/fits/grad_correction/water.grad_correction.xlsx}"
 CORR_ROI="${CORR_ROI:-water}"
 CORR_TD_MS="${CORR_TD_MS:-}"
 CORR_SHEET="${CORR_SHEET:-}"
@@ -34,7 +36,6 @@ if [[ "${APPLY_GRAD_CORR,,}" == "true" ]]; then
     DEFAULT_OUT_ROOT="${DEFAULT_OUT_ROOT}_corr"
 fi
 OUT_ROOT="${3:-$DEFAULT_OUT_ROOT}"
-DPROJ_ROOT="${4:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data}"
 YCOL="value_norm"
 G_TYPE="bvalue"
 DIRECTIONS="ALL"
@@ -105,7 +106,6 @@ while read -r file_path; do
         "$file_path" \
         --model "$MODEL" \
         --out_root "$OUT_ROOT" \
-        --out_dproj_root "$DPROJ_ROOT" \
         "${direction_args[@]}" \
         --ycol "$YCOL" \
         --g_type "$G_TYPE" \
@@ -127,7 +127,7 @@ while read -r file_path; do
         echo "  Continuing with next job..." >&2
     fi
 done < <(
-    find "$DATA_ROOT" -type f -name "*.long.parquet" | sort | while read -r candidate; do
+    find "$DATA_ROOT" -type f -name "*.long.parquet" ! -name "*.Dproj.long.parquet" | sort | while read -r candidate; do
         if "$PY" - "$candidate" "$G_TYPE" <<'PY'
 from __future__ import annotations
 

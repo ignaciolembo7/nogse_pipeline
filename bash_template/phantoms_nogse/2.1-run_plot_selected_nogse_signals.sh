@@ -20,7 +20,7 @@ PY="${PY:-$DEFAULT_PY}"
 # Configuration
 # ------------------------------------------------------------------
 PLOT_SCRIPT="$REPO_ROOT/scripts/plot_nogse_signal_vs_g.py"
-DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/20260506-PHANTOM_FIBER"
+DATA_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/data/tables/20260506-PHANTOM_FIBER"
 OUT_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments/signal_plots/nogse_signal_vs_g"
 XCOL="g"
 YCOL="value_norm"

@@ -19,4 +19,5 @@ M0_MIN="0.0" \
 M0_MAX="2000.0" \
 APPLY_GRAD_CORR=false \
 CORR_ROI=water \
+PEAK_D0_FIX=2.3e-12 \
 bash "$FIT_HELPER" "$@"

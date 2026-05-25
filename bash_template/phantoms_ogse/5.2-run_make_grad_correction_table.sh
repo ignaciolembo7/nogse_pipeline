@@ -21,10 +21,11 @@ MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
 
 ROI="water"
 MONOEXP_REF_NS=(1 4 8)
-EXP_FITS_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_signal_vs_g_monoexp"
-NOGSE_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_free"
-OUT_XLSX="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.xlsx"
-OUT_CSV="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/grad_correction/water.grad_correction.csv"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms-3/ogse_experiments}"
+EXP_FITS_ROOT="$ANALYSIS_ROOT/fits/ogse_signal_vs_g_monoexp"
+NOGSE_ROOT="$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_free"
+OUT_XLSX="$ANALYSIS_ROOT/fits/grad_correction/water.grad_correction.xlsx"
+OUT_CSV="$ANALYSIS_ROOT/fits/grad_correction/water.grad_correction.csv"
 
 if [[ ! -f "$MAKE_SCRIPT" ]]; then
     echo "ERROR: Script not found: $MAKE_SCRIPT" >&2
@@ -41,12 +42,12 @@ if [[ ! -d "$NOGSE_ROOT" ]]; then
     exit 0
 fi
 
-if [[ -z "$(find "$EXP_FITS_ROOT" -type f -name 'fit_params.parquet' -print -quit)" ]]; then
+if [[ -z "$(find "$EXP_FITS_ROOT" -type f -name 'fit_params*.parquet' -print -quit)" ]]; then
     echo "No monoexp fits were found in $EXP_FITS_ROOT. Skipping gradient correction."
     exit 0
 fi
 
-if [[ -z "$(find "$NOGSE_ROOT" -type f -name 'fit_params.parquet' -print -quit)" ]]; then
+if [[ -z "$(find "$NOGSE_ROOT" -type f -name 'fit_params*.parquet' -print -quit)" ]]; then
     echo "No NOGSE contrast fits were found in $NOGSE_ROOT. Skipping gradient correction."
     exit 0
 fi
