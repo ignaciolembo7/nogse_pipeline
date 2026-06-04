@@ -16,9 +16,8 @@ export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 
 RUN_SCRIPTS=()
 
-# The current OGSE brains workflow starts from denoised/topup NIfTI data.
-# Keep the DICOM conversion step optional because it does not feed the
-# denoised/topup tree used by the downstream extraction stage.
+# The current OGSE brains workflow can start from preprocessed NIfTI data.
+# Enable the preprocessing step explicitly when starting from converted raw NIfTI inputs.
 if [[ "${INCLUDE_DICOM2NIFTI,,}" == "true" ]]; then
     RUN_SCRIPTS+=("0.0-run_dicom2nifti.sh")
 fi
@@ -29,6 +28,7 @@ if [[ "${INCLUDE_DICOM_METADATA,,}" == "true" ]]; then
 fi
 
 RUN_SCRIPTS+=(
+# "0.5-run_preprocess_dwi.sh"
 # "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
 "2.0-run_process_all_results.sh"
 "3.0-run_rotate_all_signals.sh"
