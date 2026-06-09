@@ -10,6 +10,10 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "$HOME/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="$HOME/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3.12 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3.12)"
 elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
@@ -99,6 +103,10 @@ echo "  Total files   : $total"
 echo "  Successful    : $ok"
 echo "  Failed        : $failed"
 
+echo
+echo "Plotting signal tables versus g_thorsten..."
+"$PY" "$PLOT_SCRIPT" "$TABLES_DIR" --out_root "$PLOTS_DIR" --xcol g_thorsten --ycols value value_norm
+
 if (( failed > 0 )); then
     echo
     echo "Failed sequences:"
@@ -107,7 +115,3 @@ if (( failed > 0 )); then
     done
     exit 1
 fi
-
-echo
-echo "Plotting signal tables versus g_thorsten..."
-"$PY" "$PLOT_SCRIPT" "$TABLES_DIR" --out_root "$PLOTS_DIR" --xcol g_thorsten --ycols value value_norm

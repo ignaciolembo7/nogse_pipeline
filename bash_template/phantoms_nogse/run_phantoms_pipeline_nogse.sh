@@ -11,7 +11,7 @@ PY="${PY:-python}"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/phantoms-20260506_nogse}"
+LOG_ROOT="${LOG_ROOT:-$PROJECT_ROOT/nogse_pipeline/logs/20260519_PHANTOM}"
 ONEG="${ONEG:-true}"
 RUN_SCRIPTS=(
 # Common setup / extraction steps
@@ -20,12 +20,12 @@ RUN_SCRIPTS=(
 # DICOM metadata extraction is centralized in bash_template/dicom_params.
 # "0.1-run_make_gval_gvec.sh"
 # "0.2-prep_phantom_b0.sh"
-# "0.3-copy_selected_files.sh"
-# "1.0-run_PHANTOM-denoised_signal_extraction.sh"
+"0.3-copy_selected_files.sh"
+"1.0-run_PHANTOM-denoised_signal_extraction.sh"
 # "1.1-run_plot_signal_image_grid.sh"
 # "2.0-run_process_all_results.sh"
 # "2.1-run_plot_selected_nogse_signals.sh"
-"2.2-run_fit_nogse_signal_vs_g.sh"
+# "2.2-run_fit_nogse_signal_vs_g.sh"
 
 # NOGSE contrast analysis
 # "3.0-run_make_nogse_contrast_selected.sh"

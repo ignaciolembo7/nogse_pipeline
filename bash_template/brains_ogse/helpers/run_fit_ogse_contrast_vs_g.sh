@@ -16,7 +16,7 @@ PY="${PY:-python}"
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/brains/ogse_experiments}"
 FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fit_ogse_contrast_vs_g.py}"
 EXPORT_RESAMPLED_SCRIPT="${EXPORT_RESAMPLED_SCRIPT:-$REPO_ROOT/scripts/export_ogse_resampled_contrasts_from_fits.py}"
-FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
+FILE_PATTERN="${FILE_PATTERN:-}"
 
 EXPERIMENT="ogse_contrast_vs_g"
 CONTRAST_SOURCE="${CONTRAST_SOURCE:-direct}" # direct or fitted_resampled
@@ -46,9 +46,12 @@ FREE_D0="${FREE_D0:-}"
 FIX_TC="${FIX_TC:-}"
 FREE_TC="${FREE_TC:-}"
 TC_INIT="${TC_INIT:-}"
+FIX_C="${FIX_C:-}"
+FREE_C="${FREE_C:-}"
 M0_BOUNDS="${M0_BOUNDS:-}"
 D0_BOUNDS="${D0_BOUNDS:-}"
 TC_BOUNDS="${TC_BOUNDS:-}"
+C_BOUNDS="${C_BOUNDS:-}"
 PEAK_D0_FIX="${PEAK_D0_FIX:-3.2e-12}"
 PEAK_G_MAX_MTM="${PEAK_G_MAX_MTM:-}"
 if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
@@ -59,14 +62,41 @@ fi
 RESAMPLED_GRID_MIN_MTM="${RESAMPLED_GRID_MIN_MTM:-0}"
 RESAMPLED_GRID_MAX_MTM="${RESAMPLED_GRID_MAX_MTM:-90}"
 RESAMPLED_GRID_N="${RESAMPLED_GRID_N:-1000}"
+RESAMPLED_GRID_MAX_MODE="${RESAMPLED_GRID_MAX_MODE:-observed_pair_max}"
+RESAMPLED_CONTRAST_MODE="${RESAMPLED_CONTRAST_MODE:-signal_fit}" # signal_fit,rest_only
 EXPORT_FIT_PARAMS_PATTERN="${EXPORT_FIT_PARAMS_PATTERN:-**/fit_params.*}"
+EXPORT_RESAMPLED_CONTRASTS_SET=false
+if [[ -n "${EXPORT_RESAMPLED_CONTRASTS+x}" ]]; then
+    EXPORT_RESAMPLED_CONTRASTS_SET=true
+fi
 EXPORT_RESAMPLED_CONTRASTS="${EXPORT_RESAMPLED_CONTRASTS:-}"
 
 if [[ -z "${TABLES_ROOT+x}" ]]; then
     if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
-        TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+        FITRESAMPLED_TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-fitresampled-rotated-${SIGNAL_MODEL}-${SIGNAL_G_TYPE}/tables"
+        if [[ -d "$FITRESAMPLED_TABLES_ROOT" ]]; then
+            TABLES_ROOT="$FITRESAMPLED_TABLES_ROOT"
+        else
+            TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+        fi
     else
         TABLES_ROOT="$ANALYSIS_ROOT/contrast-data-rotated/tables"
+    fi
+fi
+
+if [[ -z "${FILE_PATTERN// }" ]]; then
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        FILE_PATTERN="*_fitresamp-${SIGNAL_MODEL}-${SIGNAL_G_TYPE}.long.parquet"
+    else
+        FILE_PATTERN="*.long.parquet"
+    fi
+fi
+
+if [[ "$EXPORT_RESAMPLED_CONTRASTS_SET" == "false" ]]; then
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        EXPORT_RESAMPLED_CONTRASTS=false
+    else
+        EXPORT_RESAMPLED_CONTRASTS=""
     fi
 fi
 
@@ -136,6 +166,13 @@ elif [[ -n "${TC_INIT// }" ]]; then
     tc_args+=(--tc_init "$TC_INIT")
 fi
 
+c_args=()
+if [[ -n "${FREE_C// }" ]]; then
+    c_args+=(--free_C "$FREE_C")
+elif [[ -n "${FIX_C// }" ]]; then
+    c_args+=(--fix_C "$FIX_C")
+fi
+
 bound_args=()
 if [[ -n "${M0_BOUNDS// }" ]]; then
     read -r -a m0_bound_values <<< "${M0_BOUNDS//,/ }"
@@ -148,6 +185,10 @@ fi
 if [[ -n "${TC_BOUNDS// }" ]]; then
     read -r -a tc_bound_values <<< "${TC_BOUNDS//,/ }"
     bound_args+=(--tc_bounds "${tc_bound_values[@]}")
+fi
+if [[ -n "${C_BOUNDS// }" ]]; then
+    read -r -a c_bound_values <<< "${C_BOUNDS//,/ }"
+    bound_args+=(--C_bounds "${c_bound_values[@]}")
 fi
 oneg_args=()
 if [[ "${ONEG,,}" == "true" ]]; then
@@ -180,9 +221,17 @@ declare -a failed_files=()
 
 while read -r file; do
     [[ -z "$file" ]] && continue
+    base_name="$(basename "$file")"
+    if [[ "$CONTRAST_SOURCE" != "fitted_resampled" && "$base_name" == *"_fitresamp-"* ]]; then
+        echo "Skipping fitted/resampled contrast table: $base_name"
+        continue
+    fi
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" && "$base_name" != *"_fitresamp-"* ]]; then
+        echo "Skipping direct contrast table while fitting resampled contrasts: $base_name"
+        continue
+    fi
 
     total=$((total + 1))
-    base_name="$(basename "$file")"
 
     echo "============================================================"
     echo "Job $total"
@@ -203,6 +252,7 @@ while read -r file; do
         "${m0_args[@]}" \
         "${d0_args[@]}" \
         "${tc_args[@]}" \
+        "${c_args[@]}" \
         "${bound_args[@]}" \
         "${roi_args[@]}"; then
         ok=$((ok + 1))
@@ -216,6 +266,14 @@ while read -r file; do
     fi
 
 done < <(find "$TABLES_ROOT" -type f -name "$FILE_PATTERN" | sort)
+
+if (( total == 0 )); then
+    echo "ERROR: No contrast tables matched FILE_PATTERN=$FILE_PATTERN in TABLES_ROOT=$TABLES_ROOT" >&2
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        echo "       Run the fitted/resampled contrast build first, or set TABLES_ROOT/FILE_PATTERN explicitly." >&2
+    fi
+    exit 1
+fi
 
 echo
 echo "Finished."
@@ -234,6 +292,8 @@ fi
 if [[ "$CONTRAST_SOURCE" == "fitted_resampled" && "${EXPORT_RESAMPLED_CONTRASTS:-true}" != "false" ]]; then
     echo
     echo "Exporting fitted/resampled model contrasts..."
+    echo "  Resampled contrast mode: $RESAMPLED_CONTRAST_MODE"
+    echo "  Resampled grid max mode: $RESAMPLED_GRID_MAX_MODE"
     "$PY" "$EXPORT_RESAMPLED_SCRIPT" \
         "$OUT_ROOT" \
         --contrast-root "$ANALYSIS_ROOT/contrast-data-rotated" \
@@ -241,7 +301,9 @@ if [[ "$CONTRAST_SOURCE" == "fitted_resampled" && "${EXPORT_RESAMPLED_CONTRASTS:
         --pattern "$EXPORT_FIT_PARAMS_PATTERN" \
         --grid-min-mTm "$RESAMPLED_GRID_MIN_MTM" \
         --grid-max-mTm "$RESAMPLED_GRID_MAX_MTM" \
+        --grid-max-mode "$RESAMPLED_GRID_MAX_MODE" \
         --grid-n "$RESAMPLED_GRID_N" \
+        --contrast-mode "$RESAMPLED_CONTRAST_MODE" \
         --models "$MODEL" \
         --rois "$ROIS" \
         --directions "$(IFS=,; echo "${DIRECTIONS[*]}")" \

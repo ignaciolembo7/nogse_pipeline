@@ -15,54 +15,116 @@ PY="${PY:-python}"
 PIPELINE_SCRIPT="$REPO_ROOT/scripts/run_tc_pipeline.py"
 PLOT_FIT_PANELS_SCRIPT="$REPO_ROOT/bash_template/helpers/run_plot_ogse_contrast_fit_panels.sh"
 PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/scripts/plot_ogse-contrast_tc_peak_panels.py"
-
-ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms-3/ogse_experiments}"
+ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
 CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}" # direct or fitted_resampled
-SIGNAL_MODEL="${SIGNAL_MODEL:-}"
+TC_ANALYSIS="${TC_ANALYSIS:-tc_fit}" # tc_peak or tc_fit
+# free, rest, rest_offset, rest_offset_globC, mixed_global
+CONTRAST_MODEL="${CONTRAST_MODEL:-${MODEL:-${SIGNAL_MODEL:-rest_offset_globC}}}"
+SIGNAL_MODEL="$CONTRAST_MODEL"
 SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
-if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
-    SIGNAL_MODEL="${SIGNAL_MODEL:-rest_offset}"
-    FITS_INPUT_ROOT="${FITS_INPUT_ROOT:-$ANALYSIS_ROOT/contrast-data/tables}"
-    SUMMARY_ROOT="${SUMMARY_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_gresampled_${SIGNAL_MODEL}_corr}"
-    CONTRAST_ROOT="${CONTRAST_ROOT:-$ANALYSIS_ROOT/contrast-data}"
-    FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.${SIGNAL_MODEL}.g.value_norm.direction_*.parquet}"
-else
-    SIGNAL_MODEL="${SIGNAL_MODEL:-rest}"
-    FITS_INPUT_ROOT="${FITS_INPUT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_rest_corr}"
-    SUMMARY_ROOT="${SUMMARY_ROOT:-$FITS_INPUT_ROOT}"
-    CONTRAST_ROOT="${CONTRAST_ROOT:-$ANALYSIS_ROOT/contrast-data}"
-    FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.*}"
-fi
-OUT_XLSX="$SUMMARY_ROOT/groupfits_rest.xlsx"
-OUT_PARQUET="$SUMMARY_ROOT/groupfits_rest.parquet"
-MODELS="${MODELS:-$SIGNAL_MODEL}"
+FIT_CORR="${FIT_CORR:-${USE_CORR:-true}}"
+MODELS="${MODELS:-$CONTRAST_MODEL}"
 SUBJS="ALL"
-ROIS="${ROIS:-fiber1,fiber2}"
+# ROIS="${ROIS:-fiber1,fiber2}"
+ROIS="${ROIS:-ALL}"
 DIRECTIONS="ALL"
-EXCLUDE_TD_MS="209.1"
-FIT_PANELS_OUT_DIR="$SUMMARY_ROOT/contrast_fit_panels"
-TC_PEAK_PANELS_OUT_DIR="$SUMMARY_ROOT/tc_peak_panels"
+EXCLUDE_TD_MS="75.1"
 X_VARS="g,Ld,lcf,Lcf,tc"
+N1="${N1:-8}"
+N2="${N2:-4}"
 TC_PEAK_MARKER_X_VARS="tc" # NONE ALL
 RESAMPLED_GRID_N="${RESAMPLED_GRID_N:-1000}"
+PEAK_D0_FIX="2.3e-12"
+PEAK_GAMMA="267.5221900"
+TC_PEAK_XLIMS=(
+    "Ld 0.25 4"
+    "lcf 2.5 12.5"
+    "lcf_a 0.5 1.25"
+    "tc 0 80"
+)
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------
+while (( $# > 0 )); do
+    case "$1" in
+        --corr)
+            FIT_CORR=true
+            shift
+            ;;
+        --no-corr|--sin-corr|--uncorr)
+            FIT_CORR=false
+            shift
+            ;;
+        *)
+            echo "ERROR: Unknown argument for $0: $1" >&2
+            echo "Use --corr or --no-corr. Other settings are controlled with environment variables." >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$CONTRAST_SOURCE" != "direct" && "$CONTRAST_SOURCE" != "fitted_resampled" ]]; then
+    echo "ERROR: CONTRAST_SOURCE must be 'direct' or 'fitted_resampled'. Got: $CONTRAST_SOURCE" >&2
+    exit 1
+fi
+if [[ "$TC_ANALYSIS" != "tc_peak" && "$TC_ANALYSIS" != "tc_fit" ]]; then
+    echo "ERROR: TC_ANALYSIS must be 'tc_peak' or 'tc_fit'. Got: $TC_ANALYSIS" >&2
+    exit 1
+fi
+if [[ -z "${FITS_ROOT_SUFFIX+x}" ]]; then
+    if [[ "$CONTRAST_MODEL" == "mixed_global" ]]; then
+        FITS_ROOT_SUFFIX=""
+    else
+        case "${FIT_CORR,,}" in
+            1|true|yes|y|corr)
+                FITS_ROOT_SUFFIX="_corr"
+                ;;
+            0|false|no|n|none|uncorr|no-corr|sin-corr)
+                FITS_ROOT_SUFFIX=""
+                ;;
+            *)
+                echo "ERROR: FIT_CORR must be true/false. Got: $FIT_CORR" >&2
+                exit 1
+                ;;
+        esac
+    fi
+fi
+if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+    FITS_INPUT_ROOT="${FITS_INPUT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_gresampled_${CONTRAST_MODEL}${FITS_ROOT_SUFFIX}}"
+    SUMMARY_ROOT="${SUMMARY_ROOT:-$FITS_INPUT_ROOT}"
+    CONTRAST_ROOT="${CONTRAST_ROOT:-$FITS_INPUT_ROOT/contrast}"
+else
+    FITS_INPUT_ROOT="${FITS_INPUT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_${CONTRAST_MODEL}${FITS_ROOT_SUFFIX}}"
+    SUMMARY_ROOT="${SUMMARY_ROOT:-$FITS_INPUT_ROOT}"
+    CONTRAST_ROOT="${CONTRAST_ROOT:-$ANALYSIS_ROOT/contrast-data}"
+fi
+if [[ "$CONTRAST_MODEL" == "ALL" ]]; then
+    FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.*}"
+else
+    FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.${CONTRAST_MODEL}.${SIGNAL_G_TYPE}.value_norm.direction_*.parquet}"
+fi
+GROUPFITS_TAG=""
+if [[ "$TC_ANALYSIS" == "tc_fit" ]]; then
+    GROUPFITS_TAG="_tcfit"
+fi
+OUT_XLSX="$SUMMARY_ROOT/groupfits_rest${GROUPFITS_TAG}.xlsx"
+OUT_PARQUET="$SUMMARY_ROOT/groupfits_rest${GROUPFITS_TAG}.parquet"
+FIT_PANELS_OUT_DIR="$SUMMARY_ROOT/contrast_fit_panels"
+TC_PEAK_PANELS_OUT_DIR="$SUMMARY_ROOT/tc_peak_panels"
+
 if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
     PLOT_FIT_PANELS="${PLOT_FIT_PANELS:-false}"
 else
     PLOT_FIT_PANELS="${PLOT_FIT_PANELS:-true}"
 fi
-PEAK_D0_FIX="2.3e-12"
-PEAK_GAMMA="267.5221900"
-TC_PEAK_XLIMS=(
-    "g 0 80"
-    "Ld 0 4"
-    "lcf 2.5 12.5"
-    "lcf_a 0 2"
-    "tc 0 100"
-)
-# ------------------------------------------------------------------
-# ------------------------------------------------------------------
+if [[ -z "${PLOT_TC_PEAK_PANELS+x}" ]]; then
+    if [[ "$TC_ANALYSIS" == "tc_fit" ]]; then
+        PLOT_TC_PEAK_PANELS=false
+    else
+        PLOT_TC_PEAK_PANELS=true
+    fi
+fi
 
-EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
+# EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-75.1}"
 
 if [[ ! -f "$PIPELINE_SCRIPT" ]]; then
     echo "ERROR: Script not found: $PIPELINE_SCRIPT" >&2
@@ -84,7 +146,14 @@ if [[ ! -d "$FITS_INPUT_ROOT" ]]; then
     exit 0
 fi
 
-if [[ ! -d "$CONTRAST_ROOT" ]]; then
+NEEDS_CONTRAST_ROOT=false
+if [[ "${PLOT_FIT_PANELS,,}" == "true" || "${PLOT_TC_PEAK_PANELS,,}" == "true" ]]; then
+    NEEDS_CONTRAST_ROOT=true
+fi
+if [[ "$CONTRAST_SOURCE" == "fitted_resampled" && "$TC_ANALYSIS" == "tc_peak" ]]; then
+    NEEDS_CONTRAST_ROOT=true
+fi
+if [[ "$NEEDS_CONTRAST_ROOT" == "true" && ! -d "$CONTRAST_ROOT" ]]; then
     echo "Contrast root not found: $CONTRAST_ROOT. Skipping grouped summaries."
     exit 0
 fi
@@ -97,11 +166,16 @@ fi
 mkdir -p "$SUMMARY_ROOT"
 
 echo "============================================================"
-echo "Dataset       : phantoms-3"
+echo "Dataset       : phantoms"
 echo "Fit input root: $FITS_INPUT_ROOT"
+echo "Fit pattern   : $FIT_PARAMS_PATTERN"
 echo "Summary root  : $SUMMARY_ROOT"
 echo "Contrast root : $CONTRAST_ROOT"
 echo "Contrast source: $CONTRAST_SOURCE"
+echo "TC analysis    : $TC_ANALYSIS"
+echo "Contrast model : $CONTRAST_MODEL"
+echo "Fit corr      : $FIT_CORR"
+echo "Fits suffix    : ${FITS_ROOT_SUFFIX:-<none>}"
 echo "Models        : $MODELS"
 echo "Subjs         : $SUBJS"
 echo "ROIs          : $ROIS"
@@ -113,12 +187,33 @@ echo "tc_peak panels: $TC_PEAK_PANELS_OUT_DIR"
 echo "tc_peak x vars: $X_VARS"
 echo "tc_peak marker x vars: $TC_PEAK_MARKER_X_VARS"
 
+pipeline_args=()
+if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+    if [[ "$TC_ANALYSIS" == "tc_fit" ]]; then
+        pipeline_args+=(--only-fitresamp)
+    else
+        pipeline_args+=(--exclude-fitresamp)
+        pipeline_args+=(
+            --add-resampled-data-peaks
+            --contrast-root "$CONTRAST_ROOT"
+            --peak-D0-fix "$PEAK_D0_FIX"
+            --peak-gamma "$PEAK_GAMMA"
+        )
+    fi
+fi
+if [[ "$MODELS" != "ALL" ]]; then
+    read -r -a pipeline_model_list <<< "${MODELS//,/ }"
+    if (( ${#pipeline_model_list[@]} > 0 )); then
+        pipeline_args+=(--models "${pipeline_model_list[@]}")
+    fi
+fi
+
 "$PY" "$PIPELINE_SCRIPT" \
     "$FITS_INPUT_ROOT" \
     --pattern "$FIT_PARAMS_PATTERN" \
-    --models "$MODELS" \
     --out-xlsx "$OUT_XLSX" \
-    --out-parquet "$OUT_PARQUET"
+    --out-parquet "$OUT_PARQUET" \
+    "${pipeline_args[@]}"
 
 if [[ "${PLOT_FIT_PANELS,,}" == "true" ]]; then
     echo
@@ -128,11 +223,20 @@ if [[ "${PLOT_FIT_PANELS,,}" == "true" ]]; then
     CONTRAST_ROOT="$CONTRAST_ROOT" \
     OUT_DIR="$FIT_PANELS_OUT_DIR" \
     MODELS="$MODELS" \
+    FIT_PARAMS_PATTERN="$FIT_PARAMS_PATTERN" \
     SUBJS="$SUBJS" \
     ROIS="$ROIS" \
     DIRECTIONS="$DIRECTIONS" \
     EXCLUDE_TD_MS="$EXCLUDE_TD_MS" \
     bash "$PLOT_FIT_PANELS_SCRIPT"
+fi
+
+if [[ "${PLOT_TC_PEAK_PANELS,,}" != "true" ]]; then
+    echo
+    echo "Skipping tc_peak panels."
+    echo
+    echo "Finished."
+    exit 0
 fi
 
 echo
@@ -187,10 +291,18 @@ done
 resampled_panel_args=()
 if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
     resampled_panel_args=(
-        --show-resampled-fit
-        --hide-data-points
+        --contrast-source fitted_resampled
+        --exclude-fitresamp
+        --n1 "$N1"
+        --n2 "$N2"
         --peak-source resampled
         --resampled-curve-n "$RESAMPLED_GRID_N"
+    )
+else
+    resampled_panel_args=(
+        --contrast-source direct
+        --n1 "$N1"
+        --n2 "$N2"
     )
 fi
 

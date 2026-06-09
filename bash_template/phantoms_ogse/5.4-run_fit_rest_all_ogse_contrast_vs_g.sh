@@ -14,11 +14,15 @@ fi
 # Configuration
 # ------------------------------------------------------------------
 export MODEL=rest
-export CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}"
-export APPLY_GRAD_CORR=true
+export SIGNAL_MODEL="${SIGNAL_MODEL:-rest}"
+# direct: fit the contrast values directly. fitted_resampled fit the contrast values on a resampled grid gradient.
+export CONTRAST_SOURCE="${CONTRAST_SOURCE:-direct}" # direct or fitted_resampled
+export APPLY_GRAD_CORR=true 
 export CORR_ROI=water
 export GBASE=g
-export FILE_PATTERN="${FILE_PATTERN:-*_dir1-2-3_seq[0-9][0-9]-[0-9][0-9].long.parquet}"
+if [[ "$CONTRAST_SOURCE" != "fitted_resampled" ]]; then
+    export FILE_PATTERN="${FILE_PATTERN:-*_dir1-2-3_seq[0-9][0-9]-[0-9][0-9].long.parquet}"
+fi
 export EXPORT_FIT_PARAMS_PATTERN="${EXPORT_FIT_PARAMS_PATTERN:-**/*_dir1-2-3_*/fit_params.rest.g.value_norm.direction_1-2-3.parquet}"
 export RESAMPLED_GRID_MIN_MTM="${RESAMPLED_GRID_MIN_MTM:-0}"
 export RESAMPLED_GRID_MAX_MTM="${RESAMPLED_GRID_MAX_MTM:-90}"

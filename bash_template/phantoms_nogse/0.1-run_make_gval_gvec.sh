@@ -5,9 +5,9 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-SUBJ="20260506-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
+SUBJ="20260519_PHANTOM/QUALITY_JACK_19800122TMSF"
 EXP_PARENT="Data-NIFTI"
-DWI_GLOB="*_001_NOGSE*.nii.gz, *_003_NOGSE*.nii.gz, *_004_NOGSE*.nii.gz"
+DWI_GLOB="*_001_NOGSE*.nii.gz, *_001_TNOGSE*.nii.gz"
 DIR_X="1"
 DIR_Y="0"
 DIR_Z="0"

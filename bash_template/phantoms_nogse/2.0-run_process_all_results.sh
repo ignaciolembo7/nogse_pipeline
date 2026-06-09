@@ -10,6 +10,10 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 DEFAULT_PY="python"
 if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
     DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "$HOME/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="$HOME/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3.12 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3.12)"
 elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
@@ -22,7 +26,7 @@ SIGNALS_ROOT="$PROJECT_ROOT/Data-signals"
 ANALYSIS_ROOT="$PROJECT_ROOT/analysis/phantoms/nogse_experiments"
 DEFAULT_OUT_ROOT="$ANALYSIS_ROOT/data"
 DEFAULT_PARAMS="$SIGNALS_ROOT/sequence_parameters_phantoms.xlsx"
-PHANTOM_SUBJ_REL="20260506-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
+PHANTOM_SUBJ_REL="20260519-PHANTOM/QUALITY_JACK_19800122TMSF"
 DEFAULT_RESULTS_ROOT="$SIGNALS_ROOT/Results/$PHANTOM_SUBJ_REL"
 DEFAULT_PROCESS_SCRIPT="$REPO_ROOT/scripts/process_one_results.py"
 DEFAULT_PLOT_SCRIPT="$REPO_ROOT/scripts/plot_signal_tables_vs_g.py"
@@ -108,6 +112,10 @@ echo "  Total files   : $total"
 echo "  Successful    : $ok"
 echo "  Failed        : $failed"
 
+echo
+echo "Plotting signal tables versus g_thorsten..."
+"$PY" "$PLOT_SCRIPT" "$TABLES_DIR" --out_root "$PLOTS_DIR" --xcol g_thorsten --ycols value value_norm
+
 if (( failed > 0 )); then
     echo
     echo "Failed sequences:"
@@ -116,7 +124,3 @@ if (( failed > 0 )); then
     done
     exit 1
 fi
-
-echo
-echo "Plotting signal tables versus g_thorsten..."
-"$PY" "$PLOT_SCRIPT" "$TABLES_DIR" --out_root "$PLOTS_DIR" --xcol g_thorsten --ycols value value_norm

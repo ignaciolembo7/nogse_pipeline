@@ -15,15 +15,20 @@ FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/fits/fit_rest_og
 CONTRAST_ROOT="${CONTRAST_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/contrast-data-rotated}"
 PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse-contrast_tc_peak_panels.py}"
 OUT_DIR="${OUT_DIR:-$FITS_ROOT/tc_peak_panels}"
+FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.*}"
+CONTRAST_SOURCE="${CONTRAST_SOURCE:-direct}"
 MODELS="${MODELS:-rest}"
 SUBJS="${SUBJS:-ALL}"
 ROIS="${ROIS:-ALL}"
 DIRECTIONS="${DIRECTIONS:-ALL}"
+N1="${N1:-}"
+N2="${N2:-}"
 X_VARS="${X_VARS:-g,Ld,lcf,Lcf}"
 PEAK_SOURCE="${PEAK_SOURCE:-standard}"
 SHOW_RESAMPLED_FIT="${SHOW_RESAMPLED_FIT:-false}"
 HIDE_DATA_POINTS="${HIDE_DATA_POINTS:-false}"
 RESAMPLED_CURVE_N="${RESAMPLED_CURVE_N:-300}"
+EXCLUDE_FITRESAMP="${EXCLUDE_FITRESAMP:-false}"
 PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}"
 PEAK_GAMMA="${PEAK_GAMMA:-267.5221900}"
 EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
@@ -88,12 +93,22 @@ if [[ -n "${EXCLUDE_TD_MS// }" ]]; then
         extra_args+=(--exclude-td-ms "${exclude_td_list[@]}")
     fi
 fi
+if [[ -n "${N1// }" ]]; then
+    extra_args+=(--n1 "$N1")
+fi
+if [[ -n "${N2// }" ]]; then
+    extra_args+=(--n2 "$N2")
+fi
 extra_args+=(--peak-source "$PEAK_SOURCE")
+extra_args+=(--contrast-source "$CONTRAST_SOURCE")
 if [[ "${SHOW_RESAMPLED_FIT,,}" == "true" ]]; then
     extra_args+=(--show-resampled-fit --resampled-curve-n "$RESAMPLED_CURVE_N")
 fi
 if [[ "${HIDE_DATA_POINTS,,}" == "true" ]]; then
     extra_args+=(--hide-data-points)
+fi
+if [[ "${EXCLUDE_FITRESAMP,,}" == "true" ]]; then
+    extra_args+=(--exclude-fitresamp)
 fi
 
 echo "============================================================"
@@ -101,6 +116,8 @@ echo "Plotting tc_peak panels"
 echo "  Fits root    : $FITS_ROOT"
 echo "  Contrast root: $CONTRAST_ROOT"
 echo "  Models       : $MODELS"
+echo "  Fit pattern  : $FIT_PARAMS_PATTERN"
+echo "  Contrast source: $CONTRAST_SOURCE"
 echo "  Subjs        : $SUBJS"
 echo "  ROIs         : $ROIS"
 echo "  Directions   : $DIRECTIONS"
@@ -117,6 +134,7 @@ echo "  Out dir      : $OUT_DIR"
     "$FITS_ROOT" \
     --contrast-root "$CONTRAST_ROOT" \
     --out-dir "$OUT_DIR" \
+    --pattern "$FIT_PARAMS_PATTERN" \
     --peak-D0-fix "$PEAK_D0_FIX" \
     --peak-gamma "$PEAK_GAMMA" \
     "${extra_args[@]}"

@@ -28,15 +28,16 @@ FORMATS="${FORMATS:-png pdf}"
 PLOT_MODES="${PLOT_MODES:-points bars}"
 DPI="${DPI:-400}"
 DELTA_YMIN="${DELTA_YMIN:-}"
-PHANTOMS_DELTA_YMIN="${PHANTOMS_DELTA_YMIN:-1400}"
+PHANTOMS_DELTA_YMIN="${PHANTOMS_DELTA_YMIN:-0}"
 ALPHA_YMIN="${ALPHA_YMIN:-0}"
 BRAINS_ALPHA_YMAX="${BRAINS_ALPHA_YMAX:-0.4}"
+PHANTOMS_DIRECTION_ALIAS="${PHANTOMS_DIRECTION_ALIAS:-1=transversal 2=transversal 3=longitudinal}"
 
 # Override these paths when comparing a different fit family or an alternate alpha table.
 BRAINS_ALPHA_TABLE="${BRAINS_ALPHA_TABLE:-$PROJECT_ROOT/analysis/brains/ogse_experiments/alpha_macro/N1/summary_alpha_values.csv}"
-BRAINS_DELTA_TABLE="${BRAINS_DELTA_TABLE:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_contrast_vs_g_rest_corr/tcpeak_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_ms_k=None.xlsx}"
+BRAINS_DELTA_TABLE="${BRAINS_DELTA_TABLE:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_contrast_vs_gresampled_rest_offset_globC_corr/tcpeak_resampled_data_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_resampled_data_ms_k=None.xlsx}"
 PHANTOMS_ALPHA_TABLE="${PHANTOMS_ALPHA_TABLE:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/alpha_macro/N1/summary_alpha_values.csv}"
-PHANTOMS_DELTA_TABLE="${PHANTOMS_DELTA_TABLE:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_contrast_vs_g_rest_corr/tcpeak_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_ms_k=None.xlsx}"
+PHANTOMS_DELTA_TABLE="${PHANTOMS_DELTA_TABLE:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_contrast_vs_gresampled_rest_offset_globC_corr/tcpeak_resampled_data_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_resampled_data_ms_k=None.xlsx}"
 
 if [[ ! -f "$PLOT_SCRIPT" ]]; then
     echo "ERROR: Script not found: $PLOT_SCRIPT" >&2
@@ -55,6 +56,13 @@ read -r -a phantom_roi_args <<< "${PHANTOMS_ROIS//,/ }"
 read -r -a direction_args <<< "${DIRECTIONS//,/ }"
 read -r -a format_args <<< "${FORMATS//,/ }"
 read -r -a plot_mode_args <<< "${PLOT_MODES//,/ }"
+read -r -a phantoms_alias_args <<< "${PHANTOMS_DIRECTION_ALIAS//,/ }"
+phantoms_alias_cli=()
+for alias in "${phantoms_alias_args[@]}"; do
+    if [[ -n "${alias// }" ]]; then
+        phantoms_alias_cli+=(--phantoms-direction-alias "$alias")
+    fi
+done
 
 mkdir -p "$OUT_DIR"
 
@@ -79,6 +87,7 @@ fi
     --brains-rois "${brain_roi_args[@]}" \
     --phantoms-rois "${phantom_roi_args[@]}" \
     --directions "${direction_args[@]}" \
+    "${phantoms_alias_cli[@]}" \
     --formats "${format_args[@]}" \
     --plot-modes "${plot_mode_args[@]}" \
     --dpi "$DPI" \

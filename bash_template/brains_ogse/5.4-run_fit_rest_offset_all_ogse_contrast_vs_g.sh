@@ -1,26 +1,64 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Build OGSE contrasts from rest-plus-offset signal fits on a shared resampled gradient grid.
-# This does not fit an OGSE contrast model.
+# Rest-plus-offset wrapper for corrected OGSE contrast fits.
+# Canonical helper: helpers/run_fit_ogse_contrast_vs_g.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAKE_CONTRAST_WRAPPER="$SCRIPT_DIR/3.1-run_make_contrast_selected_rotated.sh"
+FIT_HELPER="$SCRIPT_DIR/helpers/run_fit_ogse_contrast_vs_g.sh"
 
-if [[ ! -f "$MAKE_CONTRAST_WRAPPER" ]]; then
-    echo "ERROR: contrast builder not found: $MAKE_CONTRAST_WRAPPER" >&2
+if [[ ! -f "$FIT_HELPER" ]]; then
+    echo "ERROR: fit helper script not found: $FIT_HELPER" >&2
     exit 1
 fi
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+export MODEL=rest_offset
+export SIGNAL_MODEL="${SIGNAL_MODEL:-rest_offset}"
+export CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}"
+export APPLY_GRAD_CORR=true
+export CORR_ROI=Syringe
+export RESAMPLED_GRID_MIN_MTM="${RESAMPLED_GRID_MIN_MTM:-0}"
+export RESAMPLED_GRID_MAX_MTM="${RESAMPLED_GRID_MAX_MTM:-90}"
+export RESAMPLED_GRID_N="${RESAMPLED_GRID_N:-1000}"
 
-export CONTRAST_SOURCE=fitted_resampled
-export SIGNAL_MODEL=rest_offset
-export SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g_thorsten}"
-export SIGNAL_YCOL="${SIGNAL_YCOL:-value_norm}"
-export RESAMPLE_GRID_MIN_MTM="${RESAMPLE_GRID_MIN_MTM:-0}"
-export RESAMPLE_GRID_MAX_MTM="${RESAMPLE_GRID_MAX_MTM:-90}"
-export RESAMPLE_GRID_N="${RESAMPLE_GRID_N:-1000}"
-export SIGNAL_FIX_M0="${SIGNAL_FIX_M0:-1.0}"
-export SIGNAL_FREE_M0="${SIGNAL_FREE_M0:-false}"
-export SIGNAL_D0_INIT="${SIGNAL_D0_INIT:-0.0032}"
-export PEAK_D0_FIX="${PEAK_D0_FIX:-3.2e-12}"
+# ROIs to fit. Use ALL to keep every ROI in the input tables.
+# export ROIS="Syringe,Right-Lateral-Ventricle,Left-Lateral-Ventricle"
+export ROIS="AntCC,MidAntCC,CentralCC,MidPostCC,PostCC"
+# export ROIS="ALL"
 
-bash "$MAKE_CONTRAST_WRAPPER" "$@"
+# M0 mode. Defaults to fixed M0=1. Set FREE_M0=1.0 to fit M0.
+export FIX_M0="${FIX_M0:-1.0}"
+export FREE_M0="${FREE_M0:-}"
+
+# D0 mode. D0 is in m^2/ms. Keep one block active.
+# export FIX_D0=
+# export FREE_D0=3.2e-12
+export FIX_D0=3.2e-12
+export FREE_D0=
+
+# tc mode. tc is in ms. Keep one block active.
+export FIX_TC=
+export FREE_TC=5.0
+# export FIX_TC=5.0
+# export FREE_TC=
+
+# C mode. C is the rest-offset signal parameter in the fitted y-column units.
+export FIX_C=
+export FREE_C=0.0
+
+# Fit bounds. Each variable is "MIN MAX".
+export M0_BOUNDS="0.0 2.0"
+export D0_BOUNDS="2.3e-14 2.3e-10"
+export TC_BOUNDS="0.1 1000.0"
+export C_BOUNDS="0.0 1.0"
+
+# D0 used only to convert the fitted contrast peak into tc_peak_ms.
+export PEAK_D0_FIX="3.2e-12"
+
+# Raw x-axis gradient range used to search tc_peak on the fitted contrast curve.
+export PEAK_G_MAX_MTM="1000"
+
+bash "$FIT_HELPER" "$@"
+# ------------------------------------------------------------------
+# ------------------------------------------------------------------

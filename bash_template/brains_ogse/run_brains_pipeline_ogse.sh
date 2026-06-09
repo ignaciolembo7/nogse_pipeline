@@ -8,7 +8,17 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-PY="${PY:-python}"
+DEFAULT_PY="python"
+if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
+    DEFAULT_PY="${CONDA_PREFIX}/bin/python"
+elif [[ -x "$HOME/.conda/envs/nogse_pipe_env/bin/python" ]]; then
+    DEFAULT_PY="$HOME/.conda/envs/nogse_pipe_env/bin/python"
+elif command -v python3.12 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3.12)"
+elif command -v python3 >/dev/null 2>&1; then
+    DEFAULT_PY="$(command -v python3)"
+fi
+PY="${PY:-$DEFAULT_PY}"
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/brains_ogse}"
 INCLUDE_DICOM2NIFTI="${INCLUDE_DICOM2NIFTI:-false}"
 
@@ -30,8 +40,8 @@ fi
 
 RUN_SCRIPTS+=(
 # "1.0-run_BRAINS-denoised_topup_signal_extraction.sh"
-"2.0-run_process_all_results.sh"
-"3.0-run_rotate_all_signals.sh"
+# "2.0-run_process_all_results.sh"
+# "3.0-run_rotate_all_signals.sh"
 # "3.1-run_make_contrast_selected_rotated.sh"
 # "3.2-run_plot_all_ogse_contrast_vs_g.sh"
 # "3.3-run_make_alpha_macro_summary.sh"
@@ -42,9 +52,11 @@ RUN_SCRIPTS+=(
 # "5.2-run_make_grad_correction_table.sh"
 # "5.3-run_fit_free_all_ogse_contrast_vs_g.sh"
 # "5.4-run_fit_rest_all_ogse_contrast_vs_g.sh"
+# "5.4-run_fit_rest_offset_all_ogse_contrast_vs_g.sh"
+"5.4-run_fit_rest_offset_globC_ogse_contrast_vs_g.sh"
 # "5.5-run_fit_mixed_global_ogse_contrast_vs_g.sh"
-# "6.1-run_make_groupfits_rest.sh"
-# "6.2-run_tc_vs_td_pseudohuber_fixed_macro.sh"
+"6.1-run_make_groupfits_rest.sh"
+"6.2-run_tc_vs_td_pseudohuber_fixed_macro.sh"
 )
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------

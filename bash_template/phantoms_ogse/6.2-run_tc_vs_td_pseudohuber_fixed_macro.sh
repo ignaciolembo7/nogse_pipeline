@@ -16,22 +16,21 @@ TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
 METHOD="${METHOD:-pseudohuber_fixed_macro}"
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments}"
 CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}" # direct or fitted_resampled
-SIGNAL_MODEL="${SIGNAL_MODEL:-rest}"
+SIGNAL_MODEL="${SIGNAL_MODEL:-rest_offset_globC}" # rest, rest_offset_globC
 SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
-if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
-    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_gresampled_rest_corr}"
-else
-    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_rest_corr}"
-fi
-GROUPFITS="$FIT_ROOT/groupfits_rest.parquet"
+FIT_CORR="${FIT_CORR:-${USE_CORR:-true}}"
 SUMMARY_ALPHA="$ANALYSIS_ROOT/alpha_macro/N1/summary_alpha_values.xlsx"
-YCOL="${YCOL:-tc_peak_ms}" #tc_fit_ms
-EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-209.1}"
+YCOL="${YCOL:-}"
+# tc_peak or tc_fit; inferred from YCOL when omitted
+TC_ANALYSIS="${TC_ANALYSIS:-tc_fit}" 
+PEAK_D0_FIX="${PEAK_D0_FIX:-2.3e-12}"
+PEAK_GAMMA="${PEAK_GAMMA:-267.5221900}"
+EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-75.1}"
 SHOW_ERRORBARS="1"
 ROIS="${ROIS:-ALL}"
 # ROIS="${ROIS:-fiber1,fiber2}"
-TD_MIN_MS="0"
-TD_MAX_MS="250"
+TD_MIN_MS="60"
+TD_MAX_MS="220"
 C_FIXED="FREE"
 C_MIN="0"
 C_MAX="INF"
@@ -41,6 +40,81 @@ DELTA_MAX="10000"
 EXCLUDE_MATCHES=()
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
+while (( $# > 0 )); do
+    case "$1" in
+        --corr)
+            FIT_CORR=true
+            shift
+            ;;
+        --no-corr|--sin-corr|--uncorr)
+            FIT_CORR=false
+            shift
+            ;;
+        *)
+            echo "ERROR: Unknown argument for $0: $1" >&2
+            echo "Use --corr or --no-corr. Other settings are controlled with environment variables." >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$CONTRAST_SOURCE" != "direct" && "$CONTRAST_SOURCE" != "fitted_resampled" ]]; then
+    echo "ERROR: CONTRAST_SOURCE must be 'direct' or 'fitted_resampled'. Got: $CONTRAST_SOURCE" >&2
+    exit 1
+fi
+if [[ -n "${TC_ANALYSIS// }" && "$TC_ANALYSIS" != "tc_peak" && "$TC_ANALYSIS" != "tc_fit" ]]; then
+    echo "ERROR: TC_ANALYSIS must be empty, 'tc_peak', or 'tc_fit'. Got: $TC_ANALYSIS" >&2
+    exit 1
+fi
+if [[ -z "${FITS_ROOT_SUFFIX+x}" ]]; then
+    if [[ "$SIGNAL_MODEL" == "mixed_global" ]]; then
+        FITS_ROOT_SUFFIX=""
+    else
+        case "${FIT_CORR,,}" in
+            1|true|yes|y|corr)
+                FITS_ROOT_SUFFIX="_corr"
+                ;;
+            0|false|no|n|none|uncorr|no-corr|sin-corr)
+                FITS_ROOT_SUFFIX=""
+                ;;
+            *)
+                echo "ERROR: FIT_CORR must be true/false. Got: $FIT_CORR" >&2
+                exit 1
+                ;;
+        esac
+    fi
+fi
+if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_gresampled_${SIGNAL_MODEL}${FITS_ROOT_SUFFIX}}"
+    CONTRAST_ROOT="${CONTRAST_ROOT:-$FIT_ROOT/contrast}"
+else
+    FIT_ROOT="${FIT_ROOT:-$ANALYSIS_ROOT/fits/ogse_contrast_vs_g_${SIGNAL_MODEL}${FITS_ROOT_SUFFIX}}"
+    CONTRAST_ROOT="${CONTRAST_ROOT:-}"
+fi
+if [[ -z "${TC_ANALYSIS// }" ]]; then
+    case "$YCOL" in
+        tc_fit_ms|tc_ms)
+            TC_ANALYSIS="tc_fit"
+            ;;
+        *)
+            TC_ANALYSIS="tc_peak"
+            ;;
+    esac
+fi
+if [[ -z "${YCOL// }" ]]; then
+    if [[ "$TC_ANALYSIS" == "tc_fit" ]]; then
+        YCOL="tc_fit_ms"
+    elif [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        YCOL="tc_peak_resampled_data_ms"
+    else
+        YCOL="tc_peak_ms"
+    fi
+fi
+GROUPFITS_TAG=""
+if [[ "$TC_ANALYSIS" == "tc_fit" ]]; then
+    GROUPFITS_TAG="_tcfit"
+fi
+GROUPFITS="${GROUPFITS:-$FIT_ROOT/groupfits_rest${GROUPFITS_TAG}.parquet}"
 
 case "$YCOL" in
     tc_peak_ms)
@@ -48,6 +122,9 @@ case "$YCOL" in
         ;;
     tc_peak_resampled_ms)
         TC_DIRNAME="tcpeak_resampled_vs_td"
+        ;;
+    tc_peak_resampled_data_ms)
+        TC_DIRNAME="tcpeak_resampled_data_vs_td"
         ;;
     tc_fit_ms|tc_ms)
         TC_DIRNAME="tcfit_vs_td"
@@ -94,6 +171,13 @@ if [[ "$ROIS" != "ALL" ]]; then
         extra_args+=(--rois "${roi_list[@]}")
     fi
 fi
+if [[ "$YCOL" == "tc_peak_resampled_data_ms" ]]; then
+    if [[ -z "${CONTRAST_ROOT// }" ]]; then
+        echo "ERROR: YCOL=tc_peak_resampled_data_ms requires CONTRAST_ROOT." >&2
+        exit 1
+    fi
+    extra_args+=(--add-resampled-data-peaks --contrast-root "$CONTRAST_ROOT" --peak-D0-fix "$PEAK_D0_FIX" --peak-gamma "$PEAK_GAMMA")
+fi
 extra_args+=(--td-min-ms "$TD_MIN_MS" --td-max-ms "$TD_MAX_MS")
 extra_args+=(--c-min "$C_MIN" --c-max "$C_MAX")
 extra_args+=(--delta-min "$DELTA_MIN" --delta-max "$DELTA_MAX")
@@ -107,11 +191,17 @@ fi
 echo "============================================================"
 echo "Dataset       : phantoms-3"
 echo "Contrast source: $CONTRAST_SOURCE"
+echo "TC analysis   : $TC_ANALYSIS"
+echo "Signal model  : $SIGNAL_MODEL"
+echo "Fit corr      : $FIT_CORR"
+echo "Fits suffix   : ${FITS_ROOT_SUFFIX:-<none>}"
 echo "ROIs          : $ROIS"
 echo "Method        : $METHOD"
 echo "Groupfits     : $GROUPFITS"
+echo "Contrast root : ${CONTRAST_ROOT:-<none>}"
 echo "Summary alpha : $SUMMARY_ALPHA"
 echo "Y column      : $YCOL"
+echo "Peak D0/gamma : $PEAK_D0_FIX / $PEAK_GAMMA"
 echo "Exclude td_ms : ${EXCLUDE_TD_MS:-<none>}"
 echo "Exclude rows  : ${EXCLUDE_MATCHES[*]:-<none>}"
 echo "Error bars    : $SHOW_ERRORBARS"

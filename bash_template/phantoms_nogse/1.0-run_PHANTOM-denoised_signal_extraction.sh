@@ -15,8 +15,8 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 OUT_ROOT="$PROJECT_ROOT/Data-signals"
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms}"
-EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260506-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF" # Absolute path to the root of the input data for this batch, which should be organized in a BIDS-like structure. The subject-level directory name should match OUT_SUBJ_REL below.
-OUT_SUBJ_REL="20260506-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF" # Relative to OUT_ROOT
+EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260519_PHANTOM/QUALITY_JACK_19800122TMSF" # Absolute path to the root of the input data for this batch, which should be organized in a BIDS-like structure. The subject-level directory name should match OUT_SUBJ_REL below.
+OUT_SUBJ_REL="20260519_PHANTOM/QUALITY_JACK_19800122TMSF" # Relative to OUT_ROOT
 CUT_TOKEN=""
 # Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
 DWI_VARIANT="none"

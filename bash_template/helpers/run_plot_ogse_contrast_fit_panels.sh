@@ -11,15 +11,18 @@ export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 PY="${PY:-python}"
 
 # Configuration
-FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr}"
-CONTRAST_ROOT="${CONTRAST_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/contrast-data-rotated}"
+FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_contrast_vs_gresampled_rest_offset_corr}"
+CONTRAST_ROOT="${CONTRAST_ROOT:-$FITS_ROOT/contrast}"
 PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse-contrast_fit_panels.py}"
 OUT_DIR="${OUT_DIR:-$FITS_ROOT/contrast_fit_panels}"
-MODELS="${MODELS:-rest}"
+MODELS="${MODELS:-rest_offset}"
 SUBJS="${SUBJS:-ALL}"
 ROIS="${ROIS:-ALL}"
 DIRECTIONS="${DIRECTIONS:-ALL}"
 EXCLUDE_TD_MS="${EXCLUDE_TD_MS:-}"
+FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.*}"
+N1="${N1:-8}"
+N2="${N2:-4}"
 
 if [[ ! -d "$FITS_ROOT" ]]; then
     echo "ERROR: Fits root not found: $FITS_ROOT" >&2
@@ -90,6 +93,9 @@ echo "  Out dir      : $OUT_DIR"
     "$FITS_ROOT" \
     --contrast-root "$CONTRAST_ROOT" \
     --out-dir "$OUT_DIR" \
+    --pattern "$FIT_PARAMS_PATTERN" \
+    --n1 "$N1" \
+    --n2 "$N2" \
     "${extra_args[@]}"
 
 echo

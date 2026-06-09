@@ -17,7 +17,7 @@ DATA_ROOT="$ANALYSIS_ROOT/data-rotated/tables"
 DIRECTIONS=(long tra)
 ONEG="${ONEG:-false}"
 CONTRAST_SOURCE="${CONTRAST_SOURCE:-fitted_resampled}" # direct or fitted_resampled
-SIGNAL_MODEL="${SIGNAL_MODEL:-rest_offset}"
+SIGNAL_MODEL="${SIGNAL_MODEL:-rest_offset_globC}" #monoexp, rest, rest_offset o rest_offset_globC
 SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g_thorsten}"
 SIGNAL_YCOL="${SIGNAL_YCOL:-value_norm}"
 RESAMPLE_GRID_MIN_MTM="${RESAMPLE_GRID_MIN_MTM:-0}"
@@ -34,7 +34,11 @@ SIGNAL_FREE_M0="${SIGNAL_FREE_M0:-false}"
 SIGNAL_D0_INIT="${SIGNAL_D0_INIT:-0.0023}"
 PEAK_D0_FIX="${PEAK_D0_FIX:-3.2e-12}"
 if [[ -z "${OUT_ROOT+x}" ]]; then
-    OUT_ROOT="$ANALYSIS_ROOT/contrast-data-rotated"
+    if [[ "$CONTRAST_SOURCE" == "fitted_resampled" ]]; then
+        OUT_ROOT="$ANALYSIS_ROOT/contrast-data-fitresampled-rotated-${SIGNAL_MODEL}-${SIGNAL_G_TYPE}"
+    else
+        OUT_ROOT="$ANALYSIS_ROOT/contrast-data-rotated"
+    fi
 fi
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
