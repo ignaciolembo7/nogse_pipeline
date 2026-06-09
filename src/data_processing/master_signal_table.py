@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 
@@ -17,3 +16,8 @@ MASTER_SIGNAL_KEY_COLUMNS = [
     "b_step",
     "N",
     "td_ms",
+    "tm_ms",
+    "delta_ms",
+    "g",
+    "bvalue",
+    "gradient
