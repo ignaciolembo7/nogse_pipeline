@@ -16,8 +16,5 @@ DEFAULT_MASTER_SIGNAL_KEY_COLUMNS = [
     "b_step",
     "N",
     "td_ms",
-    "tm_ms",
-    "delta_ms",
     "g",
-    "bvalue",
-   
+    "b
