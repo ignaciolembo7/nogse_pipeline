@@ -6,18 +6,7 @@ import pandas as pd
 
 from data_processing.schema import finalize_clean_signal_long
 
-KEY_COLUMNS = [
-    "subj",
-    "sheet",
-    "source_file",
-    "stat",
-    "roi",
-    "direction",
-    "b_step",
-    "N",
-    "td_ms",
-    "tm_ms",
-    "delta_ms",
-    "g",
-    "bvalue",
-    "gradient
+DEFAULT_KEY_COLUMNS = ["subj", "sheet", "source_file", "stat", "roi", "direction", "b_step", "N", "td_ms", "tm_ms", "delta_ms", "g", "bvalue"]
+
+
+def upsert_master_signal_table(records: pd.DataFrame, master_path:
