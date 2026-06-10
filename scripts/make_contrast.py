@@ -8,6 +8,7 @@ import re
 import pandas as pd
 
 from data_processing.io import fit_params_output_basename, write_table_outputs
+from data_processing.master_table import append_master_rows, build_analysis_id_from_columns, load_master_table, select_signal
 from fitting.contrast import make_contrast
 from fitting.experiments import experiment_models, validate_experiment_model
 from ogse_fitting.contrast import build_fitted_resampled_ogse_contrast
@@ -20,6 +21,7 @@ from tools.strict_columns import find_unrecognized_column_names
 from tools.value_formatting import compact_unique_values, truthy_series
 
 KEY_COLS = ("stat", "roi", "direction", "b_step")
+SIGNAL_G_COLUMNS = ("g", "g_max", "g_lin_max", "g_thorsten", "bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten")
 
 
 def _normalize_direction_token(value: object) -> str:
@@ -47,11 +49,86 @@ def _normalize_direction_list(values: list[str] | None) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _split_values(values: list[str] | str | None) -> list[str] | None:
+    if values is None:
+        return None
+    if isinstance(values, str):
+        return str(values).replace(",", " ").split() or None
+    out: list[str] = []
+    for value in values:
+        out.extend(str(value).replace(",", " ").split())
+    return out or None
+
+
 def _one(df: pd.DataFrame, col: str, default=None):
     if col not in df.columns:
         return default
     u = pd.Series(df[col]).dropna().unique()
     return u[0] if len(u) else default
+
+
+def _selector_value(value: object | None) -> object | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        vals = _split_values(value)
+        return vals if vals is not None and len(vals) > 1 else vals[0] if vals else None
+    return value
+
+
+def _master_shared_selectors(args: argparse.Namespace) -> dict[str, object]:
+    selectors: dict[str, object] = {}
+    for attr, col in [
+        ("analysis_id", "analysis_id"),
+        ("subj", "subj"),
+        ("sheet", "sheet"),
+        ("roi", "roi"),
+        ("direction", "direction"),
+        ("stat", "stat"),
+        ("source_file", "source_file"),
+    ]:
+        value = _selector_value(getattr(args, attr, None))
+        if value is not None:
+            selectors[col] = value
+    if args.td_ms is not None:
+        selectors["td_ms"] = float(args.td_ms)
+    return selectors
+
+
+def _select_master_signal_side(
+    master: pd.DataFrame,
+    args: argparse.Namespace,
+    *,
+    side: int,
+) -> pd.DataFrame:
+    selectors = _master_shared_selectors(args)
+    n_value = getattr(args, f"N_{side}")
+    hz_value = getattr(args, f"Hz_{side}")
+    g_value = getattr(args, f"g_{side}")
+    if n_value is not None:
+        selectors["N"] = float(n_value)
+    if hz_value is not None:
+        selectors["Hz"] = float(hz_value)
+    if g_value is not None:
+        g_col = str(args.g_pair_col)
+        if g_col not in SIGNAL_G_COLUMNS:
+            raise ValueError(f"--g_pair_col must be one of {sorted(SIGNAL_G_COLUMNS)}.")
+        selectors[g_col] = float(g_value)
+
+    df = select_signal(master, rotated=args.master_rotated, **selectors)
+    if df.empty:
+        raise ValueError(f"Master side {side} selection is empty. Selectors={selectors}")
+    return df
+
+
+def _master_analysis_id(df_ref: pd.DataFrame, df_cmp: pd.DataFrame, out: pd.DataFrame) -> str:
+    preferred = ("subj", "sheet", "td_ms", "N_1", "N_2", "Hz_1", "Hz_2", "direction")
+    try:
+        return build_analysis_id_from_columns(out, columns=[c for c in preferred if c in out.columns], prefix="contrast")
+    except ValueError:
+        directions = sorted(out["direction"].dropna().astype(str).unique().tolist()) if "direction" in out.columns else []
+        analysis_id, _ = build_analysis_id(df_ref, df_cmp, directions, None, oneg=False)
+        return f"contrast_{analysis_id}"
 
 
 def _fmt_num(x) -> str:
@@ -376,13 +453,29 @@ def _plot_fitted_resampled_signal_fits(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("ref_parquet", help="signal parquet (ref)")
-    ap.add_argument("cmp_parquet", help="signal parquet (cmp)")
+    ap.add_argument("ref_parquet", nargs="?", help="signal parquet (ref)")
+    ap.add_argument("cmp_parquet", nargs="?", help="signal parquet (cmp)")
     ap.add_argument("--direction", nargs="+", default=None, help="Filter by direction values, for example: 1 2 3 or long tra.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
     ap.add_argument("--out_root", default="analysis/ogse_experiments/contrast", help="directory root")
     ap.add_argument("--exp", default=None, help="Override the sheet name used for naming only.")
     ap.add_argument("--oneg", action="store_true", help="Allow one-g-per-sequence inputs and compact sequence labels.")
+    ap.add_argument("--master-parquet", type=Path, default=None, help="Master table to select both contrast sides from.")
+    ap.add_argument("--append-master", action="store_true", help="Append the contrast output back to --master-parquet with row_kind='contrast'.")
+    ap.add_argument("--master-rotated", action=argparse.BooleanOptionalAction, default=True, help="Select rotated signal rows from master by default.")
+    ap.add_argument("--analysis-id", action="append", default=None, help="Shared master analysis_id selector.")
+    ap.add_argument("--subj", action="append", default=None, help="Shared master subj selector.")
+    ap.add_argument("--sheet", action="append", default=None, help="Shared master sheet selector.")
+    ap.add_argument("--roi", action="append", default=None, help="Shared master ROI selector.")
+    ap.add_argument("--stat", action="append", default=None, help="Shared master stat selector.")
+    ap.add_argument("--source-file", action="append", default=None, help="Shared master source_file selector.")
+    ap.add_argument("--N_1", type=float, default=None, help="Master side-1 N selector.")
+    ap.add_argument("--N_2", type=float, default=None, help="Master side-2 N selector.")
+    ap.add_argument("--Hz_1", type=float, default=None, help="Master side-1 Hz selector.")
+    ap.add_argument("--Hz_2", type=float, default=None, help="Master side-2 Hz selector.")
+    ap.add_argument("--g_pair_col", default="g", choices=SIGNAL_G_COLUMNS, help="Column used by --g_1/--g_2 selectors.")
+    ap.add_argument("--g_1", type=float, default=None, help="Optional master side-1 gradient selector using --g_pair_col.")
+    ap.add_argument("--g_2", type=float, default=None, help="Optional master side-2 gradient selector using --g_pair_col.")
     ap.add_argument(
         "--contrast-source",
         choices=["direct", "fitted_resampled"],
@@ -446,13 +539,23 @@ def main():
     if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
         raise ValueError("--auto_fit_max_points must be >= --auto_fit_min_points.")
 
+    if args.master_parquet is None and (args.ref_parquet is None or args.cmp_parquet is None):
+        raise ValueError("Provide ref_parquet and cmp_parquet, or use --master-parquet with side selectors.")
+    if args.append_master and args.master_parquet is None:
+        raise ValueError("--append-master requires --master-parquet.")
+
     directions = _normalize_direction_list(args.direction)
     subjs = args.subjs
     if subjs is not None and len(subjs) == 1 and str(subjs[0]).upper() == "ALL":
         subjs = None
 
-    df_ref = pd.read_parquet(Path(args.ref_parquet))
-    df_cmp = pd.read_parquet(Path(args.cmp_parquet))
+    if args.master_parquet is not None:
+        master = load_master_table(args.master_parquet)
+        df_ref = _select_master_signal_side(master, args, side=1)
+        df_cmp = _select_master_signal_side(master, args, side=2)
+    else:
+        df_ref = pd.read_parquet(Path(args.ref_parquet))
+        df_cmp = pd.read_parquet(Path(args.cmp_parquet))
 
     _validate_input(df_ref, "ref")
     _validate_input(df_cmp, "cmp")
@@ -555,6 +658,10 @@ def main():
 
     # Final column order
     out = _order_columns(out)
+    if args.master_parquet is not None and not out.empty:
+        out["analysis_id"] = _master_analysis_id(df_ref, df_cmp, out)
+        analysis_id = str(out["analysis_id"].iloc[0])
+        out = _order_columns(out)
 
     tables_dir = Path(args.out_root) / "tables" / analysis_short
     plots_dir = Path(args.out_root) / "plots" / analysis_short
@@ -562,6 +669,15 @@ def main():
 
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
     write_table_outputs(out, out_parquet, xlsx_path=out_parquet.with_suffix(".xlsx"))
+    if args.append_master:
+        append_master_rows(
+            args.master_parquet,
+            out,
+            row_kind="contrast",
+            analysis_id=str(analysis_id),
+            out_path=args.master_parquet,
+        )
+        print("Appended contrast to master:", args.master_parquet)
 
     if args.contrast_source == "fitted_resampled" and not signal_fit_params.empty:
         signal_fit_params["analysis_id"] = str(analysis_id)
@@ -622,7 +738,7 @@ def main():
         contrast_peak_params = standardize_fit_params(
             contrast_peak_params,
             fit_kind="ogse_contrast",
-            source_file=Path(args.ref_parquet).name,
+            source_file=Path(args.ref_parquet).name if args.ref_parquet is not None else str(_one(df_ref, "source_file", "master")),
         )
         fit_params_name = fit_params_output_basename(
             model=str(args.signal_model),
