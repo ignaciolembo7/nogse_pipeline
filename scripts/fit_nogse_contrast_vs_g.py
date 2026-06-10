@@ -4,11 +4,22 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
+import tempfile
 
 import pandas as pd
 
 from fitting.b_from_g import VALID_AXIS_BASES
+from fitting.cli_common import (
+    add_fit_master_output_args,
+    add_master_source_args,
+    add_parameter_mode_args,
+    append_fit_params_outputs,
+    build_common_parameter_plan,
+    load_master_input,
+    require_legacy_or_master,
+)
 from fitting.experiments import experiment_models, validate_experiment_model
+from fitting.model_registry import canonical_contrast_model_name, get_contrast_model
 from fitting.gradient_correction import (
     CorrectionLookupSpec,
     build_direction_factors,
@@ -54,7 +65,7 @@ def _validate_log_bounds(name: str, bounds: tuple[float, float] | None) -> None:
 def main() -> None:
     plot_axis_choices = sorted({*VALID_AXIS_BASES, *[f"{axis}_1" for axis in VALID_AXIS_BASES]})
     ap = argparse.ArgumentParser()
-    ap.add_argument("contrast_parquet", type=Path, help="Input long-form contrast parquet produced by make_contrast.py")
+    ap.add_argument("contrast_parquet", type=Path, nargs="?", help="Input long-form contrast parquet produced by make_contrast.py")
 
     ap.add_argument("--model", required=True, choices=sorted(experiment_models("nogse_contrast_vs_g")))
     ap.add_argument("--gbase", default="g_lin_max", choices=sorted(VALID_AXIS_BASES))
@@ -147,11 +158,42 @@ def main() -> None:
     ap.add_argument("--peak_grid_n", type=int, default=1000, help="Number of points used to search for the fitted peak.")
     ap.add_argument("--peak_D0_fix", type=float, default=3.2e-12, help="Fixed D0 used to convert the peak into tc_peak_ms.")
     ap.add_argument("--peak_gamma", type=float, default=267.5221900, help="Gamma in rad/(ms*mT) used to convert the peak into tc_peak_ms.")
+    add_master_source_args(ap, default_row_kind="contrast", include_roi=False, include_direction=False, include_stat=False, include_N=False)
+    add_parameter_mode_args(ap)
+    add_fit_master_output_args(ap)
     args = ap.parse_args()
     validate_experiment_model("nogse_contrast_vs_g", args.model)
+    require_legacy_or_master([args.contrast_parquet] if args.contrast_parquet is not None else None, args.master_parquet, label="contrast_parquet")
+    backend_model = {
+        "nogse_free": "free",
+        "nogse_tort": "tort",
+        "nogse_rest": "rest",
+    }.get(args.model, args.model)
+    has_param_plan = any(getattr(args, name) for name in ("param_mode", "param_init", "param_fixed", "param_bounds"))
+    plan = None
+    if has_param_plan:
+        spec = get_contrast_model(canonical_contrast_model_name(args.model, family="nogse"), family="nogse")
+        plan = build_common_parameter_plan(
+            args,
+            param_names=spec.param_names,
+            default_modes=spec.default_modes,
+            default_inits=spec.default_inits,
+            default_bounds=spec.default_bounds,
+            log_params=spec.log_params,
+        )
 
-    df = pd.read_parquet(args.contrast_parquet)
-    analysis_id = _analysis_id_from_path(args.contrast_parquet)
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    contrast_path = args.contrast_parquet
+    if args.master_parquet is not None:
+        df_master = load_master_input(args, default_row_kind=str(args.row_kind or "contrast"))
+        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_nogse_contrast_")
+        contrast_path = Path(temp_dir.name) / "master_selection.long.parquet"
+        df_master.to_parquet(contrast_path, index=False)
+    if contrast_path is None:
+        raise ValueError("Provide contrast_parquet or --master-parquet.")
+
+    df = pd.read_parquet(contrast_path)
+    analysis_id = _analysis_id_from_path(contrast_path)
 
     sheet_hint = canonical_sheet_name(analysis_id)
     if "sheet" not in df.columns:
@@ -209,6 +251,9 @@ def main() -> None:
     else:
         M0_vary = True
         M0_value = 1.0
+    if plan is not None and "M0" in plan.configs:
+        M0_vary = plan.mode("M0") != "fixed"
+        M0_value = float(plan.fixed("M0", M0_value) if not M0_vary else plan.init("M0", M0_value))
 
     if args.fix_D0 is not None:
         D0_vary = False
@@ -219,6 +264,9 @@ def main() -> None:
     else:
         D0_vary = True
         D0_value = 2.3e-12
+    if plan is not None and "D0_m2_ms" in plan.configs:
+        D0_vary = plan.mode("D0_m2_ms") != "fixed"
+        D0_value = float(plan.fixed("D0_m2_ms", D0_value) if not D0_vary else plan.init("D0_m2_ms", D0_value))
 
     if args.fix_tc is not None:
         tc_vary = False
@@ -229,6 +277,9 @@ def main() -> None:
     else:
         tc_vary = True
         tc_value = 5.0
+    if plan is not None and "tc_ms" in plan.configs:
+        tc_vary = plan.mode("tc_ms") != "fixed"
+        tc_value = float(plan.fixed("tc_ms", tc_value) if not tc_vary else plan.init("tc_ms", tc_value))
 
     if args.fix_g0 is not None:
         g0_vary = False
@@ -237,8 +288,11 @@ def main() -> None:
         g0_vary = True
         g0_value = float(args.free_g0)
     else:
-        g0_vary = args.model == "nogse_free_grad_offset"
+        g0_vary = backend_model == "nogse_free_grad_offset"
         g0_value = 0.0
+    if plan is not None and "g0_mTm" in plan.configs:
+        g0_vary = plan.mode("g0_mTm") != "fixed"
+        g0_value = float(plan.fixed("g0_mTm", g0_value) if not g0_vary else plan.init("g0_mTm", g0_value))
 
     m0_bounds = _validate_bounds("M0", tuple(args.M0_bounds)) if args.M0_bounds is not None else None
     d0_bounds = _validate_bounds("D0", tuple(args.D0_bounds)) if args.D0_bounds is not None else None
@@ -247,14 +301,14 @@ def main() -> None:
         _validate_bounds("g0", tuple(args.g0_bounds))
         if args.g0_bounds is not None
         else (-20.0, 20.0)
-        if args.model == "nogse_free_grad_offset"
+        if backend_model == "nogse_free_grad_offset"
         else None
     )
     _validate_fixed_value("M0", None if M0_vary else M0_value, m0_bounds)
     _validate_fixed_value("D0", None if D0_vary else D0_value, d0_bounds)
-    if args.model == "rest":
+    if backend_model == "rest":
         _validate_fixed_value("tc", None if tc_vary else tc_value, tc_bounds)
-    if args.model == "nogse_free_grad_offset":
+    if backend_model == "nogse_free_grad_offset":
         _validate_fixed_value("g0", None if g0_vary else g0_value, g0_bounds)
     _validate_log_bounds("D0", d0_bounds)
 
@@ -281,7 +335,7 @@ def main() -> None:
 
     fit_df = fit_nogse_contrast_long(
         df,
-        model=args.model,
+        model=backend_model,
         gbase=args.gbase,
         plot_xcol=args.plot_xcol,
         ycol=args.ycol,
@@ -300,7 +354,7 @@ def main() -> None:
         m0_bounds=m0_bounds,
         d0_bounds=d0_bounds,
         g0_bounds=g0_bounds,
-        source_file=args.contrast_parquet.name,
+        source_file=contrast_path.name,
         analysis_id=analysis_id,
         tc_value=tc_value,
         tc_vary=tc_vary,
@@ -312,7 +366,7 @@ def main() -> None:
     )
 
     fit_params_name = fit_params_output_basename(
-        model=str(args.model),
+        model=str(backend_model),
         axis=str(args.gbase),
         ycol=str(args.ycol),
         directions=None if directions is None else [str(v) for v in directions],
@@ -323,6 +377,13 @@ def main() -> None:
         out_parquet,
         xlsx_path=out_parquet.with_suffix(".xlsx"),
         csv_path=tables_dir / f"{fit_params_name}.csv",
+    )
+    append_fit_params_outputs(
+        fit_df,
+        args,
+        fit_kind="nogse_contrast",
+        model=str(backend_model),
+        source="master" if args.master_parquet is not None else "legacy",
     )
 
     print("Saved fit table:", out_parquet)

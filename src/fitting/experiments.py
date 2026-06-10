@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from nogse_fitting.fit_nogse_signal_vs_g import VALID_MODELS as NOGSE_SIGNAL_MODEL_REGISTRY
+from fitting.model_registry import contrast_model_names
 
-NOGSE_CONTRAST_MODELS = ("free", "nogse_free_grad_offset", "rest", "tort")
-OGSE_CONTRAST_MODELS = ("free", "mixed", "mixed_global", "rest", "rest_offset", "rest_offset_globC", "tort")
-NOGSE_SIGNAL_MODELS = tuple(sorted(str(model) for model in NOGSE_SIGNAL_MODEL_REGISTRY))
-OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse", "rest", "rest_offset")
+NOGSE_CONTRAST_MODELS = tuple(sorted({"free", "nogse_free_grad_offset", "rest", "tort", *contrast_model_names(family="nogse")}))
+OGSE_CONTRAST_MODELS = tuple(sorted({"free", "mixed", "mixed_global", "rest", "rest_offset", "rest_offset_globC", "tort", *contrast_model_names(family="ogse")}))
+NOGSE_SIGNAL_MODELS = ("free_cpmg", "free_hahn", "mixed_global", "nogse_free")
+OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse", "rest", "rest_offset", "ogse_free", "ogse_rest", "ogse_rest_offset")
 
 
 @dataclass(frozen=True)

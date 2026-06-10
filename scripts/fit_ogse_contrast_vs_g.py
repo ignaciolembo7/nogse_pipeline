@@ -4,12 +4,23 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
+import tempfile
 
 import pandas as pd
 
 from data_processing.io import fit_params_output_basename, write_table_outputs
 from fitting.b_from_g import VALID_AXIS_BASES
+from fitting.cli_common import (
+    add_fit_master_output_args,
+    add_master_source_args,
+    add_parameter_mode_args,
+    append_fit_params_outputs,
+    build_common_parameter_plan,
+    load_master_input,
+    require_legacy_or_master,
+)
 from fitting.experiments import experiment_models, validate_experiment_model
+from fitting.model_registry import canonical_contrast_model_name, get_contrast_model
 from fitting.gradient_correction import (
     CorrectionLookupSpec,
     build_direction_factors,
@@ -118,7 +129,7 @@ def main() -> None:
         }
     )
     ap = argparse.ArgumentParser()
-    ap.add_argument("contrast_parquet", type=Path, nargs="+", help="Input long-form contrast parquet(s) produced by make_contrast.py")
+    ap.add_argument("contrast_parquet", type=Path, nargs="*", help="Input long-form contrast parquet(s) produced by make_contrast.py")
 
     ap.add_argument("--model", required=True, choices=sorted(experiment_models("ogse_contrast_vs_g")))
     ap.add_argument("--gbase", default="g_lin_max", choices=sorted(VALID_AXIS_BASES))
@@ -211,6 +222,9 @@ def main() -> None:
             "Unlisted variable parameters remain local to each curve."
         ),
     )
+    add_master_source_args(ap, default_row_kind="contrast", include_roi=False, include_direction=False, include_stat=False, include_N=False)
+    add_parameter_mode_args(ap)
+    add_fit_master_output_args(ap)
 
     ap.add_argument("--n_fit", type=int, default=None, help="Use only the first n_fit points after sorting by x.")
     ap.add_argument("--peak_grid_n", type=int, default=1000, help="Number of points used to search for the fitted peak.")
@@ -235,12 +249,42 @@ def main() -> None:
     )
     args = ap.parse_args()
     validate_experiment_model("ogse_contrast_vs_g", args.model)
+    require_legacy_or_master(args.contrast_parquet, args.master_parquet, label="contrast_parquet")
 
-    contrast_paths = [Path(p) for p in args.contrast_parquet]
+    backend_model = {
+        "ogse_free": "free",
+        "ogse_tort": "tort",
+        "ogse_rest": "rest",
+        "ogse_rest_offset": "rest_offset",
+        "ogse_mixed": "mixed",
+    }.get(args.model, args.model)
+    has_param_plan = any(getattr(args, name) for name in ("param_mode", "param_init", "param_fixed", "param_bounds"))
+    plan = None
+    if has_param_plan:
+        spec = get_contrast_model(canonical_contrast_model_name(args.model, family="ogse"), family="ogse")
+        plan = build_common_parameter_plan(
+            args,
+            param_names=spec.param_names,
+            default_modes=spec.default_modes,
+            default_inits=spec.default_inits,
+            default_bounds=spec.default_bounds,
+            log_params=spec.log_params,
+        )
+    if plan is not None and plan.global_params() and args.model != "mixed_global":
+        args.global_params = sorted({*(args.global_params or []), *plan.global_params()})
+
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    if args.master_parquet is not None:
+        df_master = load_master_input(args, default_row_kind=str(args.row_kind or "contrast"))
+        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_ogse_contrast_")
+        contrast_paths = [Path(temp_dir.name) / "master_selection.long.parquet"]
+        df_master.to_parquet(contrast_paths[0], index=False)
+    else:
+        contrast_paths = [Path(p) for p in args.contrast_parquet]
     use_global_params = bool(args.global_params)
-    if args.model != "mixed_global" and not use_global_params and len(contrast_paths) != 1:
+    if backend_model != "mixed_global" and not use_global_params and len(contrast_paths) != 1:
         raise ValueError("Multiple contrast parquet inputs require --model mixed_global or --global_params.")
-    if args.model == "mixed_global" and use_global_params:
+    if backend_model == "mixed_global" and use_global_params:
         raise ValueError("--global_params is for regular models. Use --model mixed_global without --global_params.")
 
     df = pd.read_parquet(contrast_paths[0])
@@ -273,7 +317,7 @@ def main() -> None:
     f_by_direction = None
     td_ms_hint = infer_td_ms(df, analysis_id=analysis_id, override=args.corr_td_ms)
 
-    if use_corr and args.model != "mixed_global":
+    if use_corr and backend_model != "mixed_global":
         if args.corr_xlsx is None:
             raise ValueError("--apply_grad_corr requires --corr_xlsx.")
         if td_ms_hint is None:
@@ -302,6 +346,9 @@ def main() -> None:
     else:
         M0_vary = True
         M0_value = 1.0
+    if plan is not None and "M0" in plan.configs:
+        M0_vary = plan.mode("M0") != "fixed"
+        M0_value = float(plan.fixed("M0", M0_value) if not M0_vary else plan.init("M0", M0_value))
 
     if args.fix_D0 is not None:
         D0_vary = False
@@ -312,6 +359,9 @@ def main() -> None:
     else:
         D0_vary = True
         D0_value = 2.3e-12
+    if plan is not None and "D0_m2_ms" in plan.configs:
+        D0_vary = plan.mode("D0_m2_ms") != "fixed"
+        D0_value = float(plan.fixed("D0_m2_ms", D0_value) if not D0_vary else plan.init("D0_m2_ms", D0_value))
 
     if args.fix_tc is not None:
         tc_vary = False
@@ -322,6 +372,9 @@ def main() -> None:
     else:
         tc_vary = True
         tc_value = float(args.tc_init)
+    if plan is not None and "tc_ms" in plan.configs:
+        tc_vary = plan.mode("tc_ms") != "fixed"
+        tc_value = float(plan.fixed("tc_ms", tc_value) if not tc_vary else plan.init("tc_ms", tc_value))
 
     if args.fix_C is not None:
         C_vary = False
@@ -330,8 +383,11 @@ def main() -> None:
         C_vary = True
         C_value = float(args.free_C)
     else:
-        C_vary = args.model in {"rest_offset", "rest_offset_globC"}
+        C_vary = backend_model in {"rest_offset", "rest_offset_globC"}
         C_value = 0.0
+    if plan is not None and "C" in plan.configs:
+        C_vary = plan.mode("C") != "fixed"
+        C_value = float(plan.fixed("C", C_value) if not C_vary else plan.init("C", C_value))
 
     tc_bounds = None if args.tc_bounds is None else tuple(float(v) for v in args.tc_bounds)
     m0_bounds = None if args.M0_bounds is None else tuple(float(v) for v in args.M0_bounds)
@@ -366,7 +422,7 @@ def main() -> None:
     if stat_keep is not None and str(stat_keep).upper() == "ALL":
         stat_keep = None
 
-    if args.model == "mixed_global":
+    if backend_model == "mixed_global":
         combined = _load_ogse_contrast_tables(contrast_paths)
         if subjs is not None:
             combined = combined[combined["subj"].astype(str).isin([str(x) for x in subjs])].copy()
@@ -416,7 +472,7 @@ def main() -> None:
             source_file="|".join(p.name for p in contrast_paths),
         )
         fit_params_name = fit_params_output_basename(
-            model=str(args.model),
+            model=str(backend_model),
             axis=str(args.gbase),
             ycol=str(args.ycol),
             directions=None if directions is None else [str(v) for v in directions],
@@ -427,6 +483,13 @@ def main() -> None:
             out_parquet,
             xlsx_path=out_parquet.with_suffix(".xlsx"),
             csv_path=tables_dir / f"{fit_params_name}.csv",
+        )
+        append_fit_params_outputs(
+            fit_df,
+            args,
+            fit_kind="ogse_contrast",
+            model=str(backend_model),
+            source="master" if args.master_parquet is not None else "legacy",
         )
         print("Saved fit table:", out_parquet)
         if not args.no_plots:
@@ -458,7 +521,7 @@ def main() -> None:
         tables_dir.mkdir(parents=True, exist_ok=True)
         fit_df = fit_ogse_contrast_global_long(
             combined,
-            model=args.model,
+            model=backend_model,
             global_params=args.global_params,
             gbase=args.gbase,
             plot_xcol=args.plot_xcol,
@@ -491,7 +554,7 @@ def main() -> None:
             oneg=bool(args.oneg),
         )
         fit_params_name = fit_params_output_basename(
-            model=f"{args.model}_global",
+            model=f"{backend_model}_global",
             axis=str(args.gbase),
             ycol=str(args.ycol),
             directions=None if directions is None else [str(v) for v in directions],
@@ -503,6 +566,13 @@ def main() -> None:
             xlsx_path=out_parquet.with_suffix(".xlsx"),
             csv_path=tables_dir / f"{fit_params_name}.csv",
         )
+        append_fit_params_outputs(
+            fit_df,
+            args,
+            fit_kind="ogse_contrast",
+            model=f"{backend_model}_global",
+            source="master" if args.master_parquet is not None else "legacy",
+        )
         print("Saved fit table:", out_parquet)
         if not args.no_plots:
             print("Plots for --global_params fits are not generated yet; saved table only.")
@@ -510,7 +580,7 @@ def main() -> None:
 
     fit_df = fit_ogse_contrast_long(
         df,
-        model=args.model,
+        model=backend_model,
         gbase=args.gbase,
         plot_xcol=args.plot_xcol,
         ycol=args.ycol,
@@ -544,7 +614,7 @@ def main() -> None:
     )
 
     fit_params_name = fit_params_output_basename(
-        model=str(args.model),
+        model=str(backend_model),
         axis=str(args.gbase),
         ycol=str(args.ycol),
         directions=None if directions is None else [str(v) for v in directions],
@@ -555,6 +625,13 @@ def main() -> None:
         out_parquet,
         xlsx_path=out_parquet.with_suffix(".xlsx"),
         csv_path=tables_dir / f"{fit_params_name}.csv",
+    )
+    append_fit_params_outputs(
+        fit_df,
+        args,
+        fit_kind="ogse_contrast",
+        model=str(backend_model),
+        source="master" if args.master_parquet is not None else "legacy",
     )
 
     print("Saved fit table:", out_parquet)

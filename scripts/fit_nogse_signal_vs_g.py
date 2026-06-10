@@ -4,11 +4,22 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
+import tempfile
 
 import pandas as pd
 
 from fitting.b_from_g import VALID_AXIS_BASES
+from fitting.cli_common import (
+    add_fit_master_output_args,
+    add_master_source_args,
+    add_parameter_mode_args,
+    append_fit_params_outputs,
+    build_common_parameter_plan,
+    load_master_input,
+    require_legacy_or_master,
+)
 from fitting.experiments import experiment_models, split_all_or_values, validate_experiment_model
+from fitting.model_registry import canonical_signal_model_name, get_signal_model
 from fitting.gradient_correction import (
     SignalCorrectionLookupSpec,
     build_signal_direction_factors,
@@ -89,7 +100,7 @@ def _resolve_direction_factors(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("signal_parquet", type=Path, nargs="+")
+    ap.add_argument("signal_parquet", type=Path, nargs="*")
     ap.add_argument("--model", required=True, choices=sorted(experiment_models(EXPERIMENT)))
     ap.add_argument("--out_root", required=True, type=Path)
     ap.add_argument("--xcol", default="g", choices=sorted(VALID_AXIS_BASES))
@@ -125,14 +136,45 @@ def main() -> None:
     ap.add_argument("--corr_td_ms", type=float, default=None)
     ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
     ap.add_argument("--corr_sheet", default=None)
+    add_master_source_args(ap, default_row_kind="signal", include_stat=False)
+    add_parameter_mode_args(ap)
+    add_fit_master_output_args(ap)
     args = ap.parse_args()
 
     validate_experiment_model(EXPERIMENT, args.model)
+    require_legacy_or_master(args.signal_parquet, args.master_parquet, label="signal_parquet")
+
+    has_param_plan = any(getattr(args, name) for name in ("param_mode", "param_init", "param_fixed", "param_bounds"))
+    plan = None
+    if has_param_plan:
+        spec = get_signal_model(canonical_signal_model_name(args.model, family="nogse"))
+        plan = build_common_parameter_plan(
+            args,
+            param_names=spec.param_names,
+            default_modes=spec.default_modes,
+            default_inits=spec.default_inits,
+            default_bounds=spec.default_bounds,
+            log_params=spec.log_params,
+        )
 
     fix_m0 = args.fix_M0
     if fix_m0 is None and not args.free_M0 and args.ycol == "value_norm":
         fix_m0 = 1.0
     fix_d0 = args.fix_D0
+    if plan is not None and "M0" in plan.configs:
+        if plan.mode("M0") == "fixed":
+            fix_m0 = float(plan.fixed("M0", fix_m0 if fix_m0 is not None else 1.0))
+            args.free_M0 = False
+        elif plan.mode("M0") in {"free", "global_td", "global_contrast"}:
+            fix_m0 = None
+            args.free_M0 = True
+    if plan is not None and "D0_m2_ms" in plan.configs:
+        if plan.mode("D0_m2_ms") == "fixed":
+            fix_d0 = float(plan.fixed("D0_m2_ms", fix_d0))
+            args.free_D0 = False
+        elif plan.mode("D0_m2_ms") in {"free", "global_td", "global_contrast"}:
+            fix_d0 = None
+            args.free_D0 = True
 
     m0_bounds = validate_bounds("M0", args.M0_bounds)
     d0_bounds = validate_bounds("D0", args.D0_bounds)
@@ -143,7 +185,21 @@ def main() -> None:
         validate_log_bounds("D0", d0_bounds)
     validate_log_bounds("tc", tc_bounds)
 
-    signal_paths = [Path(p) for p in args.signal_parquet]
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    if args.master_parquet is not None:
+        df_master = load_master_input(args, default_row_kind=str(args.row_kind or "signal"), signal_rotated=str(args.row_kind or "signal") == "signal_rotated")
+        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_nogse_signal_")
+        signal_paths = [Path(temp_dir.name) / "master_selection.long.parquet"]
+        df_master.to_parquet(signal_paths[0], index=False)
+    else:
+        signal_paths = [Path(p) for p in args.signal_parquet]
+
+    backend_model = args.model
+    if backend_model == "nogse_free":
+        df_for_model = pd.read_parquet(signal_paths[0])
+        preferred_side = _infer_preferred_side(df_for_model, model="free_cpmg")
+        backend_model = "free_cpmg" if int(preferred_side) == 1 else "free_hahn"
+
     if args.model != "mixed_global" and len(signal_paths) != 1:
         raise ValueError("Multiple signal parquet inputs are only supported with --model mixed_global.")
 
@@ -156,12 +212,45 @@ def main() -> None:
         corr_td_ms=args.corr_td_ms,
         corr_tol_ms=args.corr_tol_ms,
         corr_sheet=args.corr_sheet,
-        model=args.model,
+        model=backend_model,
     )
 
-    if args.model == "mixed_global":
-        run_global_mixed_fit_from_parquets(
-            signal_paths,
+    try:
+        if backend_model == "mixed_global":
+            outs, _fit_dir = run_global_mixed_fit_from_parquets(
+                signal_paths,
+                out_root=args.out_root,
+                xcol=args.xcol,
+                plot_xcol=args.plot_xcol,
+                ycol=args.ycol,
+                stat_keep=args.stat,
+                rois=split_all_or_values(args.rois),
+                directions=split_all_or_values(args.directions),
+                fix_m0=fix_m0,
+                fix_d0=fix_d0,
+                tc_init=float(args.tc_init),
+                m0_bounds=m0_bounds,
+                d0_bounds=d0_bounds,
+                tc_bounds=tc_bounds,
+                f_by_direction=f_by_direction,
+                alpha_table=args.alpha_table,
+                alpha_col=args.alpha_col,
+                alpha_td_col=args.alpha_td_col,
+                alpha_td_tol_ms=float(args.alpha_td_tol_ms),
+                no_plots=bool(args.no_plots),
+            )
+            append_fit_params_outputs(
+                outs.fit_params,
+                args,
+                fit_kind="nogse_signal",
+                model=str(backend_model),
+                source="master" if args.master_parquet is not None else "legacy",
+            )
+            return
+
+        outs, _fit_dir = run_fit_from_parquet(
+            signal_paths[0],
+            model=backend_model,
             out_root=args.out_root,
             xcol=args.xcol,
             plot_xcol=args.plot_xcol,
@@ -171,36 +260,21 @@ def main() -> None:
             directions=split_all_or_values(args.directions),
             fix_m0=fix_m0,
             fix_d0=fix_d0,
-            tc_init=float(args.tc_init),
             m0_bounds=m0_bounds,
             d0_bounds=d0_bounds,
-            tc_bounds=tc_bounds,
             f_by_direction=f_by_direction,
-            alpha_table=args.alpha_table,
-            alpha_col=args.alpha_col,
-            alpha_td_col=args.alpha_td_col,
-            alpha_td_tol_ms=float(args.alpha_td_tol_ms),
-            no_plots=bool(args.no_plots),
+            append_model_subdir=False,
         )
-        return
-
-    run_fit_from_parquet(
-        signal_paths[0],
-        model=args.model,
-        out_root=args.out_root,
-        xcol=args.xcol,
-        plot_xcol=args.plot_xcol,
-        ycol=args.ycol,
-        stat_keep=args.stat,
-        rois=split_all_or_values(args.rois),
-        directions=split_all_or_values(args.directions),
-        fix_m0=fix_m0,
-        fix_d0=fix_d0,
-        m0_bounds=m0_bounds,
-        d0_bounds=d0_bounds,
-        f_by_direction=f_by_direction,
-        append_model_subdir=False,
-    )
+        append_fit_params_outputs(
+            outs.fit_params,
+            args,
+            fit_kind="nogse_signal",
+            model=str(backend_model),
+            source="master" if args.master_parquet is not None else "legacy",
+        )
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
 
 if __name__ == "__main__":

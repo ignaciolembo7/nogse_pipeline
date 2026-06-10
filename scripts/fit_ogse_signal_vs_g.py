@@ -4,10 +4,21 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
+import tempfile
 
 import pandas as pd
 
+from fitting.cli_common import (
+    add_fit_master_output_args,
+    add_master_source_args,
+    add_parameter_mode_args,
+    append_fit_params_outputs,
+    build_common_parameter_plan,
+    load_master_input,
+    require_legacy_or_master,
+)
 from fitting.experiments import experiment_models, fit_output_name, split_all_or_values, validate_experiment_model
+from fitting.model_registry import canonical_signal_model_name, get_signal_model
 from fitting.gradient_correction import (
     SignalCorrectionLookupSpec,
     build_signal_direction_factors,
@@ -122,7 +133,7 @@ def _resolve_direction_factors(
 
 def main() -> None:
     ap = argparse.ArgumentParser(allow_abbrev=False)
-    ap.add_argument("parquet", type=Path, help="Input .long.parquet file (clean signal table)")
+    ap.add_argument("parquet", type=Path, nargs="?", help="Input .long.parquet file (clean signal table)")
     ap.add_argument("--model", default="monoexp", choices=sorted(experiment_models(EXPERIMENT)))
     ap.add_argument("--directions", nargs="+", default=None, help="Direction values from the direction column to fit")
     ap.add_argument("--rois", nargs="+", default=["ALL"], help="ROIs to fit. The command fails if any requested ROI is missing.")
@@ -166,9 +177,39 @@ def main() -> None:
     ap.add_argument("--corr_td_ms", type=float, default=None)
     ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
     ap.add_argument("--corr_sheet", default=None)
+    add_master_source_args(ap, default_row_kind="signal_rotated", include_stat=False, include_td_ms=False, include_N=False)
+    add_parameter_mode_args(ap)
+    add_fit_master_output_args(ap)
     args = ap.parse_args()
 
     model = validate_experiment_model(EXPERIMENT, args.model)
+    require_legacy_or_master([args.parquet] if args.parquet is not None else None, args.master_parquet, label="parquet")
+    backend_model = {
+        "ogse_free": "free_ogse",
+        "ogse_rest": "rest",
+        "ogse_rest_offset": "rest_offset",
+    }.get(model, model)
+
+    has_param_plan = any(getattr(args, name) for name in ("param_mode", "param_init", "param_fixed", "param_bounds"))
+    if model != "monoexp" and has_param_plan:
+        spec = get_signal_model(canonical_signal_model_name(model, family="ogse"))
+        plan = build_common_parameter_plan(
+            args,
+            param_names=spec.param_names,
+            default_modes=spec.default_modes,
+            default_inits=spec.default_inits,
+            default_bounds=spec.default_bounds,
+            log_params=spec.log_params,
+        )
+        if "M0" in plan.configs:
+            if plan.mode("M0") == "fixed":
+                args.fix_M0 = float(plan.fixed("M0", args.fix_M0))
+                args.free_M0 = False
+            else:
+                args.fix_M0 = float(plan.init("M0", args.fix_M0))
+                args.free_M0 = True
+        if "D0_m2_ms" in plan.configs:
+            args.D0_init = float(plan.init("D0_m2_ms", args.D0_init * 1e-9)) * 1e9
 
     if args.fit_points is not None and args.fit_points <= 0:
         raise ValueError("--fit_points must be > 0.")
@@ -181,7 +222,21 @@ def main() -> None:
     if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
         raise ValueError("--auto_fit_max_points must be >= --auto_fit_min_points.")
 
-    df = _load_parquet_context(args.parquet)
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    parquet_for_backend = args.parquet
+    if args.master_parquet is not None:
+        df_master = load_master_input(
+            args,
+            default_row_kind=str(args.row_kind or "signal_rotated"),
+            signal_rotated=str(args.row_kind or "signal_rotated") == "signal_rotated",
+        )
+        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_ogse_signal_")
+        parquet_for_backend = Path(temp_dir.name) / "master_selection.long.parquet"
+        df_master.to_parquet(parquet_for_backend, index=False)
+    if parquet_for_backend is None:
+        raise ValueError("Provide parquet or --master-parquet.")
+
+    df = _load_parquet_context(parquet_for_backend)
     inferred = _infer_overrides_from_df(df)
 
     td_ms = args.td_ms if args.td_ms is not None else inferred["td_ms"]
@@ -205,7 +260,7 @@ def main() -> None:
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
     f_by_direction = _resolve_direction_factors(
-        parquet=args.parquet,
+        parquet=parquet_for_backend,
         df=df,
         apply_grad_corr=apply_corr,
         corr_xlsx=args.corr_xlsx,
@@ -220,33 +275,44 @@ def main() -> None:
     if out_root is None:
         out_root = str(Path("ogse_experiments/fits") / fit_output_name(EXPERIMENT, model, corrected=corrected))
 
-    run_fit_ogse_signal_vs_g_from_parquet(
-        args.parquet,
-        model=model,
-        dirs=directions,
-        rois=split_all_or_values(rois),
-        ycol=args.ycol,
-        g_type=args.g_type,
-        fit_points=fit_points,
-        auto_fit_points=auto_fit_points,
-        auto_fit_min_points=args.auto_fit_min_points,
-        auto_fit_max_points=args.auto_fit_max_points,
-        auto_fit_rel_tol=args.auto_fit_tol,
-        auto_fit_err_floor=args.auto_fit_err_floor,
-        free_M0=args.free_M0,
-        fix_M0=args.fix_M0,
-        D0_init=args.D0_init,
-        gamma=args.gamma,
-        td_ms=td_ms,
-        N=N,
-        delta_ms=delta_ms,
-        Delta_app_ms=Delta_app_ms,
-        stat_keep=args.stat,
-        out_root=out_root,
-        out_dproj_root=args.out_dproj_root,
-        f_by_direction=f_by_direction,
-        plot_xcol=args.plot_xcol,
-    )
+    try:
+        outs, _fit_dir = run_fit_ogse_signal_vs_g_from_parquet(
+            parquet_for_backend,
+            model=backend_model,
+            dirs=directions,
+            rois=split_all_or_values(rois),
+            ycol=args.ycol,
+            g_type=args.g_type,
+            fit_points=fit_points,
+            auto_fit_points=auto_fit_points,
+            auto_fit_min_points=args.auto_fit_min_points,
+            auto_fit_max_points=args.auto_fit_max_points,
+            auto_fit_rel_tol=args.auto_fit_tol,
+            auto_fit_err_floor=args.auto_fit_err_floor,
+            free_M0=args.free_M0,
+            fix_M0=args.fix_M0,
+            D0_init=args.D0_init,
+            gamma=args.gamma,
+            td_ms=td_ms,
+            N=N,
+            delta_ms=delta_ms,
+            Delta_app_ms=Delta_app_ms,
+            stat_keep=args.stat,
+            out_root=out_root,
+            out_dproj_root=args.out_dproj_root,
+            f_by_direction=f_by_direction,
+            plot_xcol=args.plot_xcol,
+        )
+        append_fit_params_outputs(
+            outs.fit_params,
+            args,
+            fit_kind="ogse_signal",
+            model=str(backend_model),
+            source="master" if args.master_parquet is not None else "legacy",
+        )
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
 
 if __name__ == "__main__":
