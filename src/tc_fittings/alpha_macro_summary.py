@@ -111,10 +111,6 @@ def load_dproj_measurements(
     if N is not None and Hz is not None:
         raise ValueError("Choose only one of N and Hz for filtering.")
 
-    subj_set = {str(x) for x in subjs} if subjs is not None else None
-    roi_set = {str(x) for x in rois} if rois is not None else None
-    direction_set = {str(x) for x in directions} if directions is not None else None
-
     frames: list[pd.DataFrame] = []
     for path in discover_dproj_files(dproj_root, pattern=pattern):
         df = _read_table(path)
@@ -141,27 +137,81 @@ def load_dproj_measurements(
             out["subj"] = out["sheet"].map(lambda x: infer_subj_label(x, source_name=path.name))
         out["source_file"] = path.name
 
-        if subj_set is not None:
-            out = out[out["subj"].isin(subj_set)]
-        if roi_set is not None:
-            out = out[out["roi"].isin(roi_set)]
-        if direction_set is not None:
-            out = out[out["direction"].isin(direction_set)]
-        if N is not None:
-            out = out[np.isclose(out["N"], float(N), atol=1e-6, equal_nan=False)]
-        if Hz is not None:
-            out = out[np.isclose(out["Hz"], float(Hz), atol=1e-6, equal_nan=False)]
-
-        out = out.dropna(subset=["bvalue", "D_proj", "Delta_app_ms"])
-        if out.empty:
-            continue
         frames.append(out)
 
     if not frames:
+        raise FileNotFoundError(f"No D_proj files found in {dproj_root} with pattern={pattern!r}")
+
+    df_all = pd.concat(frames, ignore_index=True)
+    return load_dproj_measurements_from_table(
+        df_all,
+        subjs=subjs,
+        rois=rois,
+        directions=directions,
+        N=N,
+        Hz=Hz,
+        bvalue_decimals=bvalue_decimals,
+    )
+
+
+def load_dproj_measurements_from_table(
+    df: pd.DataFrame,
+    *,
+    subjs: Sequence[str] | None = None,
+    rois: Sequence[str] | None = None,
+    directions: Sequence[str] | None = None,
+    N: float | None = None,
+    Hz: float | None = None,
+    bvalue_decimals: int = 1,
+) -> pd.DataFrame:
+    if N is not None and Hz is not None:
+        raise ValueError("Choose only one of N and Hz for filtering.")
+
+    missing = REQUIRED_DPROJ_COLUMNS - set(df.columns)
+    if missing:
+        raise ValueError(f"D_proj table is missing required columns: {sorted(missing)}")
+
+    subj_set = {str(x) for x in subjs} if subjs is not None else None
+    roi_set = {str(x) for x in rois} if rois is not None else None
+    direction_set = {str(x) for x in directions} if directions is not None else None
+
+    out = df.copy()
+    out["roi"] = _as_str(out["roi"])
+    out["direction"] = _as_str(out["direction"])
+    out["bvalue"] = pd.to_numeric(out["bvalue"], errors="coerce")
+    out["D_proj"] = pd.to_numeric(out["D_proj"], errors="coerce")
+    out["Delta_app_ms"] = pd.to_numeric(out.get("Delta_app_ms", np.nan), errors="coerce")
+    out["delta_ms"] = pd.to_numeric(out.get("delta_ms", np.nan), errors="coerce")
+    out["td_ms"] = pd.to_numeric(out.get("td_ms", np.nan), errors="coerce")
+    out["N"] = pd.to_numeric(out.get("N", np.nan), errors="coerce")
+    out["Hz"] = pd.to_numeric(out.get("Hz", np.nan), errors="coerce")
+    out["sheet"] = _as_str(out["sheet"]) if "sheet" in out.columns else ""
+    if "subj" in out.columns:
+        subj = _as_str(out["subj"])
+        invalid = subj.str.lower().isin({"", "nan", "none", "<na>"})
+        out["subj"] = subj.mask(invalid, out["sheet"].map(lambda x: infer_subj_label(x, source_name="")))
+    else:
+        out["subj"] = out["sheet"].map(lambda x: infer_subj_label(x, source_name=""))
+    if "source_file" not in out.columns:
+        out["source_file"] = ""
+
+    if subj_set is not None:
+        out = out[out["subj"].isin(subj_set)]
+    if roi_set is not None:
+        out = out[out["roi"].isin(roi_set)]
+    if direction_set is not None:
+        out = out[out["direction"].isin(direction_set)]
+    if N is not None:
+        out = out[np.isclose(out["N"], float(N), atol=1e-6, equal_nan=False)]
+    if Hz is not None:
+        out = out[np.isclose(out["Hz"], float(Hz), atol=1e-6, equal_nan=False)]
+
+    out = out.dropna(subset=["bvalue", "D_proj", "Delta_app_ms"])
+    if out.empty:
         selector = f"N={N}" if N is not None else (f"Hz={Hz}" if Hz is not None else "no N/Hz filter")
         raise ValueError(f"No data remained after filtering ({selector}).")
 
-    df_all = pd.concat(frames, ignore_index=True)
+    df_all = out
     df_all["bvalue"] = df_all["bvalue"].round(int(bvalue_decimals))
 
     group_cols = ["subj", "roi", "direction", "bvalue", "Delta_app_ms"]

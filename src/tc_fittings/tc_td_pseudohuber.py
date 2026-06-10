@@ -1,13 +1,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple, List, Sequence
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from data_processing.io import write_xlsx_csv_outputs
+from data_processing.master_table import select_alpha_macro
 from fitting.core import least_squares_with_standard_errors
 from tools.brain_labels import infer_subj_label
 
@@ -154,7 +155,14 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
         tra  := mean(y,z)
       only when they do not already exist in the file.
     """
-    raw = pd.read_excel(summary_xlsx, decimal=",")
+    summary_xlsx = Path(summary_xlsx)
+    suffix = summary_xlsx.suffix.lower()
+    if suffix == ".csv":
+        raw = pd.read_csv(summary_xlsx)
+    elif suffix == ".parquet":
+        raw = pd.read_parquet(summary_xlsx)
+    else:
+        raw = pd.read_excel(summary_xlsx, decimal=",")
     lower_to_cols: dict[str, list[str]] = {}
     for col in raw.columns:
         lower_to_cols.setdefault(str(col).strip().lower(), []).append(col)
@@ -241,6 +249,26 @@ def load_alpha_macro_summary(summary_xlsx: Path) -> pd.DataFrame:
 
     out = pd.concat([base] + derived, ignore_index=True) if derived else base
     return out
+
+
+def load_alpha_macro_table(
+    table: pd.DataFrame,
+    *,
+    subjs: Sequence[str] | None = None,
+    rois: Sequence[str] | None = None,
+    directions: Sequence[str] | None = None,
+    td_ms: float | None = None,
+) -> pd.DataFrame:
+    selectors: dict[str, object] = {}
+    if subjs is not None:
+        selectors["subj"] = [str(x) for x in subjs]
+    if rois is not None:
+        selectors["roi"] = [str(x).replace("_norm", "") for x in rois]
+    if directions is not None:
+        selectors["direction"] = [str(x) for x in directions]
+    if td_ms is not None:
+        selectors["td_ms"] = float(td_ms)
+    return select_alpha_macro(table, **selectors)
 
 
 # ---------------------------

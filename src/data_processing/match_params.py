@@ -113,7 +113,7 @@ def _sequence_match_column(df: pd.DataFrame) -> str | None:
     return None
 
 
-def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
+def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series | None:
     """
     Strict match policy:
     1) The sheet name must match exactly.
@@ -121,26 +121,22 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
     3) If a sequence number is available, match the Excel sequence column inside that sheet/group.
     4) If more than one row still remains, use gradient, Hz, and timing fields to disambiguate.
     5) Do not silently fall back to another sheet.
+    
+    Returns:
+        pd.Series with the matched row, or None if no match is found.
     """
     df = params.copy()
 
     # Strict sheet match
     if meta.sheet is None or "sheet" not in df.columns:
-        raise ValueError(
-            f"Cannot match parameters: meta.sheet={meta.sheet!r} or 'sheet' column is missing."
-        )
+        return None
 
     target_sheet = str(meta.sheet).strip()
     sheet_values = df["sheet"].astype(str).str.strip()
     df = df[sheet_values == target_sheet]
 
     if df.empty:
-        available_sheets = sorted(params["sheet"].dropna().astype(str).unique().tolist())
-        raise ValueError(
-            "No exact sheet match found for this file. "
-            f"Parsed sheet from filename: {target_sheet!r}. "
-            f"Available sheets in Excel: {available_sheets}"
-        )
+        return None
 
     # Group disambiguates direct-g acquisitions whose sequence numbers belong to separate curves.
     if meta.group is not None and "group" in df.columns:
@@ -153,10 +149,7 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
             df = df[seq_values == int(meta.seq)]
 
             if df.empty:
-                raise ValueError(
-                    "Exact sheet/group was found, but sequence was not found inside that subset. "
-                    f"sheet={target_sheet!r}, group={meta.group}, {seq_col}={meta.seq}"
-                )
+                return None
 
     if meta.G is not None and "G" in df.columns:
         df = _filter_close(df, "G", float(meta.G), atol=1e-6)
@@ -190,11 +183,7 @@ def select_params_row(params: pd.DataFrame, meta: ResultMeta) -> pd.Series:
             df = _filter_close(df, "d_ms", float(meta.d_ms), atol=1e-3)
 
     if df.empty:
-        raise ValueError(
-            "No parameter row matched after filtering inside the exact sheet. "
-            f"sheet={target_sheet!r}, seq={meta.seq}, Hz={meta.Hz}, d_ms={meta.d_ms}, "
-            f"delta_ms={meta.delta_ms}, Delta_ms={meta.Delta_ms}"
-        )
+        return None
 
     if len(df) > 1:
         raise ValueError(

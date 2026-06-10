@@ -11,6 +11,13 @@ import pandas as pd
 
 from ogse_fitting.contrast_tc_peak_panels import RESAMPLED_DATA_PEAK_TC_COL
 from ogse_fitting.contrast_tc_peak_panels import add_resampled_data_peak_columns
+from data_processing.master_table import (
+    filter_master_rows,
+    load_fit_params_table,
+    load_master_table,
+    select_alpha_macro,
+    select_fit_params,
+)
 from tc_fittings.contrast_fit_table import canonicalize_contrast_fit_params, load_contrast_fit_params
 from tc_fittings.tc_td_registry import METHODS
 from tc_fittings.tc_td_pseudohuber import load_alpha_macro_summary
@@ -100,7 +107,32 @@ def _normalize_name_list(values: list[str] | None) -> list[str] | None:
 
 
 def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
-    if args.groupfits is not None:
+    if args.master_fit_params is not None:
+        raw = load_fit_params_table(args.master_fit_params)
+        df = select_fit_params(
+            raw,
+            fit_kind=["ogse_contrast", "nogse_contrast"],
+            model=args.models,
+            subj=args.subjs,
+            direction=args.directions,
+            roi=args.rois,
+            ok_only=not bool(args.include_failed),
+        )
+        df = canonicalize_contrast_fit_params(df)
+    elif args.master_parquet is not None:
+        raw_master = load_master_table(args.master_parquet)
+        raw = filter_master_rows(raw_master, row_kind="fit_params")
+        df = select_fit_params(
+            raw,
+            fit_kind=["ogse_contrast", "nogse_contrast"],
+            model=args.models,
+            subj=args.subjs,
+            direction=args.directions,
+            roi=args.rois,
+            ok_only=not bool(args.include_failed),
+        )
+        df = canonicalize_contrast_fit_params(df)
+    elif args.groupfits is not None:
         path = Path(args.groupfits)
         if not path.exists():
             raise FileNotFoundError(path)
@@ -113,7 +145,7 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
         df = canonicalize_contrast_fit_params(df)
     else:
         if not args.fits:
-            raise ValueError("Pass --groupfits or at least one root/file via --fits.")
+            raise ValueError("Pass --master-fit-params, --master-parquet, --groupfits, or at least one root/file via --fits.")
         df = load_contrast_fit_params(
             args.fits,
             pattern=args.pattern,
@@ -181,11 +213,43 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
     return df
 
 
+def _load_alpha_macro_from_master_sources(args: argparse.Namespace) -> pd.DataFrame | None:
+    if args.summary_alpha is not None:
+        summary_path = Path(args.summary_alpha)
+        if not summary_path.exists():
+            raise FileNotFoundError(summary_path)
+        return load_alpha_macro_summary(summary_path)
+
+    raw = None
+    if args.master_fit_params is not None:
+        raw = load_fit_params_table(args.master_fit_params)
+    elif args.master_parquet is not None:
+        master = load_master_table(args.master_parquet)
+        fit_rows = master[master["row_kind"].astype(str).eq("fit_params")].copy()
+        alpha_rows = master[master["row_kind"].astype(str).isin(["alpha_macro", "alpha_macro_summary"])].copy()
+        raw = pd.concat([fit_rows, alpha_rows], ignore_index=True, sort=False)
+
+    if raw is None or raw.empty:
+        return None
+
+    selectors: dict[str, object] = {}
+    if args.subjs is not None:
+        selectors["subj"] = args.subjs
+    if args.directions is not None:
+        selectors["direction"] = args.directions
+    if args.rois is not None:
+        selectors["roi"] = args.rois
+    alpha = select_alpha_macro(raw, **selectors)
+    return alpha
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--method", required=True, choices=sorted(METHODS.keys()))
     ap.add_argument("--k-last", type=int, default=None, help="Use the last K points. Defaults to the method setting.")
     ap.add_argument("--groupfits", default=None, help="Already-combined groupfits table (xlsx/csv/parquet).")
+    ap.add_argument("--master-fit-params", type=Path, default=None, help="Cumulative master_fit_params table with contrast fit params and alpha_macro rows.")
+    ap.add_argument("--master-parquet", type=Path, default=None, help="Master table containing row_kind='fit_params' rows.")
     ap.add_argument("--fits", nargs="*", default=None, help="fit_params roots or files to load directly.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Relative glob used when --fits contains directories.")
     ap.add_argument(
@@ -226,6 +290,7 @@ def main() -> None:
     ap.add_argument("--alpha-macro-min", type=float, default=0.1, help="Lower alpha_macro bound for pseudohuber_free.")
     ap.add_argument("--alpha-macro-max", type=float, default=0.3, help="Upper alpha_macro bound for pseudohuber_free.")
     ap.add_argument("--summary-alpha", default=None, help="Path to summary_alpha_values.xlsx. Optional unless required by the method.")
+    ap.add_argument("--include-failed", action="store_true", help="Include ok=False rows when loading from master tables.")
     ap.add_argument("--out-dir", default=None, help="Output directory. Defaults to a path derived from the input.")
     args = ap.parse_args()
     args.subjs = _normalize_name_list(args.subjs)
@@ -238,12 +303,8 @@ def main() -> None:
     spec = METHODS[args.method]
     k_last = args.k_last if args.k_last is not None else spec.default_k_last
 
-    alpha_macro_df = None
-    if args.summary_alpha is not None:
-        summary_path = Path(args.summary_alpha)
-        if not summary_path.exists():
-            raise FileNotFoundError(summary_path)
-        alpha_macro_df = load_alpha_macro_summary(summary_path)
+    alpha_macro_df = _load_alpha_macro_from_master_sources(args)
+    if alpha_macro_df is not None:
         if args.directions is not None and "direction" in alpha_macro_df.columns:
             alpha_macro_df = alpha_macro_df[alpha_macro_df["direction"].astype(str).isin([str(x) for x in args.directions])].copy()
         if args.rois is not None and "roi" in alpha_macro_df.columns:
@@ -251,7 +312,9 @@ def main() -> None:
             roi_norm = alpha_macro_df["roi"].astype(str).str.replace("_norm", "", regex=False).str.strip()
             alpha_macro_df = alpha_macro_df[roi_norm.isin(target_rois)].copy()
     elif spec.needs_alpha_macro:
-        raise FileNotFoundError(f"{args.method} requires --summary-alpha with summary_alpha_values.xlsx")
+        raise FileNotFoundError(
+            f"{args.method} requires alpha_macro. Pass --summary-alpha, --master-fit-params, or --master-parquet."
+        )
 
     if args.out_dir is not None:
         out_dir = Path(args.out_dir)
@@ -259,6 +322,10 @@ def main() -> None:
         tc_dirname = _tc_vs_td_dirname(args.y_col)
         if args.groupfits is not None:
             out_dir = Path(args.groupfits).resolve().parent / tc_dirname / args.method # / args.y_col
+        elif args.master_fit_params is not None:
+            out_dir = Path(args.master_fit_params).resolve().parent / tc_dirname / args.method
+        elif args.master_parquet is not None:
+            out_dir = Path(args.master_parquet).resolve().parent / tc_dirname / args.method
         else:
             first = Path(args.fits[0]).resolve()
             out_dir = (first if first.is_dir() else first.parent) / tc_dirname / args.method # / args.y_col

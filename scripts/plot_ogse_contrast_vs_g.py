@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from data_processing.master_table import build_analysis_id_from_columns, load_master_table, select_contrast, split_selector_values
 from plottings.contrast_vs_g import filter_stat
 from ogse_plotting.plot_ogse_contrast_vs_g import plot_ogse_contrast_summary
 
@@ -33,9 +34,39 @@ def _validate_xcol_vs_g(xcol: str) -> str:
     return raw
 
 
+def _master_selectors(args: argparse.Namespace) -> dict[str, object]:
+    selectors: dict[str, object] = {}
+    for arg_name, col_name in [
+        ("analysis_id", "analysis_id"),
+        ("subj", "subj"),
+        ("sheet", "sheet"),
+        ("roi", "roi"),
+        ("direction", "direction"),
+    ]:
+        values = split_selector_values(getattr(args, arg_name, None))
+        if values is not None:
+            selectors[col_name] = values
+    for col in ("td_ms", "N_1", "N_2", "Hz_1", "Hz_2"):
+        value = getattr(args, col, None)
+        if value is not None:
+            selectors[col] = float(value)
+    return selectors
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Plot OGSE contrast-vs-g curves from long parquet tables.")
-    ap.add_argument("contrast_parquet", type=Path)
+    ap.add_argument("contrast_parquet", type=Path, nargs="?", default=None)
+    ap.add_argument("--master-parquet", type=Path, default=None, help="Read contrast rows from the master table.")
+    ap.add_argument("--analysis-id", action="append", default=None)
+    ap.add_argument("--subj", action="append", default=None)
+    ap.add_argument("--sheet", action="append", default=None)
+    ap.add_argument("--roi", action="append", default=None)
+    ap.add_argument("--direction", action="append", default=None)
+    ap.add_argument("--td_ms", type=float, default=None)
+    ap.add_argument("--N_1", type=float, default=None)
+    ap.add_argument("--N_2", type=float, default=None)
+    ap.add_argument("--Hz_1", type=float, default=None)
+    ap.add_argument("--Hz_2", type=float, default=None)
     ap.add_argument("--xcol", default="g_thorsten_1", help="Example: g_lin_max_1, g_max_1, g_thorsten_1")
     ap.add_argument("--y", "--ycol", dest="ycol", default="value_norm", help="Example: value, value_norm")
     ap.add_argument("--out_root", default="plots")
@@ -47,8 +78,16 @@ def main() -> None:
     ap.add_argument("--rois", nargs="+", default=None, help="Optional ROI subset for extra subset plots")
     args = ap.parse_args()
 
-    path = Path(args.contrast_parquet)
-    df = pd.read_parquet(path)
+    if args.master_parquet is not None:
+        df = select_contrast(load_master_table(args.master_parquet), **_master_selectors(args))
+        if df.empty:
+            raise ValueError("No master contrast rows matched the requested selectors.")
+        path = None
+    else:
+        if args.contrast_parquet is None:
+            raise ValueError("Pass contrast_parquet or --master-parquet with selectors.")
+        path = Path(args.contrast_parquet)
+        df = pd.read_parquet(path)
     df = filter_stat(df, args.stat)
 
     if "direction" not in df.columns:
@@ -60,7 +99,19 @@ def main() -> None:
     if not directions:
         raise ValueError("No valid directions were found for plotting.")
 
-    exp_id = str(args.exp) if args.exp else _analysis_id_from_path(path)
+    if args.exp:
+        exp_id = str(args.exp)
+    elif path is not None:
+        exp_id = _analysis_id_from_path(path)
+    else:
+        try:
+            exp_id = build_analysis_id_from_columns(
+                df,
+                columns=("subj", "sheet", "td_ms", "N_1", "N_2", "Hz_1", "Hz_2"),
+                prefix="contrast",
+            )
+        except ValueError:
+            exp_id = "contrast_master_selection"
     xcol = _validate_xcol_vs_g(str(args.xcol))
     outputs = plot_ogse_contrast_summary(
         df,

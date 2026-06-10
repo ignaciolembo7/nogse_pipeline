@@ -5,19 +5,43 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
+from data_processing.master_table import filter_master_rows, load_master_table, split_selector_values
 from data_processing.io import write_xlsx_csv_outputs
 from monoexp_fitting.plot_D0_vs_Delta import (
     load_all_measurements,
     load_selected_bstep_map,
     plot_all_groups,
 )
+from tc_fittings.alpha_macro_summary import load_dproj_measurements_from_table
+
+
+def _master_selectors(args: argparse.Namespace, *, N: float | None) -> dict[str, object]:
+    selectors: dict[str, object] = {"row_kind": "dproj"}
+    for arg_name, col_name in [
+        ("analysis_id", "analysis_id"),
+        ("subjs", "subj"),
+        ("sheets", "sheet"),
+        ("rois", "roi"),
+        ("dirs", "direction"),
+    ]:
+        values = split_selector_values(getattr(args, arg_name, None))
+        if values is not None:
+            selectors[col_name] = values
+    if N is not None:
+        selectors["N"] = float(N)
+    if args.Hz is not None:
+        selectors["Hz"] = float(args.Hz)
+    return selectors
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Build D vs Delta_app_ms curves from *.Dproj.long.parquet tables."
     )
-    ap.add_argument("--dproj-root", required=True, help="Root folder with *.Dproj.long.parquet tables.")
+    ap.add_argument("--dproj-root", default=None, help="Root folder with *.Dproj.long.parquet tables.")
+    ap.add_argument("--master-parquet", type=Path, default=None, help="Read D_proj rows from the master table.")
+    ap.add_argument("--analysis-id", action="append", default=None, help="Master analysis_id selector.")
+    ap.add_argument("--sheets", nargs="+", default=None, help="Master sheet selector.")
     ap.add_argument("--pattern", default="**/*.Dproj.long.parquet", help="Relative glob inside dproj-root.")
     ap.add_argument("--out-dir", required=True, help="Output folder for plots and the combined table.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
@@ -52,16 +76,31 @@ def main() -> None:
 
     N = 1.0 if args.N is None and args.Hz is None else args.N
 
-    df = load_all_measurements(
-        args.dproj_root,
-        pattern=args.pattern,
-        dirs=args.dirs,
-        rois=args.rois,
-        subjs=args.subjs,
-        N=N,
-        Hz=args.Hz,
-        bvalue_decimals=int(args.bvalue_decimals),
-    )
+    if args.master_parquet is not None:
+        master = load_master_table(args.master_parquet)
+        dproj = filter_master_rows(master, **_master_selectors(args, N=N))
+        df = load_dproj_measurements_from_table(
+            dproj,
+            directions=args.dirs,
+            rois=args.rois,
+            subjs=args.subjs,
+            N=N,
+            Hz=args.Hz,
+            bvalue_decimals=int(args.bvalue_decimals),
+        )
+    else:
+        if not args.dproj_root:
+            raise ValueError("Pass --master-parquet or --dproj-root.")
+        df = load_all_measurements(
+            args.dproj_root,
+            pattern=args.pattern,
+            dirs=args.dirs,
+            rois=args.rois,
+            subjs=args.subjs,
+            N=N,
+            Hz=args.Hz,
+            bvalue_decimals=int(args.bvalue_decimals),
+        )
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
