@@ -230,7 +230,7 @@ def rotate_signals_tensor(
         if d_b0.empty:
             raise ValueError(f"ROI={roi}: b_step==0 (S0) was not found.")
 
-        dir1_b0 = d_b0[d_b0["direction"] == 1]
+        dir1_b0 = d_b0[pd.to_numeric(d_b0["direction"], errors="coerce") == 1]
         if s0_mode == "dir1":
             if dir1_b0.empty:
                 raise ValueError(f"ROI={roi}: direction==1 was not found in b0 for s0_mode='dir1'.")
@@ -242,7 +242,8 @@ def rotate_signals_tensor(
         else:
             raise ValueError("s0_mode must be 'dir1' or 'mean'.")
 
-        d_dir1_nz = d_roi[(d_roi["direction"] == 1) & (pd.to_numeric(d_roi["b_step"], errors="coerce") > 0)].copy()
+        direction_num = pd.to_numeric(d_roi["direction"], errors="coerce")
+        d_dir1_nz = d_roi[(direction_num == 1) & (pd.to_numeric(d_roi["b_step"], errors="coerce") > 0)].copy()
         if d_dir1_nz.empty:
             raise ValueError(f"ROI={roi}: no dir1 data with b_step>0 was found for rotation.")
 
@@ -277,7 +278,7 @@ def rotate_signals_tensor(
             if len(d_bs) != ndirs:
                 raise ValueError(f"ROI={roi}, b_step={b_step}: expected {ndirs} dirs, got {len(d_bs)}.")
 
-            dir1_rows = d_bs[d_bs["direction"] == 1]
+            dir1_rows = d_bs[pd.to_numeric(d_bs["direction"], errors="coerce") == 1]
             if dir1_rows.empty:
                 raise ValueError(f"ROI={roi}, b_step={b_step}: direction==1 was not found.")
             template = dir1_rows.iloc[0].copy()

@@ -4,6 +4,8 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from dataclasses import dataclass
+import hashlib
+import logging
 import os
 import re
 from pathlib import Path
@@ -13,11 +15,18 @@ import pandas as pd
 
 from data_processing.io import infer_layout_from_filename, read_result_xls, write_table_outputs
 from data_processing.match_params import parse_results_filename, select_params_row
+from data_processing.master_table import append_master_rows, build_analysis_id_from_columns
 from data_processing.params import read_sequence_params_xlsx
 from data_processing.reshape import to_long
 from data_processing.schema import finalize_clean_signal_long
 from fitting.b_from_g import b_from_g
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # -------------------------
 # Helpers
@@ -408,6 +417,38 @@ def _single_text_value(df: pd.DataFrame, col: str) -> str | None:
     return str(values[0])
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _master_analysis_id(df: pd.DataFrame, *, row_kind: str) -> str:
+    preferred = (
+        "subj",
+        "sheet",
+        "type",
+        "protocol",
+        "group",
+        "TN",
+        "N",
+        "td_ms",
+        "Hz",
+        "G",
+        "sequence",
+    )
+    unique_cols = []
+    for col in preferred:
+        if col not in df.columns:
+            continue
+        values = pd.Series(df[col]).dropna().unique()
+        if len(values) == 1:
+            unique_cols.append(col)
+    return build_analysis_id_from_columns(df, columns=unique_cols, prefix=row_kind)
+
+
 def _filter_existing_to_incoming_curve(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
     out = existing.copy()
 
@@ -619,6 +660,12 @@ def main() -> None:
         default=[],
         help="Token to remove from generated output stems. Can be repeated or comma/space separated.",
     )
+    ap.add_argument(
+        "--master-parquet",
+        type=Path,
+        default=None,
+        help="Optional master table parquet to append the processed signal rows to.",
+    )
     args = ap.parse_args()
 
     stats = read_result_xls(args.results_file)
@@ -667,6 +714,15 @@ def main() -> None:
     # --- params (single matched row) ---
     params = read_sequence_params_xlsx(args.params_xlsx)
     row = select_params_row(params, meta)
+    
+    if row is None:
+        logger.warning(
+            f"Skipping {args.results_file.name}: No matching parameters found in Excel. "
+            f"sheet={meta.sheet!r}, seq={meta.seq}, Hz={meta.Hz}, d_ms={meta.d_ms}, "
+            f"delta_ms={meta.delta_ms}, Delta_ms={meta.Delta_ms}"
+        )
+        return
+    
     clean_params = _extract_clean_sequence_params(row, meta)
 
     df_long = _add_clean_sequence_params(df_long, clean_params)
@@ -722,6 +778,20 @@ def main() -> None:
 
     write_table_outputs(df_to_save, out_path, xlsx_path=out_path.with_suffix(".xlsx"))
 
+    master_path: Path | None = args.master_parquet
+    if master_path is not None:
+        master_rows = df_to_save.copy()
+        master_rows["source_path"] = str(args.results_file.resolve())
+        master_rows["source_hash"] = _sha256_file(args.results_file)
+        analysis_id = _master_analysis_id(master_rows, row_kind="signal")
+        append_master_rows(
+            master_path if master_path.exists() else None,
+            master_rows,
+            row_kind="signal",
+            analysis_id=analysis_id,
+            out_path=master_path,
+        )
+
     print("Selected params (clean):")
     print(
         pd.Series(
@@ -750,6 +820,8 @@ def main() -> None:
         ).to_string()
     )
     print("Saved:", out_path)
+    if master_path is not None:
+        print("Appended master:", master_path)
 
 
 if __name__ == "__main__":
