@@ -22,8 +22,10 @@ def fit_parameter_fragments(fit_row: dict[str, object]) -> list[str]:
     fragments: list[str] = []
     if model in {"tort", "mixed", "mixed_global"} and "alpha" in fit_row:
         fragments.append(f"alpha={compact_float(fit_row.get('alpha'))}")
-    if model in {"rest", "mixed", "mixed_global"} and "tc_ms" in fit_row:
+    if model in {"rest", "rest_offset", "rest_offset_globC", "mixed", "mixed_global"} and "tc_ms" in fit_row:
         fragments.append(f"tc_ms={compact_float(fit_row.get('tc_ms'))}")
+    if model in {"rest_offset", "rest_offset_globC"} and "C" in fit_row:
+        fragments.append(f"C={compact_float(fit_row.get('C'))}")
 
     if "M0" in fit_row:
         fragments.append(f"M0={compact_float(fit_row.get('M0'))}")

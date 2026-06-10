@@ -93,7 +93,11 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
         "tc_fit_ms",
         "tc_err_ms",
         "tc_peak_ms",
+        "tc_peak_resampled_ms",
+        "tc_peak_resampled_data_ms",
         "signal_peak",
+        "signal_peak_resampled_data",
+        "g_peak_resampled_data_corr_mTm",
         "f_corr",
         "f_corr_1",
         "f_corr_2",
@@ -113,6 +117,27 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _fitresamp_mask(df: pd.DataFrame) -> pd.Series:
+    markers = (
+        "_fitresamp-",
+        "fitresamp-",
+        "fitted_resampled",
+        "contrast-data-fitresampled",
+        "ogse_contrast_vs_gresampled",
+        "nogse_contrast_vs_gresampled",
+    )
+    mask = pd.Series(False, index=df.index)
+    for col in ("analysis_id", "source_file", "__fit_params_path"):
+        if col not in df.columns:
+            continue
+        values = df[col].astype(str).str.lower()
+        col_mask = pd.Series(False, index=df.index)
+        for marker in markers:
+            col_mask = col_mask | values.str.contains(marker, regex=False, na=False)
+        mask = mask | col_mask
+    return mask
+
+
 def load_contrast_fit_params(
     roots_or_files: Sequence[str | Path],
     *,
@@ -121,6 +146,8 @@ def load_contrast_fit_params(
     subjs: Sequence[str] | None = None,
     directions: Sequence[str] | None = None,
     rois: Sequence[str] | None = None,
+    exclude_fitresamp: bool = False,
+    only_fitresamp: bool = False,
     ok_only: bool = True,
 ) -> pd.DataFrame:
     files: list[Path] = []
@@ -134,8 +161,23 @@ def load_contrast_fit_params(
     if not files:
         raise FileNotFoundError("Could not find fit_params to load.")
 
-    frames = [canonicalize_contrast_fit_params(_read_table(path)) for path in files]
+    frames = []
+    for path in files:
+        frame = canonicalize_contrast_fit_params(_read_table(path))
+        frame["__fit_params_path"] = str(path)
+        frames.append(frame)
     out = pd.concat(frames, ignore_index=True)
+
+    if exclude_fitresamp and only_fitresamp:
+        raise ValueError("exclude_fitresamp and only_fitresamp are mutually exclusive.")
+    if exclude_fitresamp or only_fitresamp:
+        is_fitresamp = _fitresamp_mask(out)
+        if exclude_fitresamp:
+            out = out[~is_fitresamp].copy()
+        if only_fitresamp:
+            out = out[is_fitresamp].copy()
+            if out.empty:
+                raise ValueError("No fitted/resampled fit_params remained after applying only_fitresamp.")
 
     if ok_only and "ok" in out.columns:
         out = out[out["ok"].fillna(False).astype(bool)].copy()
@@ -148,10 +190,29 @@ def load_contrast_fit_params(
     if rois is not None and "roi" in out.columns:
         out = out[out["roi"].isin([str(x) for x in rois])].copy()
 
-    dedup_cols = [c for c in ["analysis_id", "roi", "direction", "model", "gbase", "ycol", "stat"] if c in out.columns]
+    dedup_cols = [
+        c
+        for c in [
+            "analysis_id",
+            "sheet",
+            "subj",
+            "roi",
+            "direction",
+            "stat",
+            "td_ms",
+            "N_1",
+            "N_2",
+            "model",
+            "gbase",
+            "ycol",
+            "xplot",
+        ]
+        if c in out.columns
+    ]
     if dedup_cols:
         out = out.drop_duplicates(subset=dedup_cols, keep="last")
 
+    out = out.drop(columns=["__fit_params_path"], errors="ignore")
     return out.reset_index(drop=True)
 
 

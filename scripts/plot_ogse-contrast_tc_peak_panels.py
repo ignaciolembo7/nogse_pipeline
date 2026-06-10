@@ -27,8 +27,11 @@ def main() -> None:
     ap.add_argument("fits_root", help="Root folder with contrast fit_params.")
     ap.add_argument(
         "--contrast-root",
-        default="analysis/ogse_experiments/contrast-data-rotated",
-        help="Contrast table root (the root that contains tables/).",
+        default=None,
+        help=(
+            "Contrast table root. Defaults to <fits_root>/contrast for fitted_resampled, "
+            "or analysis/ogse_experiments/contrast-data-rotated for direct."
+        ),
     )
     ap.add_argument("--out-dir", type=Path, default=None, help="Output directory. Defaults to <fits_root>/tc_peak_panels.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Relative glob used to discover fit_params.")
@@ -37,6 +40,8 @@ def main() -> None:
     ap.add_argument("--rois", nargs="+", default=None, help="Filter ROIs.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filter directions.")
     ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="td_ms values to exclude from the figures.")
+    ap.add_argument("--n1", type=int, default=None, help="Keep only fits with this first OGSE N value.")
+    ap.add_argument("--n2", type=int, default=None, help="Keep only fits with this second OGSE N value.")
     ap.add_argument("--x-vars", nargs="+", default=["g", "Ld", "lcf", "lcf_a", "tc"], help="X-axis variables to generate.")
     ap.add_argument(
         "--peak-marker-x-vars",
@@ -54,6 +59,17 @@ def main() -> None:
         "--show-resampled-fit",
         action="store_true",
         help="Overlay the fit rebuilt on g_resampled as S1_fit(g_resampled)-S2_fit(g_resampled).",
+    )
+    ap.add_argument(
+        "--contrast-source",
+        choices=["direct", "fitted_resampled", "auto"],
+        default="auto",
+        help="Interpret contrast tables as direct experimental contrasts or fitted/resampled contrasts.",
+    )
+    ap.add_argument(
+        "--exclude-fitresamp",
+        action="store_true",
+        help="Ignore fit_params whose analysis_id comes from an already fitted/resampled contrast table.",
     )
     ap.add_argument(
         "--hide-data-points",
@@ -76,10 +92,34 @@ def main() -> None:
 
     fits_root = Path(args.fits_root)
     out_dir = args.out_dir or (fits_root / "tc_peak_panels")
+    if args.contrast_source == "auto":
+        contrast_source = "fitted_resampled" if (fits_root / "contrast").is_dir() else "direct"
+    else:
+        contrast_source = args.contrast_source
+
+    if args.contrast_root is None:
+        if contrast_source == "fitted_resampled":
+            contrast_root = fits_root / "contrast"
+        else:
+            contrast_root = Path("analysis/ogse_experiments/contrast-data-rotated")
+    else:
+        contrast_root = Path(args.contrast_root)
+
+    if contrast_source == "fitted_resampled":
+        expected = fits_root / "contrast"
+        if contrast_root.resolve() != expected.resolve():
+            raise ValueError(
+                "For --contrast-source fitted_resampled, --contrast-root must point to "
+                f"<fits_root>/contrast. Got {contrast_root}; expected {expected}."
+            )
+        if not contrast_root.is_dir():
+            raise FileNotFoundError(
+                f"Fitted/resampled contrast root does not exist: {contrast_root}"
+            )
 
     outputs = plot_contrast_tc_peak_panels(
         fits_root=fits_root,
-        contrast_root=args.contrast_root,
+        contrast_root=contrast_root,
         out_dir=out_dir,
         pattern=args.pattern,
         models=args.models,
@@ -88,6 +128,8 @@ def main() -> None:
         directions=args.directions,
         exclude_td_ms=args.exclude_td_ms,
         x_vars=args.x_vars,
+        n1=args.n1,
+        n2=args.n2,
         peak_marker_x_vars=args.peak_marker_x_vars,
         peak_source=args.peak_source,
         show_resampled_fit=bool(args.show_resampled_fit),
@@ -96,6 +138,8 @@ def main() -> None:
         peak_D0_fix=float(args.peak_D0_fix),
         peak_gamma=float(args.peak_gamma),
         x_lims=_parse_xlims(args.xlim),
+        contrast_source=contrast_source,
+        exclude_fitresamp=bool(args.exclude_fitresamp),
         ok_only=not bool(args.include_failed),
     )
 

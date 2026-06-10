@@ -16,7 +16,7 @@ from ogse_fitting.contrast_fit_panels import (
     _load_contrast_table_cached,
     _panel_specs,
     _pick_order,
-    _resolve_contrast_parquet,
+    _resolve_contrast_parquet_for_row,
     _sanitize_token,
     _subset_group,
 )
@@ -27,6 +27,10 @@ from tc_fittings.contrast_fit_table import load_contrast_fit_params
 VALID_X_VARS = ("g", "Ld", "lcf", "lcf_a", "tc")
 X_VAR_ALIASES = {"Lcf": "lcf_a"}
 VALID_PEAK_SOURCES = ("standard", "resampled", "both")
+VALID_CONTRAST_SOURCES = ("direct", "fitted_resampled", "auto")
+RESAMPLED_DATA_PEAK_TC_COL = "tc_peak_resampled_data_ms"
+RESAMPLED_DATA_PEAK_SIGNAL_COL = "signal_peak_resampled_data"
+RESAMPLED_DATA_PEAK_G_COL = "g_peak_resampled_data_corr_mTm"
 
 
 def _derived_axes_from_g(
@@ -151,6 +155,22 @@ def _peak_point_for_xvar(
     raise ValueError(f"xvar no soportada: {xvar!r}")
 
 
+def _peak_point_from_curve(
+    *,
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+) -> tuple[float, float]:
+    x = np.asarray(x_values, dtype=float)
+    y = np.asarray(y_values, dtype=float)
+    m = np.isfinite(x) & np.isfinite(y)
+    if not np.any(m):
+        return np.nan, np.nan
+    xm = x[m]
+    ym = y[m]
+    idx = int(np.nanargmax(ym))
+    return float(xm[idx]), float(ym[idx])
+
+
 def _build_resampled_fit_curve(
     fit_row: pd.Series,
     *,
@@ -196,6 +216,74 @@ def _build_resampled_fit_curve(
         fit_row=fit_row.to_dict(),
     )
     return G, np.asarray(y_curve, dtype=float)
+
+
+def add_resampled_data_peak_columns(
+    df: pd.DataFrame,
+    *,
+    contrast_root: str | Path,
+    peak_D0_fix: float = 3.2e-12,
+    peak_gamma: float = 267.5221900,
+    warn: bool = True,
+) -> pd.DataFrame:
+    """Add peak columns matching the resampled tc-panel data markers.
+
+    These peaks are taken directly from the plotted resampled contrast table:
+    convert the resampled gradient axis to tc, then keep the tc value at the
+    maximum finite contrast point. This is intentionally distinct from
+    tc_peak_resampled_ms, which is computed from the fitted contrast model.
+    """
+    out = df.copy()
+    for col in (RESAMPLED_DATA_PEAK_TC_COL, RESAMPLED_DATA_PEAK_SIGNAL_COL, RESAMPLED_DATA_PEAK_G_COL):
+        if col not in out.columns:
+            out[col] = np.nan
+
+    cache: dict[Path, pd.DataFrame] = {}
+    missing_items: list[str] = []
+
+    for idx, row in out.iterrows():
+        try:
+            contrast_path = _resolve_contrast_parquet_for_row(
+                row,
+                contrast_root=contrast_root,
+                cache=cache,
+            )
+            contrast_df = _load_contrast_table_cached(contrast_path, cache)
+            df_group = _subset_group(contrast_df, row)
+            if df_group.empty:
+                missing_items.append(f"{row.get('analysis_id', idx)} | {row.get('roi', '')} | {row.get('direction', '')} -> empty group")
+                continue
+
+            x_corr, y, _, _ = _extract_plot_arrays(df_group, row)
+            tc_values = _transform_x(
+                xvar="tc",
+                active_corr=x_corr,
+                fit_row=row,
+                peak_D0_fix=peak_D0_fix,
+                peak_gamma=peak_gamma,
+            )
+            m = np.isfinite(tc_values) & np.isfinite(y) & np.isfinite(x_corr)
+            if not np.any(m):
+                missing_items.append(f"{row.get('analysis_id', idx)} | {row.get('roi', '')} | {row.get('direction', '')} -> no finite tc peak")
+                continue
+
+            x_m = x_corr[m]
+            tc_m = tc_values[m]
+            y_m = y[m]
+            i_peak = int(np.nanargmax(y_m))
+            out.at[idx, RESAMPLED_DATA_PEAK_TC_COL] = float(tc_m[i_peak])
+            out.at[idx, RESAMPLED_DATA_PEAK_SIGNAL_COL] = float(y_m[i_peak])
+            out.at[idx, RESAMPLED_DATA_PEAK_G_COL] = float(x_m[i_peak])
+        except Exception as exc:
+            missing_items.append(f"{row.get('analysis_id', idx)} | {row.get('roi', '')} | {row.get('direction', '')} -> {exc}")
+
+    if warn and missing_items:
+        warnings.warn(
+            "Some resampled data peaks could not be computed:\n" + "\n".join(missing_items[:15]),
+            stacklevel=2,
+        )
+
+    return out
 
 
 def _x_label(spec_gbase: str, spec_xplot: str, xvar: str, *, use_resampled_gradient: bool = False) -> str:
@@ -278,6 +366,10 @@ def plot_contrast_tc_peak_panels(
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
     x_lims: dict[str, tuple[float, float]] | None = None,
+    contrast_source: str = "auto",
+    n1: int | None = None,
+    n2: int | None = None,
+    exclude_fitresamp: bool = False,
     ok_only: bool = True,
 ) -> list[Path]:
     x_vars = _validate_x_vars(x_vars)
@@ -285,8 +377,29 @@ def plot_contrast_tc_peak_panels(
     peak_source = str(peak_source)
     if peak_source not in VALID_PEAK_SOURCES:
         raise ValueError(f"Invalid peak_source={peak_source!r}. Expected one of {VALID_PEAK_SOURCES}.")
+    contrast_source = str(contrast_source)
+    if contrast_source not in VALID_CONTRAST_SOURCES:
+        raise ValueError(f"Invalid contrast_source={contrast_source!r}. Expected one of {VALID_CONTRAST_SOURCES}.")
+    if contrast_source == "auto":
+        contrast_source = "fitted_resampled" if (Path(contrast_root).name == "contrast") else "direct"
     x_lims = _normalize_x_lims(x_lims)
-    use_resampled_gradient = bool(show_resampled_fit and not show_data_points)
+    use_resampled_gradient = bool(contrast_source == "fitted_resampled" or (show_resampled_fit and not show_data_points))
+    print(f"[diagnostic] fits_root={Path(fits_root)}")
+    print(f"[diagnostic] contrast_root={Path(contrast_root)}")
+    print(f"[diagnostic] fit_params pattern={pattern}")
+    print(f"[diagnostic] contrast_source={contrast_source}")
+    print(f"[diagnostic] requested N pair={n1 if n1 is not None else 'ALL'}-{n2 if n2 is not None else 'ALL'}")
+    raw_df = load_contrast_fit_params(
+        [fits_root],
+        pattern=pattern,
+        models=None,
+        subjs=None,
+        directions=None,
+        rois=None,
+        exclude_fitresamp=False,
+        ok_only=False,
+    )
+    print(f"[diagnostic] fit rows before filters={len(raw_df)}")
     df = load_contrast_fit_params(
         [fits_root],
         pattern=pattern,
@@ -294,11 +407,21 @@ def plot_contrast_tc_peak_panels(
         subjs=subjs,
         directions=directions,
         rois=rois,
+        exclude_fitresamp=bool(exclude_fitresamp),
         ok_only=ok_only,
     )
 
     if df.empty:
         raise ValueError("No valid fits remained after filtering.")
+
+    if n1 is not None and "N_1" in df.columns:
+        df = df[pd.to_numeric(df["N_1"], errors="coerce") == int(n1)].copy()
+
+    if n2 is not None and "N_2" in df.columns:
+        df = df[pd.to_numeric(df["N_2"], errors="coerce") == int(n2)].copy()
+
+    if df.empty:
+        raise ValueError("No valid fits remained after filtering N_1/N_2.")
 
     if exclude_td_ms:
         td_vals = pd.to_numeric(df["td_ms"], errors="coerce")
@@ -308,6 +431,41 @@ def plot_contrast_tc_peak_panels(
         df = df.loc[keep].copy()
         if df.empty:
             raise ValueError("No valid fits remained after excluding td_ms.")
+
+    dedup_cols = [
+        col
+        for col in (
+            "analysis_id",
+            "sheet",
+            "subj",
+            "roi",
+            "direction",
+            "stat",
+            "td_ms",
+            "N_1",
+            "N_2",
+            "model",
+            "gbase",
+            "ycol",
+            "xplot",
+        )
+        if col in df.columns
+    ]
+    before_dedup = len(df)
+    if dedup_cols:
+        df = df.drop_duplicates(subset=dedup_cols, keep="last").copy()
+
+    print(f"[diagnostic] fit rows after filters={len(df)}")
+    if before_dedup != len(df):
+        print(f"[diagnostic] duplicate fit rows removed={before_dedup - len(df)}")
+    n_cols = [col for col in ("N_1", "N_2", "N1", "N2", "n_1", "n_2", "n1", "n2") if col in df.columns]
+    print(f"[diagnostic] detected N columns={n_cols}")
+    if {"N_1", "N_2"}.issubset(df.columns):
+        n_pairs = df[["N_1", "N_2"]].drop_duplicates().sort_values(["N_1", "N_2"]).to_dict("records")
+        print(f"[diagnostic] unique N pairs={n_pairs}")
+    if "td_ms" in df.columns:
+        td_detected = sorted(pd.to_numeric(df["td_ms"], errors="coerce").dropna().unique().tolist())
+        print(f"[diagnostic] detected td_ms values={td_detected}")
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -366,109 +524,174 @@ def plot_contrast_tc_peak_panels(
                         td_val = float(row["td_ms"])
                         color = td_to_color.get(td_val, "#1f77b4")
                         try:
-                            if show_data_points:
-                                contrast_path = _resolve_contrast_parquet(
-                                    analysis_id=str(row["analysis_id"]),
-                                    sheet=row.get("sheet", None),
+                            curve_x_plot = np.array([])
+                            curve_y_plot = np.array([])
+
+                            if contrast_source == "fitted_resampled":
+                                contrast_path = _resolve_contrast_parquet_for_row(
+                                    row,
                                     contrast_root=contrast_root,
+                                    cache=cache,
+                                )
+                                print(
+                                    "[diagnostic] loading contrast table "
+                                    f"analysis_id={row['analysis_id']} sheet={row.get('sheet', None)} "
+                                    f"roi={roi} direction={direction} td_ms={row.get('td_ms', None)} "
+                                    f"N=({row.get('N_1', None)}, {row.get('N_2', None)}) path={contrast_path}"
                                 )
                                 contrast_df = _load_contrast_table_cached(contrast_path, cache)
+                                before_group = len(contrast_df)
                                 df_group = _subset_group(contrast_df, row)
+                                after_group = len(df_group)
+                                print(
+                                    "[diagnostic] contrast points "
+                                    f"before_filter={before_group} after_filter={after_group}"
+                                )
                                 if df_group.empty:
                                     missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> empty group")
                                     continue
 
-                                x_corr, y, G1, G2 = _extract_plot_arrays(df_group, row)
+                                x_corr, y, _, _ = _extract_plot_arrays(df_group, row)
                                 if x_corr.size == 0:
                                     missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> no finite points")
                                     continue
 
-                                x_plot = _transform_x(
+                                x_res = _transform_x(
                                     xvar=xvar,
                                     active_corr=x_corr,
                                     fit_row=row,
                                     peak_D0_fix=peak_D0_fix,
                                     peak_gamma=peak_gamma,
                                 )
-                                m_plot = np.isfinite(x_plot) & np.isfinite(y)
-                                if not np.any(m_plot):
+                                m_res = np.isfinite(x_res) & np.isfinite(y)
+                                if not np.any(m_res):
                                     missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} has no valid points")
                                     continue
-                                x_data = x_plot[m_plot]
-                                y_data = y[m_plot]
-                                x_bounds.append(x_data)
-                                ax.plot(x_data, y_data, "o", color=color, markersize=4, alpha=0.95)
-
-                                xs_corr, ys = _build_fit_curve(row, G1, G2)
-                                xs_plot = _transform_x(
-                                    xvar=xvar,
-                                    active_corr=xs_corr,
-                                    fit_row=row,
-                                    peak_D0_fix=peak_D0_fix,
-                                    peak_gamma=peak_gamma,
-                                )
-                                m_fit = np.isfinite(xs_plot) & np.isfinite(ys)
-                                if not np.any(m_fit):
-                                    continue
-                                x_fit = xs_plot[m_fit]
-                                y_fit = ys[m_fit]
-                                order = np.argsort(x_fit)
-                                x_bounds.append(x_fit)
+                                curve_x_plot = x_res[m_res]
+                                curve_y_plot = y[m_res]
+                                order = np.argsort(curve_x_plot)
+                                x_bounds.append(curve_x_plot)
                                 ax.plot(
-                                    x_fit[order],
-                                    y_fit[order],
-                                    "--" if show_resampled_fit else "-",
+                                    curve_x_plot[order],
+                                    curve_y_plot[order],
+                                    "-",
                                     color=color,
-                                    linewidth=1.3 if show_resampled_fit else 1.8,
-                                    alpha=0.35 if show_resampled_fit else 0.95,
+                                    linewidth=2.1,
+                                    alpha=0.95,
                                 )
 
-                            if show_resampled_fit:
-                                if str(row.get("method", "")).startswith("signal_fit_1_minus_signal_fit_2"):
-                                    contrast_path = _resolve_contrast_parquet(
-                                        analysis_id=str(row["analysis_id"]),
-                                        sheet=row.get("sheet", None),
+                            else:
+                                if show_data_points:
+                                    contrast_path = _resolve_contrast_parquet_for_row(
+                                        row,
                                         contrast_root=contrast_root,
+                                        cache=cache,
+                                    )
+                                    print(
+                                        "[diagnostic] loading contrast table "
+                                        f"analysis_id={row['analysis_id']} sheet={row.get('sheet', None)} "
+                                        f"roi={roi} direction={direction} td_ms={row.get('td_ms', None)} "
+                                        f"N=({row.get('N_1', None)}, {row.get('N_2', None)}) path={contrast_path}"
                                     )
                                     contrast_df = _load_contrast_table_cached(contrast_path, cache)
+                                    before_group = len(contrast_df)
                                     df_group = _subset_group(contrast_df, row)
-                                    g_res, y_res, _, _ = _extract_plot_arrays(df_group, row)
-                                else:
-                                    g_res, y_res = _build_resampled_fit_curve(row, n_points=int(resampled_curve_n))
-                                x_res = _transform_x(
-                                    xvar=xvar,
-                                    active_corr=g_res,
-                                    fit_row=row,
-                                    peak_D0_fix=peak_D0_fix,
-                                    peak_gamma=peak_gamma,
-                                )
-                                m_res = np.isfinite(x_res) & np.isfinite(y_res)
-                                if np.any(m_res):
-                                    x_res_plot = x_res[m_res]
-                                    y_res_plot = y_res[m_res]
-                                    order = np.argsort(x_res_plot)
-                                    x_bounds.append(x_res_plot)
-                                    ax.plot(
-                                        x_res_plot[order],
-                                        y_res_plot[order],
-                                        "-",
-                                        color=color,
-                                        linewidth=2.1,
-                                        alpha=0.95,
+                                    after_group = len(df_group)
+                                    print(
+                                        "[diagnostic] contrast points "
+                                        f"before_filter={before_group} after_filter={after_group}"
                                     )
+                                    if df_group.empty:
+                                        missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> empty group")
+                                        continue
+
+                                    x_corr, y, G1, G2 = _extract_plot_arrays(df_group, row)
+                                    if x_corr.size == 0:
+                                        missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> no finite points")
+                                        continue
+
+                                    x_plot = _transform_x(
+                                        xvar=xvar,
+                                        active_corr=x_corr,
+                                        fit_row=row,
+                                        peak_D0_fix=peak_D0_fix,
+                                        peak_gamma=peak_gamma,
+                                    )
+                                    m_plot = np.isfinite(x_plot) & np.isfinite(y)
+                                    if not np.any(m_plot):
+                                        missing_items.append(f"{row['analysis_id']} | {roi} | {direction} -> xvar={xvar} has no valid points")
+                                        continue
+                                    x_data = x_plot[m_plot]
+                                    y_data = y[m_plot]
+                                    x_bounds.append(x_data)
+                                    ax.plot(x_data, y_data, "o", color=color, markersize=4, alpha=0.95)
+
+                                    xs_corr, ys = _build_fit_curve(row, G1, G2)
+                                    xs_plot = _transform_x(
+                                        xvar=xvar,
+                                        active_corr=xs_corr,
+                                        fit_row=row,
+                                        peak_D0_fix=peak_D0_fix,
+                                        peak_gamma=peak_gamma,
+                                    )
+                                    m_fit = np.isfinite(xs_plot) & np.isfinite(ys)
+                                    if np.any(m_fit):
+                                        x_fit = xs_plot[m_fit]
+                                        y_fit = ys[m_fit]
+                                        order = np.argsort(x_fit)
+                                        x_bounds.append(x_fit)
+                                        ax.plot(
+                                            x_fit[order],
+                                            y_fit[order],
+                                            "--" if show_resampled_fit else "-",
+                                            color=color,
+                                            linewidth=1.3 if show_resampled_fit else 1.8,
+                                            alpha=0.35 if show_resampled_fit else 0.95,
+                                        )
+
+                                if show_resampled_fit:
+                                    g_res, y_res = _build_resampled_fit_curve(row, n_points=int(resampled_curve_n))
+                                    x_res = _transform_x(
+                                        xvar=xvar,
+                                        active_corr=g_res,
+                                        fit_row=row,
+                                        peak_D0_fix=peak_D0_fix,
+                                        peak_gamma=peak_gamma,
+                                    )
+                                    m_res = np.isfinite(x_res) & np.isfinite(y_res)
+                                    if np.any(m_res):
+                                        curve_x_plot = x_res[m_res]
+                                        curve_y_plot = y_res[m_res]
+                                        order = np.argsort(curve_x_plot)
+                                        x_bounds.append(curve_x_plot)
+                                        ax.plot(
+                                            curve_x_plot[order],
+                                            curve_y_plot[order],
+                                            "-",
+                                            color=color,
+                                            linewidth=2.1,
+                                            alpha=0.95,
+                                        )
 
                             if xvar in peak_marker_x_vars:
                                 marker_sources = ("standard", "resampled") if peak_source == "both" else (peak_source,)
                                 for marker_source in marker_sources:
-                                    x_peak, y_peak = _peak_point_for_xvar(
-                                        row,
-                                        xvar=xvar,
-                                        peak_D0_fix=peak_D0_fix,
-                                        peak_gamma=peak_gamma,
-                                        peak_source=marker_source,
-                                    )
-                                    tc_col = "tc_peak_resampled_ms" if marker_source == "resampled" else "tc_peak_ms"
-                                    tc_peak_ms = float(pd.to_numeric(pd.Series([row.get(tc_col, np.nan)]), errors="coerce").iloc[0])
+                                    if contrast_source == "fitted_resampled" and marker_source == "resampled":
+                                        x_peak, y_peak = _peak_point_from_curve(
+                                            x_values=curve_x_plot,
+                                            y_values=curve_y_plot,
+                                        )
+                                        tc_peak_ms = x_peak if xvar == "tc" else float(pd.to_numeric(pd.Series([row.get("tc_peak_resampled_ms", np.nan)]), errors="coerce").iloc[0])
+                                    else:
+                                        x_peak, y_peak = _peak_point_for_xvar(
+                                            row,
+                                            xvar=xvar,
+                                            peak_D0_fix=peak_D0_fix,
+                                            peak_gamma=peak_gamma,
+                                            peak_source=marker_source,
+                                        )
+                                        tc_col = "tc_peak_resampled_ms" if marker_source == "resampled" else "tc_peak_ms"
+                                        tc_peak_ms = float(pd.to_numeric(pd.Series([row.get(tc_col, np.nan)]), errors="coerce").iloc[0])
                                     if not (np.isfinite(x_peak) and np.isfinite(y_peak)):
                                         continue
                                     marker = "D" if marker_source == "resampled" else "o"

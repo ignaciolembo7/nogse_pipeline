@@ -20,6 +20,7 @@ from fitting.gradient_correction import (
 from ogse_fitting.fit_ogse_contrast_vs_g import (
     _load_ogse_contrast_tables,
     _read_table,
+    fit_ogse_contrast_global_long,
     fit_ogse_contrast_long,
     fit_ogse_contrast_mixed_global_long,
     plot_fit_one_group,
@@ -30,6 +31,7 @@ from tools.brain_labels import canonical_sheet_name, infer_subj_label
 DEFAULT_TC_BOUNDS = (0.1, 1000.0)
 DEFAULT_M0_BOUNDS = (0.0, 5.0)
 DEFAULT_D0_BOUNDS = (1e-16, 1e-10)
+DEFAULT_C_BOUNDS = (0.0, 1.0)
 
 
 def _analysis_id_from_path(p: Path) -> str:
@@ -175,13 +177,40 @@ def main() -> None:
         help="Keep tc free. Optional value is the initial seed in ms. Default seed: 5.0.",
     )
     ap.add_argument("--tc_init", type=float, default=5.0, help="Initial tc seed in ms when --fix_tc/--free_tc are not used.")
+    grp_c = ap.add_mutually_exclusive_group()
+    grp_c.add_argument(
+        "--fix_C",
+        type=float,
+        default=None,
+        help="Fix rest-offset signal parameter C. Used only by model=rest_offset/rest_offset_globC.",
+    )
+    grp_c.add_argument(
+        "--free_C",
+        nargs="?",
+        const=0.0,
+        type=float,
+        default=None,
+        help="Keep rest-offset signal parameter C free. Optional value is the initial seed. Default seed: 0.0.",
+    )
     ap.add_argument("--tc_bounds", "--tc-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
     ap.add_argument("--M0_bounds", "--M0-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
     ap.add_argument("--D0_bounds", "--D0-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
+    ap.add_argument("--C_bounds", "--C-bounds", nargs=2, type=float, default=None, metavar=("MIN", "MAX"))
     ap.add_argument("--alpha_table", type=Path, default=None, help="Optional fixed-alpha table for model=mixed_global.")
     ap.add_argument("--alpha_col", default=None, help="Alpha column in --alpha_table. Defaults to alpha, then alpha_macro.")
     ap.add_argument("--alpha_td_col", default="td_ms", help="td column in --alpha_table used for per-td matching.")
     ap.add_argument("--alpha_td_tol_ms", type=float, default=1e-3, help="Tolerance in ms for matching alpha by td.")
+    ap.add_argument(
+        "--global_params",
+        "--global-params",
+        nargs="*",
+        default=None,
+        help=(
+            "Fit all td curves jointly per subj/ROI/direction and share these model parameters. "
+            "Examples: --global_params tc_ms D0_m2_ms, --global_params M0,D0,tc. "
+            "Unlisted variable parameters remain local to each curve."
+        ),
+    )
 
     ap.add_argument("--n_fit", type=int, default=None, help="Use only the first n_fit points after sorting by x.")
     ap.add_argument("--peak_grid_n", type=int, default=1000, help="Number of points used to search for the fitted peak.")
@@ -208,8 +237,11 @@ def main() -> None:
     validate_experiment_model("ogse_contrast_vs_g", args.model)
 
     contrast_paths = [Path(p) for p in args.contrast_parquet]
-    if args.model != "mixed_global" and len(contrast_paths) != 1:
-        raise ValueError("Multiple contrast parquet inputs are only supported with --model mixed_global.")
+    use_global_params = bool(args.global_params)
+    if args.model != "mixed_global" and not use_global_params and len(contrast_paths) != 1:
+        raise ValueError("Multiple contrast parquet inputs require --model mixed_global or --global_params.")
+    if args.model == "mixed_global" and use_global_params:
+        raise ValueError("--global_params is for regular models. Use --model mixed_global without --global_params.")
 
     df = pd.read_parquet(contrast_paths[0])
     analysis_id = _analysis_id_from_path(contrast_paths[0])
@@ -291,10 +323,21 @@ def main() -> None:
         tc_vary = True
         tc_value = float(args.tc_init)
 
+    if args.fix_C is not None:
+        C_vary = False
+        C_value = float(args.fix_C)
+    elif args.free_C is not None:
+        C_vary = True
+        C_value = float(args.free_C)
+    else:
+        C_vary = args.model in {"rest_offset", "rest_offset_globC"}
+        C_value = 0.0
+
     tc_bounds = None if args.tc_bounds is None else tuple(float(v) for v in args.tc_bounds)
     m0_bounds = None if args.M0_bounds is None else tuple(float(v) for v in args.M0_bounds)
     d0_bounds = None if args.D0_bounds is None else tuple(float(v) for v in args.D0_bounds)
-    for name, bounds in [("tc_bounds", tc_bounds), ("M0_bounds", m0_bounds), ("D0_bounds", d0_bounds)]:
+    c_bounds = None if args.C_bounds is None else tuple(float(v) for v in args.C_bounds)
+    for name, bounds in [("tc_bounds", tc_bounds), ("M0_bounds", m0_bounds), ("D0_bounds", d0_bounds), ("C_bounds", c_bounds)]:
         if bounds is not None and (len(bounds) != 2 or bounds[0] >= bounds[1]):
             raise ValueError(f"{name} must contain two increasing values. Received {bounds}.")
     if tc_bounds is not None and tc_bounds[0] <= 0:
@@ -390,6 +433,81 @@ def main() -> None:
             print("Plots for model=mixed_global are not generated yet; saved table only.")
         return
 
+    if use_global_params:
+        combined = _load_ogse_contrast_tables(contrast_paths)
+        if subjs is not None:
+            combined = combined[combined["subj"].astype(str).isin([str(x) for x in subjs])].copy()
+            if combined.empty:
+                print(f"Skipped: global fit (no match for subjs={subjs})")
+                return
+        if use_corr:
+            if args.corr_xlsx is None:
+                raise ValueError("--apply_grad_corr requires --corr_xlsx.")
+            corr = read_correction_table(args.corr_xlsx)
+            combined = _attach_mixed_global_correction_factors(
+                combined,
+                corr,
+                corr_roi=str(args.corr_roi),
+                corr_td_ms=args.corr_td_ms,
+                corr_tol_ms=float(args.corr_tol_ms),
+                corr_sheet=args.corr_sheet,
+            )
+        global_token = "-".join(str(v).replace(",", "-") for v in args.global_params if str(v).strip()) or "global"
+        outdir = Path(args.out_root) / f"{args.model}_global_{global_token}"
+        tables_dir = outdir
+        tables_dir.mkdir(parents=True, exist_ok=True)
+        fit_df = fit_ogse_contrast_global_long(
+            combined,
+            model=args.model,
+            global_params=args.global_params,
+            gbase=args.gbase,
+            plot_xcol=args.plot_xcol,
+            ycol=args.ycol,
+            directions=directions,
+            rois=rois,
+            stat_keep=stat_keep,
+            n_fit=args.n_fit,
+            f_by_direction=None,
+            td_override_ms=args.corr_td_ms,
+            M0_vary=M0_vary,
+            D0_vary=D0_vary,
+            C_vary=C_vary,
+            M0_value=M0_value,
+            D0_value=D0_value,
+            C_value=C_value,
+            tc_value=tc_value,
+            tc_vary=tc_vary,
+            tc_bounds=tc_bounds,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
+            c_bounds=c_bounds or DEFAULT_C_BOUNDS,
+            source_file="|".join(p.name for p in contrast_paths),
+            peak_grid_n=int(args.peak_grid_n),
+            peak_D0_fix=float(args.peak_D0_fix),
+            peak_gamma=float(args.peak_gamma),
+            peak_g_max_mTm=args.peak_g_max_mTm,
+            peak_resample_gradient=bool(args.peak_resample_gradient),
+            peak_resample_g_max_corr_mTm=args.peak_resample_g_max_corr_mTm,
+            oneg=bool(args.oneg),
+        )
+        fit_params_name = fit_params_output_basename(
+            model=f"{args.model}_global",
+            axis=str(args.gbase),
+            ycol=str(args.ycol),
+            directions=None if directions is None else [str(v) for v in directions],
+        )
+        out_parquet = tables_dir / f"{fit_params_name}.parquet"
+        write_table_outputs(
+            fit_df,
+            out_parquet,
+            xlsx_path=out_parquet.with_suffix(".xlsx"),
+            csv_path=tables_dir / f"{fit_params_name}.csv",
+        )
+        print("Saved fit table:", out_parquet)
+        if not args.no_plots:
+            print("Plots for --global_params fits are not generated yet; saved table only.")
+        return
+
     fit_df = fit_ogse_contrast_long(
         df,
         model=args.model,
@@ -404,13 +522,16 @@ def main() -> None:
         td_override_ms=args.corr_td_ms,
         M0_vary=M0_vary,
         D0_vary=D0_vary,
+        C_vary=C_vary,
         M0_value=M0_value,
         D0_value=D0_value,
+        C_value=C_value,
         tc_value=tc_value,
         tc_vary=tc_vary,
         tc_bounds=tc_bounds,
         m0_bounds=m0_bounds,
         d0_bounds=d0_bounds,
+        c_bounds=c_bounds or DEFAULT_C_BOUNDS,
         source_file=contrast_paths[0].name,
         analysis_id=analysis_id,
         peak_grid_n=int(args.peak_grid_n),

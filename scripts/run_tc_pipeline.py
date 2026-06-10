@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from data_processing.io import write_table_outputs, write_xlsx_csv_outputs
+from ogse_fitting.contrast_tc_peak_panels import add_resampled_data_peak_columns
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 
@@ -24,6 +25,24 @@ def main() -> None:
     ap.add_argument("--directions", nargs="+", default=None, help="Filter directions.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filter ROIs.")
     ap.add_argument("--include-failed", action="store_true", help="Include rows with ok=False.")
+    ap.add_argument(
+        "--exclude-fitresamp",
+        action="store_true",
+        help="Ignore fit_params whose analysis_id comes from an already fitted/resampled contrast table.",
+    )
+    ap.add_argument(
+        "--only-fitresamp",
+        action="store_true",
+        help="Use only fit_params whose analysis_id comes from a fitted/resampled contrast table.",
+    )
+    ap.add_argument(
+        "--add-resampled-data-peaks",
+        action="store_true",
+        help="Add tc_peak_resampled_data_ms from the resampled contrast tables, matching the tc peak panels.",
+    )
+    ap.add_argument("--contrast-root", type=Path, default=None, help="Root with resampled contrast tables for --add-resampled-data-peaks.")
+    ap.add_argument("--peak-D0-fix", type=float, default=3.2e-12, help="Fixed D0 used to convert resampled gradient to tc.")
+    ap.add_argument("--peak-gamma", type=float, default=267.5221900, help="Gamma used to convert resampled gradient to tc.")
     ap.add_argument("--out-xlsx", type=Path, required=True, help="Combined xlsx output.")
     ap.add_argument("--out-parquet", type=Path, default=None, help="Additional parquet output.")
     args = ap.parse_args()
@@ -35,8 +54,19 @@ def main() -> None:
         subjs=args.subjs,
         directions=args.directions,
         rois=args.rois,
+        exclude_fitresamp=bool(args.exclude_fitresamp),
+        only_fitresamp=bool(args.only_fitresamp),
         ok_only=not bool(args.include_failed),
     )
+    if args.add_resampled_data_peaks:
+        if args.contrast_root is None:
+            raise ValueError("--add-resampled-data-peaks requires --contrast-root.")
+        df = add_resampled_data_peak_columns(
+            df,
+            contrast_root=args.contrast_root,
+            peak_D0_fix=float(args.peak_D0_fix),
+            peak_gamma=float(args.peak_gamma),
+        )
 
     write_xlsx_csv_outputs(df, args.out_xlsx, csv_path=args.out_xlsx.with_suffix(".csv"))
     if args.out_parquet is not None:

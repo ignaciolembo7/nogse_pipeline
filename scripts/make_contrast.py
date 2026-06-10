@@ -11,6 +11,8 @@ from data_processing.io import fit_params_output_basename, write_table_outputs
 from fitting.contrast import make_contrast
 from fitting.experiments import experiment_models, validate_experiment_model
 from ogse_fitting.contrast import build_fitted_resampled_ogse_contrast
+from ogse_plotting.plot_ogse_contrast_vs_g import plot_ogse_contrast_summary
+from plottings.core import render_xy_plot, sanitize_token
 from ogse_fitting.fit_ogse_signal_vs_g import VALID_G_TYPES
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
@@ -305,6 +307,73 @@ def build_analysis_id_without_sequence(
     return _build_analysis_core(df_ref, df_cmp, directions, sheet_override)
 
 
+def _plot_fitted_resampled_signal_fits(
+    *,
+    points: pd.DataFrame,
+    curves: pd.DataFrame,
+    out_dir: Path,
+    xcol: str,
+    ycol: str,
+) -> list[Path]:
+    if points.empty or curves.empty:
+        return []
+    if xcol not in points.columns or xcol not in curves.columns:
+        return []
+
+    out_paths: list[Path] = []
+    group_cols = [c for c in ["stat", "roi", "direction", "side"] if c in points.columns and c in curves.columns]
+    if not group_cols:
+        return out_paths
+
+    for key, point_group in points.groupby(group_cols, sort=False, dropna=False):
+        if not isinstance(key, tuple):
+            key = (key,)
+        key_dict = dict(zip(group_cols, key))
+        curve_mask = pd.Series(True, index=curves.index)
+        for col, value in key_dict.items():
+            curve_mask &= curves[col].astype(str) == str(value)
+        curve_group = curves.loc[curve_mask].copy()
+        if curve_group.empty:
+            continue
+
+        d_points = point_group.dropna(subset=[xcol, "signal_observed"]).sort_values(xcol, kind="stable")
+        d_curve = curve_group.dropna(subset=[xcol, "signal_fit"]).sort_values(xcol, kind="stable")
+        if d_points.empty or d_curve.empty:
+            continue
+
+        used = d_points
+        if "fit_used" in d_points.columns:
+            used = d_points[d_points["fit_used"].astype(bool)]
+
+        roi = key_dict.get("roi", "roi")
+        direction = key_dict.get("direction", "direction")
+        side = key_dict.get("side", "side")
+        stat = key_dict.get("stat", "stat")
+        out_png = out_dir / (
+            f"roi-{sanitize_token(roi)}.dir-{sanitize_token(direction)}."
+            f"side-{sanitize_token(side)}.stat-{sanitize_token(stat)}.signal_fit.png"
+        )
+        render_xy_plot(
+            x=pd.to_numeric(d_points[xcol], errors="coerce").to_numpy(dtype=float),
+            y=pd.to_numeric(d_points["signal_observed"], errors="coerce").to_numpy(dtype=float),
+            out_png=out_png,
+            title=f"ROI={roi} | direction={direction} | side={side} | stat={stat}",
+            xlabel=xcol,
+            ylabel=ycol,
+            data_label="signal",
+            connect_data=False,
+            fit_x=pd.to_numeric(d_curve[xcol], errors="coerce").to_numpy(dtype=float),
+            fit_y=pd.to_numeric(d_curve["signal_fit"], errors="coerce").to_numpy(dtype=float),
+            fit_label="fit",
+            highlight_x=pd.to_numeric(used[xcol], errors="coerce").to_numpy(dtype=float),
+            highlight_y=pd.to_numeric(used["signal_observed"], errors="coerce").to_numpy(dtype=float),
+            highlight_label="fit points",
+        )
+        out_paths.append(out_png)
+
+    return out_paths
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ref_parquet", help="signal parquet (ref)")
@@ -417,6 +486,8 @@ def main():
         return
 
     signal_fit_params = pd.DataFrame()
+    signal_fit_points = pd.DataFrame()
+    signal_fit_curves = pd.DataFrame()
     contrast_peak_params = pd.DataFrame()
     if args.contrast_source == "direct":
         # Core contrast table: value/value_norm plus side-specific value_1/value_2 columns.
@@ -465,6 +536,8 @@ def main():
         )
         out = res_fit.df.copy()
         signal_fit_params = res_fit.signal_fit_params.copy()
+        signal_fit_points = res_fit.signal_fit_points.copy()
+        signal_fit_curves = res_fit.signal_fit_curves.copy()
         contrast_peak_params = res_fit.contrast_peak_params.copy()
         if out.empty:
             raise ValueError("fitted_resampled contrast build produced no rows.")
@@ -484,6 +557,7 @@ def main():
     out = _order_columns(out)
 
     tables_dir = Path(args.out_root) / "tables" / analysis_short
+    plots_dir = Path(args.out_root) / "plots" / analysis_short
     tables_dir.mkdir(parents=True, exist_ok=True)
 
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
@@ -495,6 +569,51 @@ def main():
         signal_fit_params["subj"] = str(subj)
         fit_params_parquet = tables_dir / f"{analysis_id}.signal_fit_params.parquet"
         write_table_outputs(signal_fit_params, fit_params_parquet, xlsx_path=fit_params_parquet.with_suffix(".xlsx"))
+
+    if args.contrast_source == "fitted_resampled" and not signal_fit_points.empty:
+        signal_fit_points["analysis_id"] = str(analysis_id)
+        signal_fit_points["sheet"] = sheet
+        signal_fit_points["subj"] = str(subj)
+        points_parquet = tables_dir / f"{analysis_id}.signal_fit_points.parquet"
+        write_table_outputs(signal_fit_points, points_parquet, xlsx_path=points_parquet.with_suffix(".xlsx"))
+
+    if args.contrast_source == "fitted_resampled" and not signal_fit_curves.empty:
+        signal_fit_curves["analysis_id"] = str(analysis_id)
+        signal_fit_curves["sheet"] = sheet
+        signal_fit_curves["subj"] = str(subj)
+        curves_parquet = tables_dir / f"{analysis_id}.signal_fit_curves.parquet"
+        write_table_outputs(signal_fit_curves, curves_parquet, xlsx_path=curves_parquet.with_suffix(".xlsx"))
+
+    if args.contrast_source == "fitted_resampled":
+        signal_plot_paths = _plot_fitted_resampled_signal_fits(
+            points=signal_fit_points,
+            curves=signal_fit_curves,
+            out_dir=plots_dir / analysis_id / "signal_fits",
+            xcol=str(args.g_type),
+            ycol=str(args.ycol),
+        )
+        if signal_plot_paths:
+            print("Saved signal-fit plots:", len(signal_plot_paths))
+
+        contrast_xcol = str(args.g_type)
+        if f"{contrast_xcol}_1" in out.columns:
+            contrast_xcol = f"{contrast_xcol}_1"
+        plot_out = out.copy()
+        if "stat" in plot_out.columns:
+            plot_out = plot_out[plot_out["stat"].astype(str) == "avg"].copy()
+        if not plot_out.empty:
+            contrast_plot_paths = plot_ogse_contrast_summary(
+                plot_out,
+                out_root=plots_dir / "contrasts",
+                exp_id=analysis_id,
+                xcol=contrast_xcol,
+                ycol=str(args.ycol),
+                directions=directions or sorted(plot_out["direction"].dropna().astype(str).unique().tolist()),
+                rois_requested=None,
+                stat="avg",
+            )
+            if contrast_plot_paths:
+                print("Saved fitted/resampled contrast plots:", len(contrast_plot_paths))
 
     if args.contrast_source == "fitted_resampled" and not contrast_peak_params.empty:
         contrast_peak_params["analysis_id"] = str(analysis_id)

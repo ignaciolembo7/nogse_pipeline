@@ -14,10 +14,11 @@ from ogse_fitting.contrast_fit_panels import (
     _build_fit_curve,
     _extract_plot_arrays,
     _load_contrast_table_cached,
-    _resolve_contrast_parquet,
+    _resolve_contrast_parquet_for_row,
     _subset_group,
 )
 from ogse_fitting.contrast_tc_peak_panels import _transform_x
+from ogse_fitting.contrast_tc_peak_panels import add_resampled_data_peak_columns
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 from tc_fittings.tc_td_pseudohuber import tc_pseudohuber
 
@@ -29,7 +30,13 @@ DEFAULT_DIRECTION_COLORS = {
     "tra": "#c44e52",
 }
 
-TD_COLORS = ("#E69F00", "#0072B2", "#009E73", "#D55E00", "#CC79A7", "#000000", "#56B4E9")
+TD_COLORS = ("#4871A2", "#E68639", "#9CBA5E", "#B14E4B")
+SIGNAL_N1_COLOR = "#0072B2"
+SIGNAL_N2_COLOR = "#FF7F0E"
+SIGNAL_CONTRAST_COLOR = "#009E73"
+CENTER_FILTER_XLABEL = r"Center filter length $l_{c,f}$ [$\mu$m]"
+GRADIENT_XLABEL = r"Gradient intensity $G$ [mT/m]"
+OGSE_SIGNAL_YLABEL = "Normalized signal"
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,13 @@ class ContrastDatasetSpec:
     model: str = "rest"
 
 
+@dataclass(frozen=True)
+class ContrastTdDatasetSpec:
+    base: ContrastDatasetSpec
+    selected_direction: str
+    selected_td_ms: float
+
+
 def _set_publication_rc() -> None:
     mpl.rcParams.update(
         {
@@ -59,11 +73,11 @@ def _set_publication_rc() -> None:
             "axes.spines.top": False,
             "axes.spines.right": False,
             "axes.linewidth": 0.9,
-            "axes.labelsize": 18,
-            "axes.titlesize": 18,
-            "xtick.labelsize": 16,
-            "ytick.labelsize": 16,
-            "legend.fontsize": 15,
+            "axes.labelsize": 32,
+            "axes.titlesize": 32,
+            "xtick.labelsize": 20,
+            "ytick.labelsize": 20,
+            "legend.fontsize": 26,
             "xtick.major.size": 5,
             "ytick.major.size": 5,
         }
@@ -149,7 +163,7 @@ def load_tc_params(spec: ContrastDatasetSpec) -> pd.DataFrame:
     raw_dirs = {str(x) for x in spec.directions}
     label_dirs = {_normalize_direction(x, spec.direction_aliases) for x in spec.directions}
     out = out[out["direction_raw"].isin(raw_dirs) | out["direction_label"].isin(label_dirs)].copy()
-    for col in ["c", "delta", "alpha_macro", "c_se", "td_ms", "tc_peak_ms", "tc_peak_resampled_ms"]:
+    for col in ["c", "delta", "alpha_macro", "c_se", "td_ms", "tc_peak_ms", "tc_peak_resampled_ms", "tc_peak_resampled_data_ms"]:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
     return out.reset_index(drop=True)
@@ -182,6 +196,160 @@ def _display_roi(spec: ContrastDatasetSpec) -> str:
     return spec.roi_label or spec.roi
 
 
+def _ensure_resampled_data_peak_columns(rows: pd.DataFrame, spec: ContrastDatasetSpec, *, peak_gamma: float) -> pd.DataFrame:
+    needed = {"tc_peak_resampled_data_ms", "signal_peak_resampled_data", "g_peak_resampled_data_corr_mTm"}
+    if needed.issubset(rows.columns):
+        return rows
+    return add_resampled_data_peak_columns(
+        rows,
+        contrast_root=spec.contrast_root,
+        peak_D0_fix=float(spec.peak_D0_fix),
+        peak_gamma=float(peak_gamma),
+        warn=True,
+    )
+
+
+def _resolve_fit_and_resampled_workbook(contrast_path: Path, roi: str) -> Path:
+    return contrast_path.with_name(f"roi-{roi}.fit_and_resampled_contrast.xlsx")
+
+
+def _read_fit_and_resampled_workbook(path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if not path.exists():
+        return pd.DataFrame(), pd.DataFrame()
+    experimental_points = pd.read_excel(path, sheet_name="experimental_points")
+    curves = pd.read_excel(path, sheet_name="resampled_curves")
+    return experimental_points, curves
+
+
+def _curves_from_resampled_contrast(df_group: pd.DataFrame, row: pd.Series) -> pd.DataFrame:
+    gbase = str(row.get("gbase", "g"))
+    gcol = f"{gbase}_corr_mTm"
+    curves = pd.DataFrame()
+    if gbase in df_group.columns:
+        curves[gcol] = pd.to_numeric(df_group[gbase], errors="coerce")
+    for source, target in (
+        ("signal_fit_1", "signal_fit_1"),
+        ("signal_fit_2", "signal_fit_2"),
+        ("value_norm", "contrast_fit_resampled"),
+        ("value", "contrast_fit_resampled"),
+        ("contrast_definition", "contrast_definition"),
+    ):
+        if source in df_group.columns and target not in curves.columns:
+            curves[target] = df_group[source]
+    return curves
+
+
+def _plot_fit_and_resampled_contrast_panel(
+    ax: plt.Axes,
+    *,
+    row: pd.Series,
+    spec: ContrastDatasetSpec,
+    contrast_cache: dict[Path, pd.DataFrame],
+    point_size: float,
+    line_width: float,
+    include_contrast_curve: bool = True,
+) -> list[str]:
+    missing: list[str] = []
+    gbase = str(row.get("gbase", "g"))
+    gcol = f"{gbase}_corr_mTm"
+    try:
+        contrast_path = _resolve_contrast_parquet_for_row(row, contrast_root=spec.contrast_root, cache=contrast_cache)
+        contrast_df = _load_contrast_table_cached(contrast_path, contrast_cache)
+        df_group = _subset_group(contrast_df, row)
+        if df_group.empty:
+            raise ValueError("empty contrast group")
+        workbook = _resolve_fit_and_resampled_workbook(contrast_path, str(row["roi"]))
+        experimental_points, curves = _read_fit_and_resampled_workbook(workbook)
+        if curves.empty:
+            curves = _curves_from_resampled_contrast(df_group, row)
+        if gcol not in curves.columns and gbase in curves.columns:
+            curves[gcol] = curves[gbase]
+        if gcol not in curves.columns:
+            raise KeyError(f"Could not find {gcol!r} in resampled curves.")
+
+        side1 = experimental_points[experimental_points["side"].astype(int) == 1] if not experimental_points.empty else pd.DataFrame()
+        side2 = experimental_points[experimental_points["side"].astype(int) == 2] if not experimental_points.empty else pd.DataFrame()
+        if not side1.empty and gcol in side1.columns:
+            ax.scatter(
+                side1[gcol],
+                side1["signal_observed"],
+                s=max(18.0, point_size * 0.42),
+                color=SIGNAL_N1_COLOR,
+                alpha=0.72,
+                edgecolors="white",
+                linewidths=0.45,
+                label=f"N={int(row['N_1'])} data",
+                zorder=4,
+            )
+        if not side2.empty and gcol in side2.columns:
+            ax.scatter(
+                side2[gcol],
+                side2["signal_observed"],
+                s=max(18.0, point_size * 0.42),
+                color=SIGNAL_N2_COLOR,
+                alpha=0.72,
+                edgecolors="white",
+                linewidths=0.45,
+                label=f"N={int(row['N_2'])} data",
+                zorder=4,
+            )
+
+        x = pd.to_numeric(curves[gcol], errors="coerce").to_numpy(dtype=float)
+        curve_specs = [
+            ("signal_fit_1", SIGNAL_N1_COLOR, f"N={int(row['N_1'])} fit"),
+            ("signal_fit_2", SIGNAL_N2_COLOR, f"N={int(row['N_2'])} fit"),
+        ]
+        if include_contrast_curve:
+            curve_specs.append(("contrast_fit_resampled", SIGNAL_CONTRAST_COLOR, r"contrast OGSE$_N$ - OGSE$_{N/2}$"))
+
+        for ycol, color, label in curve_specs:
+            if ycol not in curves.columns:
+                continue
+            y = pd.to_numeric(curves[ycol], errors="coerce").to_numpy(dtype=float)
+            m = np.isfinite(x) & np.isfinite(y)
+            if not np.any(m):
+                continue
+            order = np.argsort(x[m])
+            ax.plot(x[m][order], y[m][order], color=color, linewidth=line_width, label=label, zorder=3)
+
+        if include_contrast_curve and "g_peak_resampled_data_corr_mTm" in row.index:
+            g_peak = float(pd.to_numeric(pd.Series([row.get("g_peak_resampled_data_corr_mTm")]), errors="coerce").iloc[0])
+            y_peak = float(pd.to_numeric(pd.Series([row.get("signal_peak_resampled_data")]), errors="coerce").iloc[0])
+            if np.isfinite(g_peak) and np.isfinite(y_peak):
+                ax.scatter([g_peak], [y_peak], s=max(56.0, point_size * 1.05), marker="D", color=SIGNAL_CONTRAST_COLOR, edgecolors="black", linewidths=0.8, zorder=5)
+
+        ax.axhline(0.0, color="black", linewidth=0.8, alpha=0.32)
+        ax.set_xlabel(GRADIENT_XLABEL)
+        ax.set_ylabel(OGSE_SIGNAL_YLABEL)
+        direction_label = _normalize_direction(row.get("direction", ""), spec.direction_aliases)
+        ax.set_title(rf"{spec.label} | {_display_roi(spec)} | {direction_label} | $T_D$={float(row['td_ms']):g} ms", pad=8, fontsize=28)
+        ax.grid(True, alpha=0.24, linewidth=0.8)
+        ax.legend(
+            fontsize=20,
+            ncols=1,
+            frameon=True,
+            loc="upper right",
+            bbox_to_anchor=(-0.32, 1.0),
+            borderaxespad=0.0,
+        )
+    except Exception as exc:
+        missing.append(f"{spec.label} {row.get('analysis_id', 'NA')} {spec.roi}: {exc}")
+        ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
+    return missing
+
+
+def _select_contrast_row(rows: pd.DataFrame, *, direction: str, td_ms: float) -> pd.Series:
+    sub = rows[rows["direction"].astype(str) == str(direction)].copy()
+    if sub.empty:
+        raise ValueError(f"No rows found for direction={direction!r}.")
+    td = pd.to_numeric(sub["td_ms"], errors="coerce").to_numpy(dtype=float)
+    keep = np.isclose(td, float(td_ms), atol=1e-3, equal_nan=False)
+    if not np.any(keep):
+        available = sorted(pd.to_numeric(sub["td_ms"], errors="coerce").dropna().unique().tolist())
+        raise ValueError(f"No row found for direction={direction!r}, td_ms={td_ms!r}. Available td_ms: {available}")
+    return sub.loc[keep].sort_values("td_ms", kind="stable").iloc[0]
+
+
 def _plot_contrast_panel(
     ax: plt.Axes,
     *,
@@ -194,6 +362,8 @@ def _plot_contrast_panel(
     peak_gamma: float,
     point_size: float,
     line_width: float,
+    lcf_min: float | None,
+    lcf_max: float | None,
 ) -> list[str]:
     missing: list[str] = []
     panel = rows[rows["direction"].astype(str) == str(direction)].sort_values("td_ms", kind="stable")
@@ -209,10 +379,10 @@ def _plot_contrast_panel(
         td = float(row["td_ms"])
         color = td_colors.get(td, "black")
         try:
-            contrast_path = _resolve_contrast_parquet(
-                analysis_id=str(row["analysis_id"]),
-                sheet=row.get("sheet", None),
+            contrast_path = _resolve_contrast_parquet_for_row(
+                row,
                 contrast_root=spec.contrast_root,
+                cache=contrast_cache,
             )
             contrast_df = _load_contrast_table_cached(contrast_path, contrast_cache)
             df_group = _subset_group(contrast_df, row)
@@ -229,47 +399,59 @@ def _plot_contrast_panel(
                 peak_gamma=peak_gamma,
             )
             m = np.isfinite(x_plot) & np.isfinite(y)
+            if lcf_min is not None:
+                m &= x_plot >= float(lcf_min)
+            if lcf_max is not None:
+                m &= x_plot <= float(lcf_max)
             if not np.any(m):
                 missing.append(f"{spec.label} {row['analysis_id']} {spec.roi} {direction}: no finite lcf data")
                 continue
-            ax.scatter(
-                x_plot[m],
-                y[m],
-                s=point_size,
-                marker="o",
+            order = np.argsort(x_plot[m])
+            ax.plot(
+                x_plot[m][order],
+                y[m][order],
                 color=color,
-                edgecolors="white",
-                linewidths=0.5,
+                linewidth=line_width,
                 alpha=0.98,
-                zorder=3,
+                zorder=2,
             )
             x_bounds.append(x_plot[m])
             y_bounds.append(y[m])
 
-            x_fit_corr, y_fit = _build_fit_curve(row, g1, g2)
-            x_fit = _transform_x(
-                xvar="lcf",
-                active_corr=x_fit_corr,
-                fit_row=row,
-                peak_D0_fix=spec.peak_D0_fix,
-                peak_gamma=peak_gamma,
-            )
-            mf = np.isfinite(x_fit) & np.isfinite(y_fit)
-            if np.any(mf):
-                order = np.argsort(x_fit[mf])
-                ax.plot(
-                    x_fit[mf][order],
-                    y_fit[mf][order],
-                    color=color,
-                    linewidth=line_width,
-                    alpha=0.98,
-                    zorder=2,
+            if Path(spec.contrast_root).name != "contrast":
+                x_fit_corr, y_fit = _build_fit_curve(row, g1, g2)
+                x_fit = _transform_x(
+                    xvar="lcf",
+                    active_corr=x_fit_corr,
+                    fit_row=row,
+                    peak_D0_fix=spec.peak_D0_fix,
+                    peak_gamma=peak_gamma,
                 )
-                y_bounds.append(y_fit[mf])
+                mf = np.isfinite(x_fit) & np.isfinite(y_fit)
+                if lcf_min is not None:
+                    mf &= x_fit >= float(lcf_min)
+                if lcf_max is not None:
+                    mf &= x_fit <= float(lcf_max)
+                if np.any(mf):
+                    order = np.argsort(x_fit[mf])
+                    ax.plot(
+                        x_fit[mf][order],
+                        y_fit[mf][order],
+                        color=color,
+                        linewidth=line_width,
+                        alpha=0.55,
+                        zorder=1,
+                    )
+                    y_bounds.append(y_fit[mf])
         except Exception as exc:
             missing.append(f"{spec.label} {row.get('analysis_id', 'NA')} {spec.roi} {direction}: {exc}")
 
-    if x_bounds:
+    if lcf_min is not None or lcf_max is not None:
+        ax.set_xlim(
+            0.0 if lcf_min is None else float(lcf_min),
+            12.0 if lcf_max is None else float(lcf_max),
+        )
+    elif x_bounds:
         x_all = np.concatenate([x[np.isfinite(x)] for x in x_bounds if x.size])
         if x_all.size:
             xmin, xmax = float(np.nanmin(x_all)), float(np.nanmax(x_all))
@@ -282,9 +464,13 @@ def _plot_contrast_panel(
             pad = 0.10 * (ymax - ymin) if ymax > ymin else 0.05
             ax.set_ylim(ymin - pad, ymax + pad)
 
-    ax.set_title(f"{spec.label} | {_display_roi(spec)} | {direction_label}", pad=8, fontsize=16)
-    ax.set_xlabel(r"center filter length $l_{cf}$ [$\mu$m]")
-    ax.set_ylabel("NOGSE contrast")
+    ax.set_ylim(0.0, 0.5)
+    ax.axhline(0.47, color="#2a2a2a", linestyle="--", linewidth=1.6, alpha=1.0, zorder=1)
+
+    ax.set_title(f"{spec.label} | {_display_roi(spec)} | {direction_label}", pad=8, fontsize=28)
+    ax.set_xlabel(CENTER_FILTER_XLABEL)
+    ax.set_ylabel("NOGSE contrast", rotation=90, labelpad=16)
+    ax.yaxis.set_label_coords(-0.10, 0.5)
     ax.grid(True, alpha=0.24, linewidth=0.8)
     return missing
 
@@ -302,7 +488,12 @@ def _plot_tc_panel(
 ) -> None:
     panel = rows[rows["direction"].astype(str) == str(direction)].sort_values("td_ms", kind="stable")
     td = pd.to_numeric(panel["td_ms"], errors="coerce").to_numpy(dtype=float)
-    tc_col = "tc_peak_resampled_ms" if "tc_peak_resampled_ms" in panel.columns else "tc_peak_ms"
+    if "tc_peak_resampled_data_ms" in panel.columns:
+        tc_col = "tc_peak_resampled_data_ms"
+    elif "tc_peak_resampled_ms" in panel.columns:
+        tc_col = "tc_peak_resampled_ms"
+    else:
+        tc_col = "tc_peak_ms"
     tc = pd.to_numeric(panel[tc_col], errors="coerce").to_numpy(dtype=float)
     tc_err = pd.to_numeric(panel.get("tc_err_ms", pd.Series(np.nan, index=panel.index)), errors="coerce").to_numpy(dtype=float)
     m = np.isfinite(td) & np.isfinite(tc)
@@ -321,14 +512,16 @@ def _plot_tc_panel(
                 capsize=2.5,
                 zorder=2,
             )
-        ax.scatter(td[m], tc[m], s=marker_size, c=colors, edgecolors="white", linewidths=0.7, zorder=3)
-
     fit_row = _tc_param_row(tc_params, direction, aliases)
     if fit_row is not None and np.any(m):
         xmin, xmax = float(np.nanmin(td[m])), float(np.nanmax(td[m]))
         xx = np.linspace(max(0.0, xmin - 0.04 * (xmax - xmin)), xmax + 0.04 * (xmax - xmin), 200)
         yy = tc_pseudohuber(xx, float(fit_row["c"]), float(fit_row["delta"]), float(fit_row["alpha_macro"]))
-        ax.plot(xx, yy, color="black", linewidth=2.5, zorder=4)
+        ax.plot(xx, yy, color="black", linewidth=2.5, zorder=2.5)
+
+    if np.any(m):
+        colors = [td_colors.get(float(x), "black") for x in td[m]]
+        ax.scatter(td[m], tc[m], s=marker_size * 1.25, c=colors, edgecolors="white", linewidths=0.9, zorder=5)
 
     if np.any(m):
         xmin, xmax = float(np.nanmin(td[m])), float(np.nanmax(td[m]))
@@ -338,13 +531,113 @@ def _plot_tc_panel(
         ax.set_xlim(xmin - xpad, xmax + xpad)
         ax.set_ylim(ymin - ypad, ymax + ypad)
 
-    ax.set_xlabel(r"$T_D$ [ms]", fontsize=16, labelpad=1)
-    ax.set_ylabel(r"$tc_{peak}$ [ms]", fontsize=16, labelpad=1)
+    ax.set_xlabel(r"$T_D$ [ms]", fontsize=28, labelpad=1)
+    ax.set_ylabel(r"$\tau_{c,peak}$ [ms]", fontsize=28, labelpad=1)
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(nbins=4, min_n_ticks=3))
     ax.tick_params(axis="both", labelsize=14, length=3.5, width=1.0)
     ax.grid(True, alpha=0.20, linewidth=0.8)
     ax.set_facecolor((1.0, 1.0, 1.0, 0.92))
     for spine in ax.spines.values():
         spine.set_linewidth(1.0)
+
+
+def _plot_one_td_dataset(
+    spec: ContrastTdDatasetSpec,
+    *,
+    rows: pd.DataFrame,
+    tc_params: pd.DataFrame,
+    out_stem: Path,
+    formats: Sequence[str],
+    dpi: int,
+    peak_gamma: float,
+    point_size: float,
+    line_width: float,
+    lcf_min: float | None,
+    lcf_max: float | None,
+    figsize: tuple[float, float],
+    inset_errorbars: bool,
+) -> list[Path]:
+    td_colors, td_values = _td_color_map(rows)
+    selected_row = _select_contrast_row(
+        rows,
+        direction=spec.selected_direction,
+        td_ms=float(spec.selected_td_ms),
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize, gridspec_kw={"width_ratios": [1.0, 1.05]})
+    contrast_cache: dict[Path, pd.DataFrame] = {}
+    missing = _plot_fit_and_resampled_contrast_panel(
+        axes[0],
+        row=selected_row,
+        spec=spec.base,
+        contrast_cache=contrast_cache,
+        point_size=point_size,
+        line_width=line_width,
+    )
+    missing.extend(
+        _plot_contrast_panel(
+            axes[1],
+            rows=rows,
+            spec=spec.base,
+            direction=spec.selected_direction,
+            tc_params=tc_params,
+            contrast_cache=contrast_cache,
+            td_colors=td_colors,
+            peak_gamma=peak_gamma,
+            point_size=point_size,
+            line_width=line_width,
+            lcf_min=lcf_min,
+            lcf_max=lcf_max,
+        )
+    )
+    tc_ax = axes[1].inset_axes([0.58, 0.53, 0.36, 0.38])
+    _plot_tc_panel(
+        tc_ax,
+        rows=rows,
+        direction=spec.selected_direction,
+        aliases=spec.base.direction_aliases,
+        tc_params=tc_params,
+        td_colors=td_colors,
+        show_errorbars=bool(inset_errorbars),
+        marker_size=max(48.0, point_size * 0.62),
+    )
+
+    handles = [
+        mpl.lines.Line2D(
+            [0],
+            [0],
+            color=td_colors[td],
+            marker="o",
+            linestyle="-",
+            linewidth=2.4,
+            markersize=8,
+            markeredgecolor="white",
+            label=_td_label(td),
+        )
+        for td in td_values
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=len(handles),
+        frameon=False,
+        title=r"$T_D$ [ms]",
+        title_fontsize=16,
+        fontsize=15,
+        bbox_to_anchor=(0.5, -0.01),
+    )
+    fig.subplots_adjust(left=0.12, right=0.985, top=0.91, bottom=0.20, wspace=0.28)
+
+    outputs: list[Path] = []
+    for fmt in formats:
+        out_path = out_stem.with_suffix(f".{str(fmt).lower().lstrip('.')}")
+        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        outputs.append(out_path)
+    plt.close(fig)
+
+    if missing:
+        warnings.warn("Some contrast curves could not be plotted:\n" + "\n".join(missing[:20]), stacklevel=2)
+    return outputs
 
 
 def write_summary_table(rows_by_spec: Mapping[str, pd.DataFrame], out_dir: str | Path, prefix: str) -> Path:
@@ -365,6 +658,7 @@ def write_summary_table(rows_by_spec: Mapping[str, pd.DataFrame], out_dir: str |
             "analysis_id",
             "tc_peak_ms",
             "tc_peak_resampled_ms",
+            "tc_peak_resampled_data_ms",
             "tc_err_ms",
             "x_peak_corr_mTm",
             "g_peak_resampled_corr_mTm",
@@ -389,22 +683,24 @@ def _plot_one_dataset(
     peak_gamma: float,
     point_size: float,
     line_width: float,
+    lcf_min: float | None,
+    lcf_max: float | None,
     figsize: tuple[float, float],
     inset_errorbars: bool,
 ) -> list[Path]:
     td_colors, td_values = _td_color_map(rows)
     fig = plt.figure(figsize=figsize)
     gs = fig.add_gridspec(
-        len(spec.directions),
         1,
-        height_ratios=[1.0] * len(spec.directions),
-        hspace=0.46,
+        len(spec.directions),
+        width_ratios=[1.0] * len(spec.directions),
+        wspace=0.30,
     )
     contrast_cache: dict[Path, pd.DataFrame] = {}
     missing: list[str] = []
 
     for idx, direction in enumerate(spec.directions):
-        main_ax = fig.add_subplot(gs[idx, 0])
+        main_ax = fig.add_subplot(gs[0, idx])
         missing.extend(
             _plot_contrast_panel(
                 main_ax,
@@ -417,6 +713,8 @@ def _plot_one_dataset(
                 peak_gamma=peak_gamma,
                 point_size=point_size,
                 line_width=line_width,
+                lcf_min=lcf_min,
+                lcf_max=lcf_max,
             )
         )
         tc_ax = main_ax.inset_axes([0.64, 0.51, 0.32, 0.40])
@@ -451,11 +749,11 @@ def _plot_one_dataset(
         ncol=len(handles),
         frameon=False,
         title=r"$T_D$ [ms]",
-        title_fontsize=16,
-        fontsize=15,
-        bbox_to_anchor=(0.5, 0.0),
+        title_fontsize=26,
+        fontsize=24,
+        bbox_to_anchor=(0.5, -0.02),
     )
-    fig.subplots_adjust(left=0.14, right=0.98, top=0.97, bottom=0.13)
+    fig.subplots_adjust(left=0.10, right=0.98, top=0.93, bottom=0.19)
 
     outputs: list[Path] = []
     for fmt in formats:
@@ -478,7 +776,9 @@ def plot_contrast_lcf_tcpeak_summary(
     peak_gamma: float = 267.5221900,
     point_size: float = 54.0,
     line_width: float = 2.2,
-    figsize: tuple[float, float] = (7.8, 10.5),
+    lcf_min: float | None = None,
+    lcf_max: float | None = None,
+    figsize: tuple[float, float] = (20.0, 7.5),
     inset_errorbars: bool = False,
 ) -> list[Path]:
     _set_publication_rc()
@@ -500,6 +800,56 @@ def plot_contrast_lcf_tcpeak_summary(
                 peak_gamma=peak_gamma,
                 point_size=point_size,
                 line_width=line_width,
+                lcf_min=lcf_min,
+                lcf_max=lcf_max,
+                figsize=figsize,
+                inset_errorbars=inset_errorbars,
+            )
+        )
+
+    write_summary_table(rows_by_spec, out_stem.parent, out_stem.name)
+    return outputs
+
+
+def plot_contrast_td_tcpeak_summary(
+    specs: Sequence[ContrastTdDatasetSpec],
+    *,
+    out_stem: str | Path,
+    formats: Sequence[str] = ("png", "pdf"),
+    dpi: int = 400,
+    peak_gamma: float = 267.5221900,
+    point_size: float = 82.0,
+    line_width: float = 2.4,
+    lcf_min: float | None = None,
+    lcf_max: float | None = None,
+    figsize: tuple[float, float] = (12.8, 4.8),
+    inset_errorbars: bool = False,
+) -> list[Path]:
+    _set_publication_rc()
+    rows_by_spec: dict[str, pd.DataFrame] = {}
+    tc_by_spec: dict[str, pd.DataFrame] = {}
+    for spec in specs:
+        rows = load_contrast_rows(spec.base)
+        rows_by_spec[spec.base.name] = _ensure_resampled_data_peak_columns(rows, spec.base, peak_gamma=peak_gamma)
+        tc_by_spec[spec.base.name] = load_tc_params(spec.base)
+
+    out_stem = Path(out_stem)
+    out_stem.parent.mkdir(parents=True, exist_ok=True)
+    outputs: list[Path] = []
+    for spec in specs:
+        outputs.extend(
+            _plot_one_td_dataset(
+                spec,
+                rows=rows_by_spec[spec.base.name],
+                tc_params=tc_by_spec[spec.base.name],
+                out_stem=out_stem.parent / f"{out_stem.name}_{spec.base.name}",
+                formats=formats,
+                dpi=dpi,
+                peak_gamma=peak_gamma,
+                point_size=point_size,
+                line_width=line_width,
+                lcf_min=lcf_min,
+                lcf_max=lcf_max,
                 figsize=figsize,
                 inset_errorbars=inset_errorbars,
             )

@@ -5,7 +5,12 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from models.model_fitting import OGSE_contrast_vs_g_free, OGSE_contrast_vs_g_rest, OGSE_contrast_vs_g_tort
+from models.model_fitting import (
+    OGSE_contrast_vs_g_free,
+    OGSE_contrast_vs_g_rest,
+    OGSE_contrast_vs_g_rest_offset,
+    OGSE_contrast_vs_g_tort,
+)
 from ogse_fitting.fit_ogse_contrast_vs_g import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
 
 @dataclass(frozen=True)
@@ -63,6 +68,12 @@ def peak_from_fit_row(fit_row: dict, *, n_grid: int = 2048) -> PeakResult:
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         y = OGSE_contrast_vs_g_rest(td_ms, G1, G2, n_1, n_2, tc_ms, M0, D0)
+    elif model in {"rest_offset", "rest_offset_globC"}:
+        tc_ms = float(fit_row["tc_ms"])
+        M0 = float(fit_row["M0"])
+        D0 = float(fit_row["D0_m2_ms"])
+        C = float(fit_row.get("C", 0.0))
+        y = OGSE_contrast_vs_g_rest_offset(td_ms, G1, G2, n_1, n_2, tc_ms, M0, D0, C)
     else:
         raise ValueError(f"peak_from_fit_row: model {model!r} is not supported.")
 

@@ -9,6 +9,8 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
+from ogse_fitting.contrast_tc_peak_panels import RESAMPLED_DATA_PEAK_TC_COL
+from ogse_fitting.contrast_tc_peak_panels import add_resampled_data_peak_columns
 from tc_fittings.contrast_fit_table import canonicalize_contrast_fit_params, load_contrast_fit_params
 from tc_fittings.tc_td_registry import METHODS
 from tc_fittings.tc_td_pseudohuber import load_alpha_macro_summary
@@ -19,6 +21,7 @@ YCOL_LABELS = {
     "tc_fit_ms": r"$t_{c,fit}$ [ms]",
     "tc_peak_ms": r"$t_{c,peak}$ [ms]",
     "tc_peak_resampled_ms": r"$t_{c,peak,resampled}$ [ms]",
+    RESAMPLED_DATA_PEAK_TC_COL: r"$t_{c,peak,resampled\ data}$ [ms]",
     "signal_peak": "Peak amplitude",
 }
 
@@ -28,6 +31,8 @@ def _tc_vs_td_dirname(y_col: str) -> str:
         return "tcpeak_vs_td"
     if y_col == "tc_peak_resampled_ms":
         return "tcpeak_resampled_vs_td"
+    if y_col == RESAMPLED_DATA_PEAK_TC_COL:
+        return "tcpeak_resampled_data_vs_td"
     if y_col in {"tc_ms", "tc_fit_ms"}:
         return "tcfit_vs_td"
     return f"{y_col}_vs_td"
@@ -116,6 +121,7 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
             subjs=args.subjs,
             directions=args.directions,
             rois=args.rois,
+            only_fitresamp=bool(args.only_fitresamp),
             ok_only=True,
         )
 
@@ -127,6 +133,17 @@ def _load_df_params(args: argparse.Namespace) -> pd.DataFrame:
         target_rois = {str(x).replace("_norm", "").strip() for x in args.rois}
         roi_norm = df["roi"].astype(str).str.replace("_norm", "", regex=False).str.strip()
         df = df[roi_norm.isin(target_rois)].copy()
+
+    needs_resampled_data_peak = bool(args.add_resampled_data_peaks or args.y_col == RESAMPLED_DATA_PEAK_TC_COL)
+    if needs_resampled_data_peak and (args.add_resampled_data_peaks or args.y_col not in df.columns):
+        if args.contrast_root is None:
+            raise ValueError(f"y_col={args.y_col!r} requires --contrast-root to compute it from resampled contrast tables.")
+        df = add_resampled_data_peak_columns(
+            df,
+            contrast_root=args.contrast_root,
+            peak_D0_fix=float(args.peak_D0_fix),
+            peak_gamma=float(args.peak_gamma),
+        )
 
     if args.exclude_td_ms:
         td_vals = pd.to_numeric(df.get("td_ms"), errors="coerce")
@@ -171,11 +188,24 @@ def main() -> None:
     ap.add_argument("--groupfits", default=None, help="Already-combined groupfits table (xlsx/csv/parquet).")
     ap.add_argument("--fits", nargs="*", default=None, help="fit_params roots or files to load directly.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Relative glob used when --fits contains directories.")
+    ap.add_argument(
+        "--only-fitresamp",
+        action="store_true",
+        help="Use only fit_params from fitted/resampled contrast tables when loading --fits directly.",
+    )
     ap.add_argument("--models", nargs="+", default=None, help="Filter contrast models.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Filter subjects/phantoms.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filter directions.")
     ap.add_argument("--rois", nargs="+", default=None, help="Filter ROIs.")
     ap.add_argument("--y-col", default="tc_peak_ms", help="Column to fit vs td_ms, for example tc_peak_ms or tc_fit_ms.")
+    ap.add_argument(
+        "--add-resampled-data-peaks",
+        action="store_true",
+        help="Add tc_peak_resampled_data_ms from resampled contrast tables before fitting.",
+    )
+    ap.add_argument("--contrast-root", type=Path, default=None, help="Root with resampled contrast tables for tc_peak_resampled_data_ms.")
+    ap.add_argument("--peak-D0-fix", type=float, default=3.2e-12, help="Fixed D0 used to convert resampled gradient to tc.")
+    ap.add_argument("--peak-gamma", type=float, default=267.5221900, help="Gamma used to convert resampled gradient to tc.")
     ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="td_ms values to exclude from the fit. Example: --exclude-td-ms 209.1")
     ap.add_argument(
         "--exclude-match",

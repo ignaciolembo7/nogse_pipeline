@@ -66,6 +66,7 @@ def main() -> None:
         return
 
     total_outputs = 0
+    failed_tables = 0
     for table_path in paths:
         df = pd.read_parquet(table_path)
         analysis_id = analysis_id_from_path(table_path)
@@ -79,21 +80,30 @@ def main() -> None:
 
             out_group = YCOL_DIRS.get(ycol, ycol)
             out_root = args.out_root / out_group / rel_parent
-            out_paths = plot_nogse_signal_table(
-                df,
-                out_root=out_root,
-                analysis_id=analysis_id,
-                xcol=str(args.xcol),
-                ycol=ycol,
-                stat=str(args.stat),
-                rois=split_all_or_values(args.rois),
-                directions=split_all_or_values(args.directions),
-            )
+            try:
+                out_paths = plot_nogse_signal_table(
+                    df,
+                    out_root=out_root,
+                    analysis_id=analysis_id,
+                    xcol=str(args.xcol),
+                    ycol=ycol,
+                    stat=str(args.stat),
+                    rois=split_all_or_values(args.rois),
+                    directions=split_all_or_values(args.directions),
+                )
+            except Exception as exc:
+                failed_tables += 1
+                print(f"Skipping {table_path}: failed to plot x={args.xcol}, y={ycol}: {exc}")
+                continue
             total_outputs += len(out_paths)
             for path in out_paths:
                 print("Saved:", path)
 
     print("Generated signal plots:", total_outputs)
+    if failed_tables:
+        print("Signal plot table/y-column failures:", failed_tables)
+    if total_outputs == 0:
+        raise SystemExit(f"No signal plots were generated from {tables_root}. Check x/y columns and stat filters.")
 
 
 if __name__ == "__main__":

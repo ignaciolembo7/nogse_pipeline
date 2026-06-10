@@ -18,8 +18,9 @@ def main() -> None:
     ap.add_argument("fits_root", help="Root folder with contrast fit_params.")
     ap.add_argument(
         "--contrast-root",
-        default="analysis/ogse_experiments/contrast-data-rotated",
-        help="Contrast table root (the root that contains tables/).",
+        type=Path,
+        default=None,
+        help="Contrast table root. Defaults to <fits_root>/contrast when available.",
     )
     ap.add_argument("--out-dir", type=Path, default=None, help="Output directory. Defaults to <fits_root>/contrast_fit_panels.")
     ap.add_argument("--pattern", default="**/fit_params.*", help="Relative glob used to discover fit_params.")
@@ -28,15 +29,21 @@ def main() -> None:
     ap.add_argument("--rois", nargs="+", default=None, help="Filter ROIs.")
     ap.add_argument("--directions", nargs="+", default=None, help="Filter directions.")
     ap.add_argument("--exclude-td-ms", nargs="*", type=float, default=None, help="td_ms values to exclude from the figures.")
+    ap.add_argument("--n1", type=int, default=None, help="Keep only fits with this N_1 value.")
+    ap.add_argument("--n2", type=int, default=None, help="Keep only fits with this N_2 value.")
     ap.add_argument("--include-failed", action="store_true", help="Include rows with ok=False.")
     args = ap.parse_args()
 
     fits_root = Path(args.fits_root)
     out_dir = args.out_dir or (fits_root / "contrast_fit_panels")
+    contrast_root = args.contrast_root
+    if contrast_root is None:
+        candidate = fits_root / "contrast"
+        contrast_root = candidate if candidate.is_dir() else Path("analysis/ogse_experiments/contrast-data-rotated")
 
     outputs = plot_contrast_fit_panels(
         fits_root=fits_root,
-        contrast_root=args.contrast_root,
+        contrast_root=contrast_root,
         out_dir=out_dir,
         pattern=args.pattern,
         models=args.models,
@@ -44,6 +51,8 @@ def main() -> None:
         rois=args.rois,
         directions=args.directions,
         exclude_td_ms=args.exclude_td_ms,
+        n1=args.n1,
+        n2=args.n2,
         ok_only=not bool(args.include_failed),
     )
 

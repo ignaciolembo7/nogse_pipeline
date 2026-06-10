@@ -19,8 +19,11 @@ from ogse_fitting.contrast_fit_panels import (
 )
 from ogse_fitting.contrast_tc_peak_panels import _derived_axes_from_g
 from ogse_fitting.fit_ogse_contrast_vs_g import _model_side_yhat
-from models.model_fitting import M_ogse_free, M_ogse_mixed, M_ogse_rest, M_ogse_rest_offset
+from models.model_fitting import M_ogse_free, M_ogse_mixed, M_ogse_mixed_offset, M_ogse_rest, M_ogse_rest_offset
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
+
+VALID_RESAMPLED_CONTRAST_MODES = ("signal_fit", "rest_only")
+VALID_GRID_MAX_MODES = ("fixed", "observed_pair_max")
 
 
 def _fmt_num(value: object) -> str:
@@ -112,6 +115,82 @@ def _experimental_points_table(df_group: pd.DataFrame, row: pd.Series) -> pd.Dat
     return out.sort_values(["side", f"{gbase}_corr_mTm", "b_step"], kind="stable").reset_index(drop=True)
 
 
+def _describe_fit_row(row: pd.Series) -> str:
+    return (
+        f"analysis_id={row.get('analysis_id', '')!r}, "
+        f"roi={row.get('roi', '')!r}, "
+        f"direction={row.get('direction', '')!r}, "
+        f"stat={row.get('stat', '')!r}, "
+        f"model={row.get('model', '')!r}"
+    )
+
+
+def _require_experimental_points(
+    *,
+    experimental_points: pd.DataFrame,
+    df_group: pd.DataFrame,
+    row: pd.Series,
+    contrast_path: Path,
+) -> None:
+    if not experimental_points.empty:
+        return
+
+    gbase = str(row.get("gbase", "g"))
+    ycol = str(row.get("ycol", "value_norm"))
+    expected = [f"{gbase}_1", f"{gbase}_2", f"{ycol}_1", f"{ycol}_2"]
+    missing = [col for col in expected if col not in df_group.columns]
+    available = ", ".join(str(c) for c in df_group.columns[:40])
+    raise ValueError(
+        "Could not extract experimental N1/N2 signal points for resampled contrast export. "
+        f"{_describe_fit_row(row)}. contrast_table={contrast_path}. "
+        f"matched_rows={len(df_group)}. missing_columns={missing}. "
+        f"available_columns_first40=[{available}]"
+    )
+
+
+def _resampled_grid_for_row(
+    experimental_points: pd.DataFrame,
+    row: pd.Series,
+    *,
+    grid_min_mTm: float,
+    grid_max_mTm: float,
+    grid_n: int,
+    grid_max_mode: str,
+) -> np.ndarray:
+    mode = str(grid_max_mode)
+    if mode not in VALID_GRID_MAX_MODES:
+        raise ValueError(f"Invalid resampled grid max mode {mode!r}. Expected one of {VALID_GRID_MAX_MODES}.")
+
+    lo = float(grid_min_mTm)
+    if mode == "fixed":
+        hi = float(grid_max_mTm)
+    else:
+        gbase = str(row.get("gbase", "g"))
+        gcol = f"{gbase}_corr_mTm"
+        if experimental_points.empty or gcol not in experimental_points.columns:
+            raise ValueError(
+                "Cannot use observed_pair_max resampling without corrected experimental gradients. "
+                f"{_describe_fit_row(row)}. missing_column={gcol!r}"
+            )
+        values = pd.to_numeric(experimental_points[gcol], errors="coerce").to_numpy(dtype=float)
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            raise ValueError(
+                "Cannot use observed_pair_max resampling because no finite corrected gradients were found. "
+                f"{_describe_fit_row(row)}."
+            )
+        hi = float(np.max(values))
+
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        raise ValueError(
+            "Invalid resampled gradient grid limits. "
+            f"{_describe_fit_row(row)}. grid_min_mTm={lo!r}, grid_max_mTm={hi!r}, mode={mode!r}"
+        )
+    if int(grid_n) < 2:
+        raise ValueError(f"grid_n must be at least 2; got {grid_n!r}.")
+    return np.linspace(lo, hi, int(grid_n))
+
+
 def _resampled_rows(row: pd.Series, g_common: np.ndarray, *, peak_D0_fix: float, peak_gamma: float) -> pd.DataFrame:
     curves, _ = _resampled_curves_table(row, g_common, experimental_points=pd.DataFrame())
     return _resampled_rows_from_curves(row, g_common, curves, peak_D0_fix=peak_D0_fix, peak_gamma=peak_gamma)
@@ -124,12 +203,16 @@ def _resampled_rows_from_curves(
     *,
     peak_D0_fix: float,
     peak_gamma: float,
+    contrast_mode: str = "signal_fit",
+    grid_max_mode: str = "fixed",
 ) -> pd.DataFrame:
     td = float(row["td_ms"])
     n1 = int(row["N_1"])
     n2 = int(row["N_2"])
     s1 = pd.to_numeric(curves["signal_fit_1"], errors="coerce").to_numpy(dtype=float)
     s2 = pd.to_numeric(curves["signal_fit_2"], errors="coerce").to_numpy(dtype=float)
+    c1 = pd.to_numeric(curves.get("contrast_signal_fit_1", curves["signal_fit_1"]), errors="coerce").to_numpy(dtype=float)
+    c2 = pd.to_numeric(curves.get("contrast_signal_fit_2", curves["signal_fit_2"]), errors="coerce").to_numpy(dtype=float)
     contrast = pd.to_numeric(curves["contrast_fit_resampled"], errors="coerce").to_numpy(dtype=float)
     Ld, lcf_um, Lcf, tc_ms = _derived_axes_from_g(
         g_common,
@@ -139,42 +222,55 @@ def _resampled_rows_from_curves(
     )
     gbase = str(row.get("gbase", "g"))
     ycol = str(row.get("ycol", "value_norm"))
+    c_global_values = pd.to_numeric(curves.get("C_global", pd.Series(dtype=float)), errors="coerce").dropna().unique()
+    c_global_err_values = pd.to_numeric(curves.get("C_global_err", pd.Series(dtype=float)), errors="coerce").dropna().unique()
+    c_global = float(c_global_values[0]) if len(c_global_values) == 1 else np.nan
+    c_global_err = float(c_global_err_values[0]) if len(c_global_err_values) == 1 else np.nan
+    contrast_definition_values = curves.get("contrast_definition", pd.Series(dtype=object)).astype(str).dropna().unique().tolist()
+    contrast_definition = contrast_definition_values[0] if len(contrast_definition_values) == 1 else ""
     records: list[dict[str, object]] = []
     for i, g_val in enumerate(g_common, start=1):
-        records.append(
-            {
-                "analysis_id": row.get("analysis_id", ""),
-                "subj": row.get("subj", ""),
-                "sheet": row.get("sheet", ""),
-                "roi": row.get("roi", ""),
-                "direction": row.get("direction", ""),
-                "stat": row.get("stat", ""),
-                "b_step": int(i),
-                "td_ms": float(td),
-                "N_1": int(n1),
-                "N_2": int(n2),
-                "model": row.get("model", ""),
-                "ycol": ycol,
-                "gbase": gbase,
-                "resample_grid": "fixed_corrected",
-                "resample_grid_n": int(len(g_common)),
-                "resample_grid_min_mTm": float(g_common[0]),
-                "resample_grid_max_mTm": float(g_common[-1]),
-                "gradient_unit": "mT/m",
-                gbase: float(g_val),
-                f"{gbase}_1": float(g_val),
-                f"{gbase}_2": float(g_val),
-                "signal_fit_1": float(s1[i - 1]),
-                "signal_fit_2": float(s2[i - 1]),
-                "value": float(contrast[i - 1]),
-                "value_norm": float(contrast[i - 1]),
-                "Ld": float(Ld[i - 1]),
-                "lcf": float(lcf_um[i - 1]),
-                "Lcf": float(Lcf[i - 1]),
-                "lcf_a": float(Lcf[i - 1]),
-                "tc": float(tc_ms[i - 1]),
-            }
-        )
+        record = {
+            "analysis_id": row.get("analysis_id", ""),
+            "subj": row.get("subj", ""),
+            "sheet": row.get("sheet", ""),
+            "roi": row.get("roi", ""),
+            "direction": row.get("direction", ""),
+            "stat": row.get("stat", ""),
+            "b_step": int(i),
+            "td_ms": float(td),
+            "N_1": int(n1),
+            "N_2": int(n2),
+            "model": row.get("model", ""),
+            "ycol": ycol,
+            "gbase": gbase,
+            "resample_grid": "corrected",
+            "resample_grid_max_mode": grid_max_mode,
+            "resample_grid_n": int(len(g_common)),
+            "resample_grid_min_mTm": float(g_common[0]),
+            "resample_grid_max_mTm": float(g_common[-1]),
+            "gradient_unit": "mT/m",
+            "resampled_contrast_mode": contrast_mode,
+            gbase: float(g_val),
+            f"{gbase}_1": float(g_val),
+            f"{gbase}_2": float(g_val),
+            "signal_fit_1": float(s1[i - 1]),
+            "signal_fit_2": float(s2[i - 1]),
+            "contrast_signal_fit_1": float(c1[i - 1]),
+            "contrast_signal_fit_2": float(c2[i - 1]),
+            "contrast_definition": contrast_definition,
+            "value": float(contrast[i - 1]),
+            "value_norm": float(contrast[i - 1]),
+            "Ld": float(Ld[i - 1]),
+            "lcf": float(lcf_um[i - 1]),
+            "Lcf": float(Lcf[i - 1]),
+            "lcf_a": float(Lcf[i - 1]),
+            "tc": float(tc_ms[i - 1]),
+        }
+        if np.isfinite(c_global):
+            record["C_global"] = c_global
+            record["C_global_err"] = c_global_err
+        records.append(record)
     return pd.DataFrame.from_records(records)
 
 
@@ -213,20 +309,46 @@ def _signal_model_yhat(
     tc_ms: float,
     alpha: float,
     C: float = 0.0,
+    RN: float = 0.0,
 ) -> np.ndarray:
     x = float(td_ms) / float(N)
     model_name = str(model)
-    if model_name == "free":
+    if model_name in {"free", "ogse_free"}:
         return M_ogse_free(td_ms, G, N, x, M0, D0)
     if model_name == "tort":
         return M_ogse_free(td_ms, G, N, x, M0, alpha * D0)
-    if model_name == "rest":
+    if model_name in {"rest", "ogse_rest"}:
         return M_ogse_rest(td_ms, G, N, x, tc_ms, M0, D0)
-    if model_name == "rest_offset":
+    if model_name in {"rest_offset", "rest_offset_globC", "ogse_rest_offset"}:
         return M_ogse_rest_offset(td_ms, G, N, x, tc_ms, M0, D0, C)
-    if model_name in {"mixed", "mixed_global"}:
+    if model_name in {"mixed", "mixed_global", "ogse_mixed"}:
         return M_ogse_mixed(td_ms, G, N, x, tc_ms, alpha, M0, D0)
+    if model_name == "ogse_mixed_offset":
+        return M_ogse_mixed_offset(td_ms, G, N, x, tc_ms, alpha, M0, D0, C, RN)
     raise ValueError(f"Unsupported model {model!r} for independent signal fitting.")
+
+
+def _uses_signal_alpha(model: str) -> bool:
+    return str(model) in {"tort", "mixed", "mixed_global", "ogse_mixed", "ogse_mixed_offset"}
+
+
+def _uses_independent_signal_C(model: str) -> bool:
+    return str(model) in {"rest_offset", "ogse_rest_offset", "ogse_mixed_offset"}
+
+
+def _uses_signal_RN(model: str) -> bool:
+    return str(model) == "ogse_mixed_offset"
+
+
+def _clean_signal_fit_params(df: pd.DataFrame, model: str) -> pd.DataFrame:
+    out = df.copy()
+    if not _uses_signal_alpha(model) and "signal_fit_alpha" in out.columns:
+        out = out.drop(columns=["signal_fit_alpha"])
+    if not _uses_independent_signal_C(model) and "signal_fit_C" in out.columns:
+        out = out.drop(columns=["signal_fit_C"])
+    if not _uses_signal_RN(model) and "signal_fit_RN" in out.columns:
+        out = out.drop(columns=["signal_fit_RN"])
+    return out
 
 
 def _observed_side_arrays(
@@ -276,7 +398,7 @@ def _fit_independent_signal_curve(
         finite = np.isfinite(resid)
         rmse = float(np.sqrt(np.mean(resid[finite] ** 2))) if finite.any() else np.nan
         chi2 = float(np.sum(resid[finite] ** 2)) if finite.any() else np.nan
-        return {
+        out = {
             "side": int(side),
             "N": int(n),
             "n_points": int(len(obs_y)),
@@ -285,13 +407,16 @@ def _fit_independent_signal_curve(
             "signal_fit_M0": float(M0),
             "signal_fit_D0_m2_ms": float(D0),
             "signal_fit_tc_ms": float(tc_ms),
-            "signal_fit_alpha": float(alpha),
-            "signal_fit_C": float(C),
             "signal_fit_rmse": rmse,
             "signal_fit_chi2": chi2,
             "signal_fit_ok": bool(ok),
             "signal_fit_msg": msg,
         }
+        if _uses_signal_alpha(model):
+            out["signal_fit_alpha"] = float(alpha)
+        if _uses_independent_signal_C(model):
+            out["signal_fit_C"] = float(C)
+        return out
 
     if len(obs_y) < 2:
         method = "contrast_fit_fallback"
@@ -339,7 +464,7 @@ def _fit_independent_signal_curve(
         def unpack(p: np.ndarray) -> tuple[float, float, float, float]:
             return D0, float(p[0]), alpha, C
 
-    elif model == "rest_offset":
+    elif model in {"rest_offset", "rest_offset_globC"}:
         p0 = np.array([np.clip(tc_ms, tc_lo, tc_hi), np.clip(C, c_lo, c_hi)], dtype=float)
         bounds = (np.array([tc_lo, c_lo]), np.array([tc_hi, c_hi]))
 
@@ -407,13 +532,298 @@ def _fit_independent_signal_curve(
     return np.asarray(yhat_grid, dtype=float), record(yhat_grid, yhat_obs)
 
 
+def _parameter_stderr_from_least_squares(fit, residual_count: int, parameter_count: int) -> np.ndarray:
+    if residual_count <= parameter_count:
+        return np.full(parameter_count, np.nan, dtype=float)
+    try:
+        jac = np.asarray(fit.jac, dtype=float)
+        _, singular_values, vt = np.linalg.svd(jac, full_matrices=False)
+        if singular_values.size == 0:
+            return np.full(parameter_count, np.nan, dtype=float)
+        threshold = np.finfo(float).eps * max(jac.shape) * singular_values[0]
+        valid = singular_values > threshold
+        if not np.any(valid):
+            return np.full(parameter_count, np.nan, dtype=float)
+        cov = (vt[valid].T / singular_values[valid] ** 2) @ vt[valid]
+        resid = np.asarray(fit.fun, dtype=float)
+        finite = np.isfinite(resid)
+        if not finite.any():
+            return np.full(parameter_count, np.nan, dtype=float)
+        variance = float(np.sum(resid[finite] ** 2) / max(1, residual_count - parameter_count))
+        diag = np.diag(cov) * variance
+        return np.sqrt(np.where(diag >= 0.0, diag, np.nan))
+    except Exception:
+        return np.full(parameter_count, np.nan, dtype=float)
+
+
+def _fit_global_c_signal_curves(
+    row: pd.Series,
+    experimental_points: pd.DataFrame,
+    g_common: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    model = str(row.get("model", ""))
+    if model != "rest_offset_globC":
+        raise ValueError(f"_fit_global_c_signal_curves only supports rest_offset_globC, got {model!r}.")
+
+    td_ms = float(row["td_ms"])
+    n1 = int(row["N_1"])
+    n2 = int(row["N_2"])
+    obs_g1, obs_y1 = _observed_side_arrays(experimental_points, row, side=1)
+    obs_g2, obs_y2 = _observed_side_arrays(experimental_points, row, side=2)
+    if len(obs_y1) < 2 or len(obs_y2) < 2:
+        raise ValueError(
+            "rest_offset_globC requires side-specific signal points for both OGSE curves. "
+            f"{_describe_fit_row(row)}. N pair=({n1}, {n2}); "
+            f"side1_points={len(obs_y1)}, side2_points={len(obs_y2)}."
+        )
+
+    M0 = _finite_float(row.get("M0", 1.0), 1.0)
+    D0 = _finite_float(row.get("D0_m2_ms", np.nan), _finite_float(row.get("D0_mm2_s", 3.2e-3), 3.2e-3) * 1e-9)
+    tc_ms = _finite_float(row.get("tc_ms", 5.0), 5.0)
+    C = _finite_float(row.get("C", 0.0), 0.0)
+    tc_lo, tc_hi = _tc_bounds_from_row(row)
+    c_lo, c_hi = _bounds_from_row(row, "C", (0.0, 1.0))
+    p0 = np.array(
+        [
+            np.clip(tc_ms, tc_lo, tc_hi),
+            np.clip(tc_ms, tc_lo, tc_hi),
+            np.clip(C, c_lo, c_hi),
+        ],
+        dtype=float,
+    )
+    bounds = (np.array([tc_lo, tc_lo, c_lo], dtype=float), np.array([tc_hi, tc_hi, c_hi], dtype=float))
+
+    def residuals(p: np.ndarray) -> np.ndarray:
+        tc1, tc2, c_global = map(float, p)
+        with np.errstate(all="ignore"):
+            yhat1 = _signal_model_yhat(
+                model="rest_offset_globC",
+                td_ms=td_ms,
+                G=obs_g1,
+                N=n1,
+                M0=M0,
+                D0=D0,
+                tc_ms=tc1,
+                alpha=0.5,
+                C=c_global,
+            )
+            yhat2 = _signal_model_yhat(
+                model="rest_offset_globC",
+                td_ms=td_ms,
+                G=obs_g2,
+                N=n2,
+                M0=M0,
+                D0=D0,
+                tc_ms=tc2,
+                alpha=0.5,
+                C=c_global,
+            )
+        resid = np.concatenate([np.asarray(yhat1, dtype=float) - obs_y1, np.asarray(yhat2, dtype=float) - obs_y2])
+        return np.where(np.isfinite(resid), resid, 1e6)
+
+    method = "joint_signal_fit_global_C"
+    ok = True
+    msg = "ok"
+    stderr = np.full(3, np.nan, dtype=float)
+    try:
+        fit = least_squares(residuals, p0, bounds=bounds, max_nfev=10000)
+        ok = bool(fit.success)
+        msg = str(fit.message)
+        tc1, tc2, C_global = map(float, fit.x)
+        stderr = _parameter_stderr_from_least_squares(fit, len(obs_y1) + len(obs_y2), 3)
+    except Exception as exc:
+        ok = False
+        msg = str(exc)
+        tc1, tc2, C_global = map(float, p0)
+
+    s1_grid = _signal_model_yhat(
+        model="rest_offset_globC",
+        td_ms=td_ms,
+        G=g_common,
+        N=n1,
+        M0=M0,
+        D0=D0,
+        tc_ms=tc1,
+        alpha=0.5,
+        C=C_global,
+    )
+    s2_grid = _signal_model_yhat(
+        model="rest_offset_globC",
+        td_ms=td_ms,
+        G=g_common,
+        N=n2,
+        M0=M0,
+        D0=D0,
+        tc_ms=tc2,
+        alpha=0.5,
+        C=C_global,
+    )
+    yhat1 = _signal_model_yhat(
+        model="rest_offset_globC",
+        td_ms=td_ms,
+        G=obs_g1,
+        N=n1,
+        M0=M0,
+        D0=D0,
+        tc_ms=tc1,
+        alpha=0.5,
+        C=C_global,
+    )
+    yhat2 = _signal_model_yhat(
+        model="rest_offset_globC",
+        td_ms=td_ms,
+        G=obs_g2,
+        N=n2,
+        M0=M0,
+        D0=D0,
+        tc_ms=tc2,
+        alpha=0.5,
+        C=C_global,
+    )
+
+    def row_record(side: int, n: int, obs_y: np.ndarray, yhat_obs: np.ndarray, tc_fit: float, tc_err: float) -> dict[str, object]:
+        resid = np.asarray(yhat_obs, dtype=float) - np.asarray(obs_y, dtype=float)
+        finite = np.isfinite(resid)
+        return {
+            "side": int(side),
+            "N": int(n),
+            "n_points": int(len(obs_y)),
+            "signal_fit_model": "rest_offset_globC",
+            "signal_fit_method": method,
+            "signal_fit_M0": float(M0),
+            "signal_fit_D0_m2_ms": float(D0),
+            "signal_fit_tc_ms": float(tc_fit),
+            "signal_fit_tc_err_ms": float(tc_err) if np.isfinite(tc_err) else np.nan,
+            "signal_fit_C_global": float(C_global),
+            "signal_fit_C_global_err": float(stderr[2]) if np.isfinite(stderr[2]) else np.nan,
+            "signal_fit_shared_parameters": "C",
+            "signal_fit_rmse": float(np.sqrt(np.mean(resid[finite] ** 2))) if finite.any() else np.nan,
+            "signal_fit_chi2": float(np.sum(resid[finite] ** 2)) if finite.any() else np.nan,
+            "signal_fit_ok": bool(ok),
+            "signal_fit_msg": msg,
+        }
+
+    fit_params = pd.DataFrame(
+        [
+            row_record(1, n1, obs_y1, yhat1, tc1, stderr[0]),
+            row_record(2, n2, obs_y2, yhat2, tc2, stderr[1]),
+        ]
+    )
+    return np.asarray(s1_grid, dtype=float), np.asarray(s2_grid, dtype=float), fit_params
+
+
+def _signal_fit_param_row(fit_params: pd.DataFrame, *, side: int) -> pd.Series:
+    if fit_params.empty or "side" not in fit_params.columns:
+        raise ValueError(f"Could not find signal-fit parameters for side={side}.")
+    sub = fit_params[pd.to_numeric(fit_params["side"], errors="coerce") == int(side)]
+    if len(sub) != 1:
+        raise ValueError(f"Expected exactly one signal-fit parameter row for side={side}; found {len(sub)}.")
+    return sub.iloc[0]
+
+
+def _rest_signal_from_signal_fit_params(
+    row: pd.Series,
+    fit_params: pd.DataFrame,
+    g_common: np.ndarray,
+    *,
+    side: int,
+) -> np.ndarray:
+    params = _signal_fit_param_row(fit_params, side=side)
+    td_ms = float(row["td_ms"])
+    n = int(row[f"N_{side}"])
+    x = td_ms / float(n)
+    M0 = _finite_float(params.get("signal_fit_M0", row.get("M0", 1.0)), 1.0)
+    D0 = _finite_float(params.get("signal_fit_D0_m2_ms", row.get("D0_m2_ms", np.nan)), 3.2e-12)
+    tc_ms = _finite_float(params.get("signal_fit_tc_ms", row.get("tc_ms", 5.0)), 5.0)
+    return np.asarray(M_ogse_rest(td_ms, g_common, n, x, tc_ms, M0, D0), dtype=float)
+
+
+def _contrast_component_curves(
+    row: pd.Series,
+    fit_params: pd.DataFrame,
+    g_common: np.ndarray,
+    *,
+    signal_fit_1: np.ndarray,
+    signal_fit_2: np.ndarray,
+    contrast_mode: str,
+) -> tuple[np.ndarray, np.ndarray, str]:
+    model = str(row.get("model", ""))
+    mode = str(contrast_mode)
+    if mode not in VALID_RESAMPLED_CONTRAST_MODES:
+        raise ValueError(f"Invalid resampled contrast mode {mode!r}. Expected one of {VALID_RESAMPLED_CONTRAST_MODES}.")
+    if mode == "rest_only" and model in {"rest_offset", "rest_offset_globC"}:
+        rest1 = _rest_signal_from_signal_fit_params(row, fit_params, g_common, side=1)
+        rest2 = _rest_signal_from_signal_fit_params(row, fit_params, g_common, side=2)
+        return rest1, rest2, "M_ogse_rest_N1_from_offset_fit(g_common) - M_ogse_rest_N2_from_offset_fit(g_common)"
+    return (
+        np.asarray(signal_fit_1, dtype=float),
+        np.asarray(signal_fit_2, dtype=float),
+        "signal_fit_1(g_common) - signal_fit_2(g_common)",
+    )
+
+
 def _resampled_curves_table(
     row: pd.Series,
     g_common: np.ndarray,
     *,
     experimental_points: pd.DataFrame,
+    contrast_mode: str = "signal_fit",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if experimental_points.empty:
+    model = str(row.get("model", ""))
+    if str(row.get("fit_kind", "")) == "ogse_contrast_from_global_signal_fit":
+        s1, s2 = _model_side_yhat(
+            model=str(row["model"]),
+            td_ms=float(row["td_ms"]),
+            G=g_common,
+            n_1=int(row["N_1"]),
+            n_2=int(row["N_2"]),
+            fit_row=row.to_dict(),
+        )
+        fit_params = pd.DataFrame(
+            [
+                {
+                    "side": 1,
+                    "N": int(row["N_1"]),
+                    "n_points": int((experimental_points["side"].astype(int) == 1).sum()) if not experimental_points.empty else 0,
+                    "signal_fit_model": model,
+                    "signal_fit_method": "global_signal_fit_reused",
+                    "signal_fit_M0": row.get("M0", np.nan),
+                    "signal_fit_D0_m2_ms": row.get("D0_m2_ms", np.nan),
+                    "signal_fit_tc_ms": row.get("tc_ms", np.nan),
+                    "signal_fit_alpha": row.get("alpha", np.nan),
+                    "signal_fit_C": row.get("C", np.nan),
+                    "signal_fit_RN": row.get("RN", np.nan),
+                    "signal_fit_shared_parameters": row.get("global_params", ""),
+                    "signal_fit_pair_parameters": row.get("global_contrast_params", ""),
+                    "signal_fit_ok": bool(row.get("ok", True)),
+                    "signal_fit_msg": "global signal fit reused",
+                },
+                {
+                    "side": 2,
+                    "N": int(row["N_2"]),
+                    "n_points": int((experimental_points["side"].astype(int) == 2).sum()) if not experimental_points.empty else 0,
+                    "signal_fit_model": model,
+                    "signal_fit_method": "global_signal_fit_reused",
+                    "signal_fit_M0": row.get("M0", np.nan),
+                    "signal_fit_D0_m2_ms": row.get("D0_m2_ms", np.nan),
+                    "signal_fit_tc_ms": row.get("tc_ms", np.nan),
+                    "signal_fit_alpha": row.get("alpha", np.nan),
+                    "signal_fit_C": row.get("C", np.nan),
+                    "signal_fit_RN": row.get("RN", np.nan),
+                    "signal_fit_shared_parameters": row.get("global_params", ""),
+                    "signal_fit_pair_parameters": row.get("global_contrast_params", ""),
+                    "signal_fit_ok": bool(row.get("ok", True)),
+                    "signal_fit_msg": "global signal fit reused",
+                },
+            ]
+        )
+        fit_params = _clean_signal_fit_params(fit_params, model)
+    elif experimental_points.empty:
+        if model == "rest_offset_globC":
+            raise ValueError(
+                "rest_offset_globC requires side-specific experimental signal points and cannot use "
+                f"the contrast-fit fallback. {_describe_fit_row(row)}."
+            )
         s1, s2 = _model_side_yhat(
             model=str(row["model"]),
             td_ms=float(row["td_ms"]),
@@ -458,14 +868,26 @@ def _resampled_curves_table(
                 },
             ]
         )
+        fit_params = _clean_signal_fit_params(fit_params, model)
+    elif model == "rest_offset_globC":
+        s1, s2, fit_params = _fit_global_c_signal_curves(row, experimental_points, g_common)
     else:
         s1, fit1 = _fit_independent_signal_curve(row, experimental_points, g_common, side=1)
         s2, fit2 = _fit_independent_signal_curve(row, experimental_points, g_common, side=2)
         fit_params = pd.DataFrame([fit1, fit2])
+        fit_params = _clean_signal_fit_params(fit_params, model)
 
     s1 = np.asarray(s1, dtype=float)
     s2 = np.asarray(s2, dtype=float)
-    contrast = s1 - s2
+    c1, c2, contrast_definition = _contrast_component_curves(
+        row,
+        fit_params,
+        g_common,
+        signal_fit_1=s1,
+        signal_fit_2=s2,
+        contrast_mode=contrast_mode,
+    )
+    contrast = c1 - c2
     gbase = str(row.get("gbase", "g"))
     curves = pd.DataFrame(
         {
@@ -476,9 +898,19 @@ def _resampled_curves_table(
             "N_2": int(row["N_2"]),
             "signal_fit_1": s1,
             "signal_fit_2": s2,
+            "contrast_signal_fit_1": c1,
+            "contrast_signal_fit_2": c2,
             "contrast_fit_resampled": contrast,
+            "contrast_definition": contrast_definition,
         }
     )
+    if model == "rest_offset_globC" and "signal_fit_C_global" in fit_params.columns:
+        c_values = pd.to_numeric(fit_params["signal_fit_C_global"], errors="coerce").dropna().unique()
+        c_err_values = pd.to_numeric(fit_params.get("signal_fit_C_global_err", pd.Series(dtype=float)), errors="coerce").dropna().unique()
+        if len(c_values) != 1:
+            raise ValueError(f"rest_offset_globC produced ambiguous C_global values: {c_values.tolist()}")
+        curves["C_global"] = float(c_values[0])
+        curves["C_global_err"] = float(c_err_values[0]) if len(c_err_values) == 1 else np.nan
     return curves, fit_params
 
 
@@ -486,7 +918,16 @@ def _fit_params_table(row: pd.Series) -> pd.DataFrame:
     return pd.DataFrame([row.to_dict()])
 
 
-def _metadata_table(row: pd.Series, g_common: np.ndarray) -> pd.DataFrame:
+def _metadata_table(
+    row: pd.Series,
+    g_common: np.ndarray,
+    *,
+    contrast_definition: str | None = None,
+    contrast_mode: str = "signal_fit",
+    grid_max_mode: str = "fixed",
+) -> pd.DataFrame:
+    if contrast_definition is None:
+        contrast_definition = "signal_fit_1(g_common) - signal_fit_2(g_common)"
     keys = {
         "analysis_id": row.get("analysis_id", ""),
         "subj": row.get("subj", ""),
@@ -500,12 +941,14 @@ def _metadata_table(row: pd.Series, g_common: np.ndarray) -> pd.DataFrame:
         "N_2": row.get("N_2", np.nan),
         "f_corr_1": row.get("f_corr_1", np.nan),
         "f_corr_2": row.get("f_corr_2", np.nan),
-        "resample_grid": "fixed_corrected",
+        "resample_grid": "corrected",
+        "resample_grid_max_mode": grid_max_mode,
         "resample_grid_n": int(len(g_common)),
         "resample_grid_min_mTm": float(g_common[0]),
         "resample_grid_max_mTm": float(g_common[-1]),
         "gradient_unit": "mT/m",
-        "contrast_definition": "independent_signal_fit_1(g_common) - independent_signal_fit_2(g_common)",
+        "resampled_contrast_mode": contrast_mode,
+        "contrast_definition": contrast_definition,
         "experimental_points_used_for_contrast": False,
     }
     return pd.DataFrame([keys])
@@ -532,7 +975,16 @@ def _plot_fit_and_contrast(
 
     ax.plot(curves[gcol], curves["signal_fit_1"], "-", color="#1f77b4", linewidth=2.0, label=f"N={int(row['N_1'])} fit")
     ax.plot(curves[gcol], curves["signal_fit_2"], "-", color="#d62728", linewidth=2.0, label=f"N={int(row['N_2'])} fit")
-    ax.plot(curves[gcol], curves["contrast_fit_resampled"], "-", color="#2ca02c", linewidth=2.1, label=f"contrast N={int(row['N_1'])}-N={int(row['N_2'])}")
+    contrast_definition = str(curves.get("contrast_definition", pd.Series([""])).iloc[0])
+    contrast_note = " rest-only" if contrast_definition.startswith("M_ogse_rest_") else ""
+    ax.plot(
+        curves[gcol],
+        curves["contrast_fit_resampled"],
+        "-",
+        color="#2ca02c",
+        linewidth=2.1,
+        label=f"contrast N={int(row['N_1'])}-N={int(row['N_2'])}{contrast_note}",
+    )
     ax.axhline(0.0, color="black", linewidth=0.8, alpha=0.35)
     ax.set_xlabel(f"{gbase} corrected [mT/m]")
     ax.set_ylabel(str(row.get("ycol", "value_norm")))
@@ -556,10 +1008,22 @@ def _write_roi_workbook(
     signal_fit_params: pd.DataFrame,
     contrast_table: pd.DataFrame,
     g_common: np.ndarray,
+    contrast_mode: str = "signal_fit",
+    grid_max_mode: str = "fixed",
 ) -> Path:
+    contrast_definition = None
+    if "contrast_definition" in curves.columns:
+        definitions = curves["contrast_definition"].astype(str).dropna().unique().tolist()
+        contrast_definition = definitions[0] if len(definitions) == 1 else None
     return write_xlsx_sheets(
         {
-            "metadata": _metadata_table(row, g_common),
+            "metadata": _metadata_table(
+                row,
+                g_common,
+                contrast_definition=contrast_definition,
+                contrast_mode=contrast_mode,
+                grid_max_mode=grid_max_mode,
+            ),
             "fit_params": _fit_params_table(row),
             "signal_fit_params": signal_fit_params,
             "experimental_points": experimental_points,
@@ -586,7 +1050,14 @@ def export_resampled_contrasts_from_fits(
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
     ok_only: bool = True,
+    contrast_mode: str = "signal_fit",
+    grid_max_mode: str = "fixed",
 ) -> list[Path]:
+    if contrast_mode not in VALID_RESAMPLED_CONTRAST_MODES:
+        raise ValueError(f"Invalid resampled contrast mode {contrast_mode!r}. Expected one of {VALID_RESAMPLED_CONTRAST_MODES}.")
+    if grid_max_mode not in VALID_GRID_MAX_MODES:
+        raise ValueError(f"Invalid resampled grid max mode {grid_max_mode!r}. Expected one of {VALID_GRID_MAX_MODES}.")
+
     df = load_contrast_fit_params(
         [fits_root],
         pattern=pattern,
@@ -598,8 +1069,22 @@ def export_resampled_contrasts_from_fits(
     )
     if df.empty:
         raise ValueError("No valid fits remained after filtering.")
+    if "analysis_id" in df.columns:
+        is_nested_fitresamp = df["analysis_id"].astype(str).str.contains("_fitresamp-", regex=False)
+        if is_nested_fitresamp.any():
+            skipped = sorted(df.loc[is_nested_fitresamp, "analysis_id"].astype(str).unique().tolist())
+            print(
+                "Skipping fit_params from already fitted/resampled contrast tables:",
+                len(skipped),
+            )
+            for analysis_id in skipped[:20]:
+                print(f"  - {analysis_id}")
+            if len(skipped) > 20:
+                print(f"  ... {len(skipped) - 20} more")
+            df = df.loc[~is_nested_fitresamp].copy()
+    if df.empty:
+        raise ValueError("No valid non-fitresampled fits remained after filtering.")
 
-    g_common = np.linspace(float(grid_min_mTm), float(grid_max_mTm), int(grid_n))
     out_base = Path(out_dir)
     out_base.mkdir(parents=True, exist_ok=True)
     cache: dict[Path, pd.DataFrame] = {}
@@ -619,8 +1104,35 @@ def export_resampled_contrasts_from_fits(
             contrast_df = _load_contrast_table_cached(contrast_path, cache)
             df_group = _subset_group(contrast_df, row)
             experimental_points = _experimental_points_table(df_group, row)
-            curves, signal_fit_params = _resampled_curves_table(row, g_common, experimental_points=experimental_points)
-            table = _resampled_rows_from_curves(row, g_common, curves, peak_D0_fix=peak_D0_fix, peak_gamma=peak_gamma)
+            _require_experimental_points(
+                experimental_points=experimental_points,
+                df_group=df_group,
+                row=row,
+                contrast_path=contrast_path,
+            )
+            g_common = _resampled_grid_for_row(
+                experimental_points,
+                row,
+                grid_min_mTm=grid_min_mTm,
+                grid_max_mTm=grid_max_mTm,
+                grid_n=grid_n,
+                grid_max_mode=grid_max_mode,
+            )
+            curves, signal_fit_params = _resampled_curves_table(
+                row,
+                g_common,
+                experimental_points=experimental_points,
+                contrast_mode=contrast_mode,
+            )
+            table = _resampled_rows_from_curves(
+                row,
+                g_common,
+                curves,
+                peak_D0_fix=peak_D0_fix,
+                peak_gamma=peak_gamma,
+                contrast_mode=contrast_mode,
+                grid_max_mode=grid_max_mode,
+            )
             roi_tables.append(table)
 
             roi_token = _sanitize_token(str(row["roi"]))
@@ -628,6 +1140,8 @@ def export_resampled_contrasts_from_fits(
                 folder / f"roi-{roi_token}.signal_fits.png",
                 folder / f"roi-{roi_token}.resampled_contrast.png",
                 folder / f"roi-{roi_token}.resampled_contrast.xlsx",
+                folder / f"roi-{roi_token}.fit_and_resampled_contrast.png",
+                folder / f"roi-{roi_token}.fit_and_resampled_contrast.xlsx",
             ):
                 if stale.exists():
                     stale.unlink()
@@ -648,6 +1162,8 @@ def export_resampled_contrasts_from_fits(
                 contrast_table=table,
                 signal_fit_params=signal_fit_params,
                 g_common=g_common,
+                contrast_mode=contrast_mode,
+                grid_max_mode=grid_max_mode,
             )
             written.append(contrast_out)
             written.append(workbook)

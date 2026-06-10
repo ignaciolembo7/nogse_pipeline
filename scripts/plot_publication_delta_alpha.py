@@ -38,8 +38,8 @@ def _default_brains_alpha(project_root: Path) -> Path:
 def _default_brains_delta(project_root: Path) -> Path:
     return (
         project_root
-        / "analysis/brains/ogse_experiments/fits/ogse_contrast_vs_g_rest_corr"
-        / "tcpeak_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_ms_k=None.xlsx"
+        / "analysis/brains/ogse_experiments/fits/ogse_contrast_vs_gresampled_rest_offset_globC_corr"
+        / "tcpeak_resampled_data_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_resampled_data_ms_k=None.xlsx"
     )
 
 
@@ -50,8 +50,8 @@ def _default_phantoms_alpha(project_root: Path) -> Path:
 def _default_phantoms_delta(project_root: Path) -> Path:
     return (
         project_root
-        / "analysis/phantoms/ogse_experiments/fits/ogse_contrast_vs_g_rest_corr"
-        / "tcpeak_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_ms_k=None.xlsx"
+        / "analysis/phantoms/ogse_experiments/fits/ogse_contrast_vs_gresampled_rest_offset_globC_corr_D0=2.3"
+        / "tcpeak_resampled_data_vs_td/pseudohuber_fixed_macro/params_pseudohuber_mode=fixed_macro_y=tc_peak_resampled_data_ms_k=None.xlsx"
     )
 
 
@@ -94,7 +94,7 @@ def main() -> None:
         "--phantoms-direction-alias",
         action="append",
         default=None,
-        help="Repeatable source=target alias. Defaults include 1=transversal, 3=longitudinal.",
+        help="Repeatable source=target alias. Defaults include 1=transversal, 2=transversal, 3=longitudinal.",
     )
     args = ap.parse_args()
 
@@ -111,7 +111,10 @@ def main() -> None:
             "z": "transversal",
         },
     )
-    phantom_aliases = _parse_aliases(args.phantoms_direction_alias, {"1": "transversal", "3": "longitudinal"})
+    phantom_aliases = _parse_aliases(
+        args.phantoms_direction_alias,
+        {"1": "transversal", "2": "transversal", "3": "longitudinal"},
+    )
 
     specs = [
         DatasetFigureSpec(

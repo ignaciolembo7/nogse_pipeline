@@ -131,16 +131,23 @@ def M_ogse_rest(TE, G, N, x, tc, M0, D0):
 
 def M_ogse_rest_offset(TE, G, N, x, tc, M0, D0, C):
     clean_signal = M_ogse_rest(TE, G, N, x, tc, M0, D0)
-    return np.sqrt(clean_signal**2 + C**2)
+    return np.sqrt(clean_signal**2 + C**2)/np.sqrt(1+C**2)
 
 def M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0): # alpha is 1/alpha
     return M0 * M_nogse_free(TE, G, N, x, 1, alpha*D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1-alpha)*D0)
+
+def M_ogse_mixed_offset(TE, G, N, x, tc, alpha, M0, D0, C, RN):
+    clean_signal = M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0) + C
+    return np.sqrt(clean_signal**2 + RN**2)
 
 def OGSE_contrast_vs_g_free(TE, G1, G2, N1, N2, M0, D0):
     return M_ogse_free(TE, G1, N1, TE/N1, M0, D0) - M_ogse_free(TE, G2, N2, TE/N2, M0, D0)
 
 def OGSE_contrast_vs_g_rest(TE, G1, G2, N1, N2, tc, M0, D0):
     return M_ogse_rest(TE, G1, N1, TE/N1, tc, M0, D0) - M_ogse_rest(TE, G2, N2, TE/N2, tc, M0, D0)
+
+def OGSE_contrast_vs_g_rest_offset(TE, G1, G2, N1, N2, tc, M0, D0, C):
+    return M_ogse_rest_offset(TE, G1, N1, TE/N1, tc, M0, D0, C) - M_ogse_rest_offset(TE, G2, N2, TE/N2, tc, M0, D0, C)
 
 def OGSE_contrast_vs_g_tort(TE, G1, G2, N1, N2, alpha, M0, D0):
     return M_ogse_free(TE, G1, N1, TE/N1, M0, alpha*D0) - M_ogse_free(TE, G2, N2, TE/N2, M0, alpha*D0)

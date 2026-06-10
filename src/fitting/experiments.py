@@ -6,7 +6,7 @@ from typing import Iterable
 from nogse_fitting.fit_nogse_signal_vs_g import VALID_MODELS as NOGSE_SIGNAL_MODEL_REGISTRY
 
 NOGSE_CONTRAST_MODELS = ("free", "nogse_free_grad_offset", "rest", "tort")
-OGSE_CONTRAST_MODELS = ("free", "mixed", "mixed_global", "rest", "tort")
+OGSE_CONTRAST_MODELS = ("free", "mixed", "mixed_global", "rest", "rest_offset", "rest_offset_globC", "tort")
 NOGSE_SIGNAL_MODELS = tuple(sorted(str(model) for model in NOGSE_SIGNAL_MODEL_REGISTRY))
 OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse", "rest", "rest_offset")
 

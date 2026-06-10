@@ -21,16 +21,20 @@ from fitting.core import CurveFitParameter
 from fitting.core import chi2 as _chi2
 from fitting.core import fit_curve_fit_parameters
 from fitting.core import fit_least_squares
+from fitting.core import parameter_error_column
 from fitting.core import rmse as _rmse
 from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
 from ogse_plotting.plot_ogse_contrast_vs_g import FAMILY_LABEL, plot_contrast_fit
 from models.model_fitting import (
     M_ogse_free,
     M_ogse_mixed,
+    M_ogse_mixed_offset,
     M_ogse_rest,
+    M_ogse_rest_offset,
     OGSE_contrast_vs_g_free,
     OGSE_contrast_vs_g_mixed,
     OGSE_contrast_vs_g_rest,
+    OGSE_contrast_vs_g_rest_offset,
     OGSE_contrast_vs_g_tort,
 )
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
@@ -214,6 +218,27 @@ def _eval_rest(
     )
 
 
+def _eval_rest_offset(
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    params: dict[str, Any],
+) -> np.ndarray:
+    return OGSE_contrast_vs_g_rest_offset(
+        td_ms,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        float(params["tc_ms"]),
+        float(params["M0"]),
+        float(params["D0_m2_ms"]),
+        float(params["C"]),
+    )
+
+
 def _eval_mixed(
     td_ms: float,
     G1: np.ndarray,
@@ -235,11 +260,53 @@ def _eval_mixed(
     )
 
 
+def _eval_ogse_mixed_offset(
+    td_ms: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    params: dict[str, Any],
+) -> np.ndarray:
+    x1 = float(td_ms) / float(n_1)
+    x2 = float(td_ms) / float(n_2)
+    return M_ogse_mixed_offset(
+        td_ms,
+        G1,
+        n_1,
+        x1,
+        float(params["tc_ms"]),
+        float(params["alpha"]),
+        float(params["M0"]),
+        float(params["D0_m2_ms"]),
+        float(params.get("C", 0.0)),
+        float(params.get("RN", 0.0)),
+    ) - M_ogse_mixed_offset(
+        td_ms,
+        G2,
+        n_2,
+        x2,
+        float(params["tc_ms"]),
+        float(params["alpha"]),
+        float(params["M0"]),
+        float(params["D0_m2_ms"]),
+        float(params.get("C", 0.0)),
+        float(params.get("RN", 0.0)),
+    )
+
+
 CONTRAST_MODEL_SPECS: dict[str, ContrastModelSpec] = {
     "free": ContrastModelSpec(name="free", evaluator=_eval_free, maxfev=400000),
     "tort": ContrastModelSpec(name="tort", evaluator=_eval_tort, maxfev=600000),
     "rest": ContrastModelSpec(name="rest", evaluator=_eval_rest, maxfev=600000),
+    "rest_offset": ContrastModelSpec(name="rest_offset", evaluator=_eval_rest_offset, maxfev=800000),
+    "rest_offset_globC": ContrastModelSpec(name="rest_offset_globC", evaluator=_eval_rest_offset, maxfev=800000),
     "mixed": ContrastModelSpec(name="mixed", evaluator=_eval_mixed, maxfev=800000),
+    "ogse_mixed_offset": ContrastModelSpec(
+        name="ogse_mixed_offset",
+        evaluator=_eval_ogse_mixed_offset,
+        maxfev=800000,
+    ),
 }
 
 
@@ -296,7 +363,7 @@ def _model_side_yhat(
     x1 = float(td_ms) / float(n_1)
     x2 = float(td_ms) / float(n_2)
 
-    if model_name == "free":
+    if model_name in {"free", "ogse_free"}:
         return (
             M_ogse_free(td_ms, G, n_1, x1, M0, D0),
             M_ogse_free(td_ms, G, n_2, x2, M0, D0),
@@ -308,18 +375,34 @@ def _model_side_yhat(
             M_ogse_free(td_ms, G, n_1, x1, M0, D0_eff),
             M_ogse_free(td_ms, G, n_2, x2, M0, D0_eff),
         )
-    if model_name == "rest":
+    if model_name in {"rest", "ogse_rest"}:
         tc_ms = float(fit_row["tc_ms"])
         return (
             M_ogse_rest(td_ms, G, n_1, x1, tc_ms, M0, D0),
             M_ogse_rest(td_ms, G, n_2, x2, tc_ms, M0, D0),
         )
-    if model_name in {"mixed", "mixed_global"}:
+    if model_name in {"rest_offset", "rest_offset_globC", "ogse_rest_offset"}:
+        tc_ms = float(fit_row["tc_ms"])
+        C = float(fit_row.get("C", 0.0))
+        return (
+            M_ogse_rest_offset(td_ms, G, n_1, x1, tc_ms, M0, D0, C),
+            M_ogse_rest_offset(td_ms, G, n_2, x2, tc_ms, M0, D0, C),
+        )
+    if model_name in {"mixed", "mixed_global", "ogse_mixed"}:
         tc_ms = float(fit_row["tc_ms"])
         alpha = float(fit_row["alpha"])
         return (
             M_ogse_mixed(td_ms, G, n_1, x1, tc_ms, alpha, M0, D0),
             M_ogse_mixed(td_ms, G, n_2, x2, tc_ms, alpha, M0, D0),
+        )
+    if model_name == "ogse_mixed_offset":
+        tc_ms = float(fit_row["tc_ms"])
+        alpha = float(fit_row["alpha"])
+        C = float(fit_row.get("C", 0.0))
+        RN = float(fit_row.get("RN", 0.0))
+        return (
+            M_ogse_mixed_offset(td_ms, G, n_1, x1, tc_ms, alpha, M0, D0, C, RN),
+            M_ogse_mixed_offset(td_ms, G, n_2, x2, tc_ms, alpha, M0, D0, C, RN),
         )
 
     raise ValueError(f"Unsupported model {model!r} for side-curve evaluation.")
@@ -734,6 +817,77 @@ def _fit_rest(
     )
 
 
+def _fit_rest_offset(
+    td: float,
+    G1: np.ndarray,
+    G2: np.ndarray,
+    n_1: int,
+    n_2: int,
+    y: np.ndarray,
+    *,
+    M0_vary: bool,
+    D0_vary: bool,
+    C_vary: bool,
+    M0_value: float,
+    D0_value: float,
+    C_value: float,
+    tc_value: float,
+    tc_vary: bool = True,
+    tc_bounds: tuple[float, float] | None = None,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
+    c_bounds: tuple[float, float] | None = None,
+):
+    M0_lo, M0_hi = (0.0, 5.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
+    D_lo, D_hi = (
+        (float(D0_value / 100.0), float(D0_value * 100.0))
+        if d0_bounds is None
+        else (float(d0_bounds[0]), float(d0_bounds[1]))
+    )
+    C_lo, C_hi = (0.0, 1.0) if c_bounds is None else (float(c_bounds[0]), float(c_bounds[1]))
+    tc_lo, tc_hi = (0.1, 1000.0) if tc_bounds is None else (float(tc_bounds[0]), float(tc_bounds[1]))
+    tc_seed = _best_tc_seed_rest(
+        td,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        y,
+        M0_guess=float(M0_value),
+        D0_guess=float(D0_value),
+        tc_default=float(tc_value),
+        tc_bounds=(tc_lo, tc_hi),
+    )
+    fit = _fit_contrast_model(
+        CONTRAST_MODEL_SPECS["rest_offset"],
+        td,
+        G1,
+        G2,
+        n_1,
+        n_2,
+        y,
+        parameters=[
+            CurveFitParameter("tc_ms", float(tc_seed), tc_lo, tc_hi, bool(tc_vary)),
+            CurveFitParameter("M0", float(M0_value), M0_lo, M0_hi, bool(M0_vary)),
+            CurveFitParameter("D0_m2_ms", float(D0_value), D_lo, D_hi, bool(D0_vary)),
+            CurveFitParameter("C", float(C_value), C_lo, C_hi, bool(C_vary)),
+        ],
+    )
+    return (
+        float(fit.values["tc_ms"]),
+        float(fit.values["M0"]),
+        float(fit.values["D0_m2_ms"]),
+        float(fit.values["C"]),
+        fit.rmse,
+        fit.chi2,
+        fit.method,
+        float(fit.errors.get("tc_err_ms", np.nan)) if tc_vary else None,
+        float(fit.errors.get("M0_err", np.nan)) if M0_vary else None,
+        float(fit.errors.get("D0_err_m2_ms", np.nan)) if D0_vary else None,
+        float(fit.errors.get("C_err", np.nan)) if C_vary else None,
+    )
+
+
 def _best_seed_mixed(
     td: float,
     G1: np.ndarray,
@@ -858,13 +1012,16 @@ def _fit_selected_contrast_model(
     *,
     M0_vary: bool,
     D0_vary: bool,
+    C_vary: bool,
     M0_value: float,
     D0_value: float,
+    C_value: float,
     tc_value: float,
     tc_vary: bool = True,
     tc_bounds: tuple[float, float] | None = None,
     m0_bounds: tuple[float, float] | None = None,
     d0_bounds: tuple[float, float] | None = None,
+    c_bounds: tuple[float, float] | None = None,
 ) -> dict[str, float | str | None]:
     if model == "free":
         M0, D0, rmse, chi2, method, M0_err, D0_err = _fit_free(
@@ -943,6 +1100,41 @@ def _fit_selected_contrast_model(
             "M0_err": None if M0_err is None else float(M0_err),
             "D0_m2_ms": float(D0),
             "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "rmse": float(rmse),
+            "chi2": float(chi2),
+            "method": str(method),
+        }
+
+    if model in {"rest_offset", "rest_offset_globC"}:
+        tc, M0, D0, C, rmse, chi2, method, tc_err, M0_err, D0_err, C_err = _fit_rest_offset(
+            td,
+            G1,
+            G2,
+            n_1,
+            n_2,
+            y,
+            M0_vary=M0_vary,
+            D0_vary=D0_vary,
+            C_vary=C_vary,
+            M0_value=M0_value,
+            D0_value=D0_value,
+            C_value=C_value,
+            tc_value=tc_value,
+            tc_vary=tc_vary,
+            tc_bounds=tc_bounds,
+            m0_bounds=m0_bounds,
+            d0_bounds=d0_bounds,
+            c_bounds=c_bounds,
+        )
+        return {
+            "tc_ms": float(tc),
+            "tc_err_ms": None if tc_err is None else float(tc_err),
+            "M0": float(M0),
+            "M0_err": None if M0_err is None else float(M0_err),
+            "D0_m2_ms": float(D0),
+            "D0_err_m2_ms": None if D0_err is None else float(D0_err),
+            "C": float(C),
+            "C_err": None if C_err is None else float(C_err),
             "rmse": float(rmse),
             "chi2": float(chi2),
             "method": str(method),
@@ -1177,6 +1369,8 @@ class FitRow:
     alpha_err: float | None = None
     tc_ms: float | None = None
     tc_err_ms: float | None = None
+    C: float | None = None
+    C_err: float | None = None
 
     # metrics
     rmse: float | None = None
@@ -1434,6 +1628,561 @@ def _prepare_mixed_global_contrast_data(
     return pd.concat(rows, ignore_index=True)
 
 
+MODEL_PARAM_NAMES: dict[str, tuple[str, ...]] = {
+    "free": ("M0", "D0_m2_ms"),
+    "tort": ("alpha", "M0", "D0_m2_ms"),
+    "rest": ("tc_ms", "M0", "D0_m2_ms"),
+    "rest_offset": ("tc_ms", "M0", "D0_m2_ms", "C"),
+    "rest_offset_globC": ("tc_ms", "M0", "D0_m2_ms", "C"),
+    "mixed": ("tc_ms", "alpha", "M0", "D0_m2_ms"),
+}
+
+
+PARAM_ALIASES = {
+    "D0": "D0_m2_ms",
+    "D0_m2_ms": "D0_m2_ms",
+    "D0_mm2_s": "D0_m2_ms",
+    "M0": "M0",
+    "tc": "tc_ms",
+    "tc_ms": "tc_ms",
+    "alpha": "alpha",
+    "C": "C",
+}
+
+
+def _normalize_global_params(model: str, values: Sequence[str] | None) -> list[str]:
+    if not values:
+        return []
+    if len(values) == 1 and str(values[0]).upper() in {"NONE", "LOCAL"}:
+        return []
+    allowed = set(MODEL_PARAM_NAMES.get(str(model), ()))
+    out: list[str] = []
+    for item in values:
+        for token in str(item).replace(",", " ").split():
+            if not token:
+                continue
+            resolved = PARAM_ALIASES.get(token, PARAM_ALIASES.get(token.strip(), None))
+            if resolved is None:
+                raise ValueError(f"Unknown global parameter {token!r}. Allowed aliases: {sorted(PARAM_ALIASES)}.")
+            if resolved not in allowed:
+                raise ValueError(f"Parameter {resolved!r} is not available for model={model!r}. Allowed: {sorted(allowed)}.")
+            if resolved not in out:
+                out.append(resolved)
+    return out
+
+
+def _param_seed_bounds(
+    name: str,
+    *,
+    M0_value: float,
+    D0_value: float,
+    C_value: float,
+    tc_value: float,
+    tc_bounds: tuple[float, float] | None,
+    m0_bounds: tuple[float, float] | None,
+    d0_bounds: tuple[float, float] | None,
+    c_bounds: tuple[float, float] | None,
+) -> tuple[float, float, float]:
+    if name == "M0":
+        lo, hi = (0.0, 5.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
+        return float(np.clip(float(M0_value), lo, hi)), lo, hi
+    if name == "D0_m2_ms":
+        lo, hi = (float(D0_value / 100.0), float(D0_value * 100.0)) if d0_bounds is None else (
+            float(d0_bounds[0]),
+            float(d0_bounds[1]),
+        )
+        return float(np.clip(float(D0_value), lo, hi)), lo, hi
+    if name == "tc_ms":
+        lo, hi = (0.1, 1000.0) if tc_bounds is None else (float(tc_bounds[0]), float(tc_bounds[1]))
+        return float(np.clip(float(tc_value), lo, hi)), lo, hi
+    if name == "alpha":
+        return 0.5, 0.0, 1.0
+    if name == "C":
+        lo, hi = (0.0, 1.0) if c_bounds is None else (float(c_bounds[0]), float(c_bounds[1]))
+        return float(np.clip(float(C_value), lo, hi)), lo, hi
+    raise ValueError(f"Unsupported fit parameter {name!r}.")
+
+
+def _param_vary_flags(*, M0_vary: bool, D0_vary: bool, C_vary: bool, tc_vary: bool) -> dict[str, bool]:
+    return {
+        "M0": bool(M0_vary),
+        "D0_m2_ms": bool(D0_vary),
+        "tc_ms": bool(tc_vary),
+        "C": bool(C_vary),
+        "alpha": True,
+    }
+
+
+def _param_fixed_values(*, M0_value: float, D0_value: float, C_value: float, tc_value: float) -> dict[str, float]:
+    return {
+        "M0": float(M0_value),
+        "D0_m2_ms": float(D0_value),
+        "tc_ms": float(tc_value),
+        "C": float(C_value),
+        "alpha": 0.5,
+    }
+
+
+def _prepare_global_contrast_data(
+    df: pd.DataFrame,
+    *,
+    gbase: str,
+    plot_xcol: str | None,
+    ycol: str,
+    directions: list[str] | None,
+    rois: list[str] | None,
+    stat_keep: str | None,
+    xplot: str,
+    n_fit: int | None,
+    sort_by_x: bool,
+    f_by_direction: dict[str, float | tuple[float, float]] | None,
+    td_override_ms: float | None,
+    td_tol_ms: float,
+    oneg: bool,
+) -> pd.DataFrame:
+    df = _normalize_keys(df, label="ogse_global")
+    if ycol not in df.columns:
+        raise KeyError(f"ogse_global: missing ycol {ycol!r}. Columns={list(df.columns)}")
+    if directions is not None and not (len(directions) == 1 and directions[0].upper() == "ALL"):
+        df = df[df["direction"].astype(str).isin([str(x) for x in directions])].copy()
+    if rois is not None and not (len(rois) == 1 and rois[0].upper() == "ALL"):
+        df = df[df["roi"].astype(str).isin([str(r) for r in rois])].copy()
+    if stat_keep is not None and "stat" in df.columns and str(stat_keep).upper() != "ALL":
+        df = df[df["stat"].astype(str) == str(stat_keep)].copy()
+    if df.empty:
+        raise ValueError("No data remains after filtering.")
+
+    fit_axis = normalize_axis_base(gbase)
+    plot_axis = _resolve_plot_axis(fit_axis=fit_axis, plot_axis=plot_xcol, xplot=xplot)
+    _plot_axis_base, plot_side = split_axis_side(plot_axis)
+    plot_side = 1 if plot_side is None else int(plot_side)
+    _require_cols(df, ["N_1", "N_2"], label="ogse_global (N_1/N_2)")
+
+    rows: list[pd.DataFrame] = []
+    group_cols = ["analysis_id", "source_file", "roi", "direction"] + (["stat"] if "stat" in df.columns else [])
+    for curve_id, (_key, gg) in enumerate(df.groupby(group_cols, sort=False, dropna=False)):
+        meta = _contrast_curve_metadata(
+            gg,
+            source_file=str(_unique_scalar(gg["source_file"], name="source_file", required=False)),
+            td_override_ms=td_override_ms,
+            td_tol_ms=td_tol_ms,
+        )
+        td_ms = meta["td_ms"]
+        if td_ms is None or not np.isfinite(float(td_ms)):
+            continue
+        roi = str(_unique_scalar(gg["roi"], name="roi", required=True))
+        direction = str(_unique_scalar(gg["direction"], name="direction", required=True))
+        if {"grad_correction_factor_1", "grad_correction_factor_2"}.issubset(gg.columns):
+            f_corr_1, f_corr_2 = _coerce_correction_pair(
+                (
+                    _unique_scalar(gg["grad_correction_factor_1"], name="grad_correction_factor_1", required=False),
+                    _unique_scalar(gg["grad_correction_factor_2"], name="grad_correction_factor_2", required=False),
+                )
+            )
+        else:
+            f_corr_1, f_corr_2 = _coerce_correction_pair(f_by_direction.get(direction, 1.0) if f_by_direction else 1.0)
+
+        fit_bundle_1 = build_axis_bundle(
+            gg,
+            axis=fit_axis,
+            side=1,
+            correction_factor=float(f_corr_1),
+            gamma=GAMMA_DEFAULT,
+            N=int(meta["N_1"]),
+            delta_ms=meta["delta_ms_1"],
+            Delta_app_ms=meta["Delta_app_ms_1"],
+        )
+        fit_bundle_2 = build_axis_bundle(
+            gg,
+            axis=fit_axis,
+            side=2,
+            correction_factor=float(f_corr_2),
+            gamma=GAMMA_DEFAULT,
+            N=int(meta["N_2"]),
+            delta_ms=meta["delta_ms_2"],
+            Delta_app_ms=meta["Delta_app_ms_2"],
+        )
+        plot_bundle = build_axis_bundle(
+            gg,
+            axis=plot_axis,
+            side=plot_side,
+            correction_factor=float(f_corr_1 if plot_side == 1 else f_corr_2),
+            gamma=GAMMA_DEFAULT,
+            N=int(meta["N_1"] if plot_side == 1 else meta["N_2"]),
+            delta_ms=meta["delta_ms_1"] if plot_side == 1 else meta["delta_ms_2"],
+            Delta_app_ms=meta["Delta_app_ms_1"] if plot_side == 1 else meta["Delta_app_ms_2"],
+        )
+
+        y = pd.to_numeric(gg[ycol], errors="coerce").to_numpy(dtype=float)
+        G1 = fit_bundle_1.gradient_corr
+        G2 = fit_bundle_2.gradient_corr
+        x = plot_bundle.axis_corr
+        m = np.isfinite(y) & np.isfinite(G1) & np.isfinite(G2) & np.isfinite(x)
+        y, G1, G2, x = y[m], G1[m], G2[m], x[m]
+        if sort_by_x and len(y):
+            order = np.argsort(x)
+            y, G1, G2, x = y[order], G1[order], G2[order], x[order]
+        if n_fit is not None:
+            k = int(n_fit)
+            y, G1, G2, x = y[:k], G1[:k], G2[:k], x[:k]
+        if len(y) == 0:
+            continue
+
+        one_g_per_sequence_1 = bool(truthy_series(gg["one_g_per_sequence_1"])) if "one_g_per_sequence_1" in gg.columns else None
+        one_g_per_sequence_2 = bool(truthy_series(gg["one_g_per_sequence_2"])) if "one_g_per_sequence_2" in gg.columns else None
+        allow_sequence_ranges = bool(oneg or one_g_per_sequence_1 or one_g_per_sequence_2)
+
+        out = pd.DataFrame(
+            {
+                "__curve_id__": int(curve_id),
+                "__point_id__": np.arange(len(y), dtype=int),
+                "__y__": y,
+                "__G1__": G1,
+                "__G2__": G2,
+                "__xplot_value__": x,
+                "__td_ms__": float(td_ms),
+                "__N1__": int(meta["N_1"]),
+                "__N2__": int(meta["N_2"]),
+                "__f_corr_1__": float(f_corr_1),
+                "__f_corr_2__": float(f_corr_2),
+                "__n_points_curve__": int(len(y)),
+                "__n_fit_curve__": int(len(y)),
+                "__one_g_per_sequence_1__": one_g_per_sequence_1,
+                "__one_g_per_sequence_2__": one_g_per_sequence_2,
+            }
+        )
+        for col in group_cols:
+            out[col] = scalar_or_compact_series(gg[col], name=col, required=False)
+        for key_meta, value in meta.items():
+            out[key_meta] = value
+        if allow_sequence_ranges:
+            for seq_col in ("sequence_1", "sequence_2"):
+                if seq_col in gg.columns:
+                    out[seq_col] = scalar_or_compact_series(gg[seq_col], name=seq_col, required=False)
+        out["roi"] = roi
+        out["direction"] = direction
+        out["gbase"] = _normalize_gbase(fit_axis)
+        out["fit_xcol"] = str(fit_axis)
+        out["plot_xcol"] = str(plot_axis)
+        out["xplot"] = str(plot_side)
+        rows.append(out)
+
+    if not rows:
+        raise ValueError("No valid curves remained for global OGSE contrast fitting.")
+    return pd.concat(rows, ignore_index=True)
+
+
+def fit_ogse_contrast_global_long(
+    df: pd.DataFrame,
+    *,
+    model: str,
+    global_params: Sequence[str],
+    gbase: str = "g_lin_max",
+    plot_xcol: str | None = None,
+    ycol: str = "value_norm",
+    directions: list[str] | None = None,
+    rois: list[str] | None = None,
+    stat_keep: str | None = "avg",
+    xplot: str = "1",
+    n_fit: int | None = None,
+    sort_by_x: bool = True,
+    f_by_direction: dict[str, float | tuple[float, float]] | None = None,
+    td_override_ms: float | None = None,
+    td_tol_ms: float = 1e-3,
+    M0_vary: bool = True,
+    D0_vary: bool = True,
+    C_vary: bool = True,
+    M0_value: float = 1.0,
+    D0_value: float = 1e-12,
+    C_value: float = 0.0,
+    tc_value: float = 5.0,
+    tc_vary: bool = True,
+    tc_bounds: tuple[float, float] | None = None,
+    m0_bounds: tuple[float, float] | None = None,
+    d0_bounds: tuple[float, float] | None = None,
+    c_bounds: tuple[float, float] | None = None,
+    peak_grid_n: int = 1000,
+    peak_D0_fix: float = 3.2e-12,
+    peak_gamma: float = 267.5221900,
+    peak_g_max_mTm: float | None = None,
+    peak_resample_gradient: bool = False,
+    peak_resample_g_max_corr_mTm: float | None = None,
+    source_file: str | None = None,
+    oneg: bool = False,
+) -> pd.DataFrame:
+    if model not in MODEL_PARAM_NAMES:
+        raise ValueError(f"Global OGSE contrast fitting does not support model={model!r}.")
+    resolved_global = _normalize_global_params(model, global_params)
+    if not resolved_global:
+        raise ValueError("--global_params must include at least one parameter for global fitting.")
+
+    vary_flags = _param_vary_flags(M0_vary=M0_vary, D0_vary=D0_vary, C_vary=C_vary, tc_vary=tc_vary)
+    fixed_values = _param_fixed_values(M0_value=M0_value, D0_value=D0_value, C_value=C_value, tc_value=tc_value)
+    model_params = list(MODEL_PARAM_NAMES[model])
+    fixed_params = [name for name in model_params if not vary_flags.get(name, True)]
+    blocked = [name for name in resolved_global if name in fixed_params]
+    if blocked:
+        raise ValueError(f"Parameters cannot be both fixed and global: {blocked}. Use the corresponding --free_* option.")
+
+    prepared = _prepare_global_contrast_data(
+        df,
+        gbase=gbase,
+        plot_xcol=plot_xcol,
+        ycol=ycol,
+        directions=directions,
+        rois=rois,
+        stat_keep=stat_keep,
+        xplot=xplot,
+        n_fit=n_fit,
+        sort_by_x=sort_by_x,
+        f_by_direction=f_by_direction,
+        td_override_ms=td_override_ms,
+        td_tol_ms=td_tol_ms,
+        oneg=oneg,
+    )
+
+    rows: list[dict[str, Any]] = []
+    group_cols = ["subj", "roi", "direction"] + (["stat"] if "stat" in prepared.columns else [])
+    for key, group in prepared.groupby(group_cols, sort=False, dropna=False):
+        if not isinstance(key, tuple):
+            key = (key,)
+        key_dict = dict(zip(group_cols, key))
+        y = group["__y__"].to_numpy(dtype=float)
+        G1 = group["__G1__"].to_numpy(dtype=float)
+        G2 = group["__G2__"].to_numpy(dtype=float)
+        td = group["__td_ms__"].to_numpy(dtype=float)
+        n1 = group["__N1__"].to_numpy(dtype=float)
+        n2 = group["__N2__"].to_numpy(dtype=float)
+        curve_ids = group["__curve_id__"].to_numpy(dtype=int)
+        unique_curve_ids = sorted(int(v) for v in pd.Series(curve_ids).unique().tolist())
+
+        param_names: list[str] = []
+        p0: list[float] = []
+        lower: list[float] = []
+        upper: list[float] = []
+        log_params: list[str] = []
+        value_lookup: dict[str, dict[int | None, str]] = {}
+
+        for param in model_params:
+            value_lookup[param] = {}
+            if not vary_flags.get(param, True):
+                continue
+            seed, lo, hi = _param_seed_bounds(
+                param,
+                M0_value=M0_value,
+                D0_value=D0_value,
+                C_value=C_value,
+                tc_value=tc_value,
+                tc_bounds=tc_bounds,
+                m0_bounds=m0_bounds,
+                d0_bounds=d0_bounds,
+                c_bounds=c_bounds,
+            )
+            if param in resolved_global:
+                fit_name = param
+                param_names.append(fit_name)
+                p0.append(seed)
+                lower.append(lo)
+                upper.append(hi)
+                value_lookup[param][None] = fit_name
+                if param in {"tc_ms", "D0_m2_ms"}:
+                    log_params.append(fit_name)
+            else:
+                for curve_id in unique_curve_ids:
+                    fit_name = f"{param}__curve_{curve_id}"
+                    param_names.append(fit_name)
+                    p0.append(seed)
+                    lower.append(lo)
+                    upper.append(hi)
+                    value_lookup[param][curve_id] = fit_name
+                    if param in {"tc_ms", "D0_m2_ms"}:
+                        log_params.append(fit_name)
+
+        def params_for_curve(values: dict[str, float], curve_id: int) -> dict[str, float]:
+            params = {param: float(fixed_values[param]) for param in model_params}
+            for param in model_params:
+                if not vary_flags.get(param, True):
+                    continue
+                fit_name = value_lookup[param].get(None) or value_lookup[param][int(curve_id)]
+                params[param] = float(values[fit_name])
+            return params
+
+        def model_fn(x_model: np.ndarray, *values: float) -> np.ndarray:
+            del x_model
+            values_by_name = dict(zip(param_names, values))
+            yhat = np.empty_like(y, dtype=float)
+            for curve_id in unique_curve_ids:
+                mask = curve_ids == int(curve_id)
+                params = params_for_curve(values_by_name, int(curve_id))
+                yhat[mask] = CONTRAST_MODEL_SPECS[model].evaluator(
+                    td[mask],
+                    G1[mask],
+                    G2[mask],
+                    n1[mask],
+                    n2[mask],
+                    params,
+                )
+            return yhat
+
+        try:
+            if param_names:
+                fit = fit_least_squares(
+                    model_fn,
+                    np.arange(len(y), dtype=float),
+                    y,
+                    param_names=param_names,
+                    p0=p0,
+                    bounds=(lower, upper),
+                    log_params=log_params,
+                    max_nfev=int(CONTRAST_MODEL_SPECS[model].maxfev),
+                    method=f"least_squares_ogse_global_{model}",
+                )
+                fit_values = fit.values
+                fit_errors = fit.errors
+                ok = True
+                msg = ""
+                method = fit.method
+            else:
+                fit_values = {}
+                fit_errors = {}
+                ok = True
+                msg = ""
+                method = "fixed_global"
+        except Exception as exc:
+            fit_values = {}
+            fit_errors = {}
+            ok = False
+            msg = str(exc)
+            method = f"least_squares_ogse_global_{model}"
+
+        for curve_id in unique_curve_ids:
+            curve = group[group["__curve_id__"] == int(curve_id)].copy()
+            curve_params = params_for_curve(fit_values, int(curve_id)) if ok else {
+                param: np.nan if vary_flags.get(param, True) else fixed_values[param] for param in model_params
+            }
+            y_curve = curve["__y__"].to_numpy(dtype=float)
+            G1_curve = curve["__G1__"].to_numpy(dtype=float)
+            G2_curve = curve["__G2__"].to_numpy(dtype=float)
+            td_curve = float(curve["__td_ms__"].iloc[0])
+            n1_curve = int(curve["__N1__"].iloc[0])
+            n2_curve = int(curve["__N2__"].iloc[0])
+            if ok:
+                yhat_curve = CONTRAST_MODEL_SPECS[model].evaluator(
+                    td_curve,
+                    G1_curve,
+                    G2_curve,
+                    n1_curve,
+                    n2_curve,
+                    curve_params,
+                )
+                rmse = _rmse(y_curve, yhat_curve)
+                chi2 = _chi2(y_curve, yhat_curve)
+                peak_metrics = _compute_peak_metrics(
+                    model=model,
+                    td_ms=td_curve,
+                    n_1=n1_curve,
+                    n_2=n2_curve,
+                    fit_row=curve_params,
+                    g1_max_corr=float(np.nanmax(G1_curve)),
+                    g2_max_corr=float(np.nanmax(G2_curve)),
+                    f_corr_1=float(curve["__f_corr_1__"].iloc[0]),
+                    f_corr_2=float(curve["__f_corr_2__"].iloc[0]),
+                    xplot=str(curve["xplot"].iloc[0]),
+                    peak_grid_n=int(peak_grid_n),
+                    peak_D0_fix=float(peak_D0_fix),
+                    peak_gamma=float(peak_gamma),
+                    peak_g_max_mTm=peak_g_max_mTm,
+                    peak_resample_gradient=bool(peak_resample_gradient),
+                    peak_resample_g_max_corr_mTm=peak_resample_g_max_corr_mTm,
+                )
+            else:
+                rmse = np.nan
+                chi2 = np.nan
+                peak_metrics = {}
+
+            row: dict[str, Any] = {
+                **{col: str(value) for col, value in key_dict.items()},
+                "source_file": scalar_or_compact_series(curve["source_file"], name="source_file", required=False),
+                "analysis_id": scalar_or_compact_series(curve["analysis_id"], name="analysis_id", required=False),
+                "sheet": scalar_or_compact_series(curve["sheet"], name="sheet", required=False),
+                "td_ms": td_curve,
+                "td_min_ms": td_curve,
+                "td_max_ms": td_curve,
+                "n_td": int(pd.Series(group["__td_ms__"]).nunique()),
+                "N_1": n1_curve,
+                "N_2": n2_curve,
+                "delta_ms_1": scalar_or_compact_series(curve["delta_ms_1"], name="delta_ms_1", required=False),
+                "Delta_app_ms_1": scalar_or_compact_series(curve["Delta_app_ms_1"], name="Delta_app_ms_1", required=False),
+                "delta_ms_2": scalar_or_compact_series(curve["delta_ms_2"], name="delta_ms_2", required=False),
+                "Delta_app_ms_2": scalar_or_compact_series(curve["Delta_app_ms_2"], name="Delta_app_ms_2", required=False),
+                "max_dur_ms_1": scalar_or_compact_series(curve["max_dur_ms_1"], name="max_dur_ms_1", required=False),
+                "tm_ms_1": scalar_or_compact_series(curve["tm_ms_1"], name="tm_ms_1", required=False),
+                "td_ms_1": scalar_or_compact_series(curve["td_ms_1"], name="td_ms_1", required=False),
+                "max_dur_ms_2": scalar_or_compact_series(curve["max_dur_ms_2"], name="max_dur_ms_2", required=False),
+                "tm_ms_2": scalar_or_compact_series(curve["tm_ms_2"], name="tm_ms_2", required=False),
+                "td_ms_2": scalar_or_compact_series(curve["td_ms_2"], name="td_ms_2", required=False),
+                "Hz_1": scalar_or_compact_series(curve["Hz_1"], name="Hz_1", required=False),
+                "Hz_2": scalar_or_compact_series(curve["Hz_2"], name="Hz_2", required=False),
+                "TE_1": scalar_or_compact_series(curve["TE_1"], name="TE_1", required=False),
+                "TE_2": scalar_or_compact_series(curve["TE_2"], name="TE_2", required=False),
+                "TR_1": scalar_or_compact_series(curve["TR_1"], name="TR_1", required=False),
+                "TR_2": scalar_or_compact_series(curve["TR_2"], name="TR_2", required=False),
+                "bmax_1": scalar_or_compact_series(curve["bmax_1"], name="bmax_1", required=False),
+                "bmax_2": scalar_or_compact_series(curve["bmax_2"], name="bmax_2", required=False),
+                "protocol_1": scalar_or_compact_series(curve["protocol_1"], name="protocol_1", required=False),
+                "protocol_2": scalar_or_compact_series(curve["protocol_2"], name="protocol_2", required=False),
+                "sequence_1": scalar_or_compact_series(curve["sequence_1"], name="sequence_1", required=False),
+                "sequence_2": scalar_or_compact_series(curve["sequence_2"], name="sequence_2", required=False),
+                "one_g_per_sequence_1": scalar_or_compact_series(curve["__one_g_per_sequence_1__"], name="one_g_per_sequence_1", required=False),
+                "one_g_per_sequence_2": scalar_or_compact_series(curve["__one_g_per_sequence_2__"], name="one_g_per_sequence_2", required=False),
+                "sheet_1": scalar_or_compact_series(curve["sheet_1"], name="sheet_1", required=False),
+                "sheet_2": scalar_or_compact_series(curve["sheet_2"], name="sheet_2", required=False),
+                "fit_kind": "ogse_contrast",
+                "model": model,
+                "fit_scope": "global_td",
+                "global_params": ",".join(resolved_global),
+                "ycol": ycol,
+                "stat": key_dict.get("stat", stat_keep),
+                "n_points": int(len(y_curve)),
+                "n_fit": int(len(y_curve)),
+                "rmse": rmse,
+                "chi2": chi2,
+                "gbase": scalar_or_compact_series(curve["gbase"], name="gbase", required=False),
+                "fit_xcol": scalar_or_compact_series(curve["fit_xcol"], name="fit_xcol", required=False),
+                "plot_xcol": scalar_or_compact_series(curve["plot_xcol"], name="plot_xcol", required=False),
+                "xplot": scalar_or_compact_series(curve["xplot"], name="xplot", required=False),
+                "f_corr": np.nan,
+                "f_corr_1": float(curve["__f_corr_1__"].iloc[0]),
+                "f_corr_2": float(curve["__f_corr_2__"].iloc[0]),
+                "method": method,
+                "ok": ok,
+                "msg": msg,
+                **peak_metrics,
+            }
+            for param in model_params:
+                row[param] = float(curve_params.get(param, np.nan))
+                err_col = parameter_error_column(param)
+                if param in fixed_params:
+                    row[err_col] = np.nan
+                elif param in resolved_global:
+                    row[err_col] = fit_errors.get(err_col, np.nan)
+                else:
+                    fit_name = value_lookup[param][int(curve_id)]
+                    row[err_col] = fit_errors.get(parameter_error_column(fit_name), np.nan)
+            if "tc_ms" in model_params:
+                bounds = tc_bounds or (0.1, 1000.0)
+                row["tc_bound_min"] = float(bounds[0])
+                row["tc_bound_max"] = float(bounds[1])
+            if "alpha" in model_params:
+                row["alpha_min"] = 0.0
+                row["alpha_max"] = 1.0
+                row["alpha_source"] = "fit"
+            rows.append(row)
+
+    out = pd.DataFrame(rows)
+    return standardize_fit_params(out, fit_kind="ogse_contrast", source_file=source_file)
+
+
 def fit_ogse_contrast_mixed_global_long(
     df: pd.DataFrame,
     *,
@@ -1631,8 +2380,10 @@ def fit_ogse_contrast_long(
     td_tol_ms: float = 1e-3,
     M0_vary: bool = True,
     D0_vary: bool = True,
+    C_vary: bool = True,
     M0_value: float = 1.0,
     D0_value: float = 1e-12,
+    C_value: float = 0.0,
     source_file: str | None = None,
     analysis_id: str | None = None,
     tc_value: float = 5.0,
@@ -1640,6 +2391,7 @@ def fit_ogse_contrast_long(
     tc_bounds: tuple[float, float] | None = None,
     m0_bounds: tuple[float, float] | None = None,
     d0_bounds: tuple[float, float] | None = None,
+    c_bounds: tuple[float, float] | None = None,
     peak_grid_n: int = 1000,
     peak_D0_fix: float = 3.2e-12,
     peak_gamma: float = 267.5221900,
@@ -1955,13 +2707,16 @@ def fit_ogse_contrast_long(
                 y,
                 M0_vary=M0_vary,
                 D0_vary=D0_vary,
+                C_vary=C_vary,
                 M0_value=M0_value,
                 D0_value=D0_value,
+                C_value=C_value,
                 tc_value=tc_value,
                 tc_vary=tc_vary,
                 tc_bounds=tc_bounds,
                 m0_bounds=m0_bounds,
                 d0_bounds=d0_bounds,
+                c_bounds=c_bounds,
             )
             peak_metrics = _compute_peak_metrics(
                 model=model,
@@ -2085,6 +2840,13 @@ def plot_fit_one_group(
         M0 = float(fit_row["M0"])
         D0 = float(fit_row["D0_m2_ms"])
         ys = OGSE_contrast_vs_g_rest(td, G1s, G2s, n_1, n_2, tc, M0, D0)
+
+    if model in {"rest_offset", "rest_offset_globC"} and bool(fit_row.get("ok", True)):
+        tc = float(fit_row["tc_ms"])
+        M0 = float(fit_row["M0"])
+        D0 = float(fit_row["D0_m2_ms"])
+        C = float(fit_row.get("C", 0.0))
+        ys = OGSE_contrast_vs_g_rest_offset(td, G1s, G2s, n_1, n_2, tc, M0, D0, C)
 
     if model in {"mixed", "mixed_global"} and bool(fit_row.get("ok", True)):
         tc = float(fit_row["tc_ms"])

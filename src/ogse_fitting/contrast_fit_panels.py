@@ -37,6 +37,18 @@ def _sanitize_token(value: str) -> str:
     return out or "NA"
 
 
+def _fmt_num_token(value: object) -> str:
+    try:
+        x = float(value)
+    except Exception:
+        return _sanitize_token(str(value))
+    if not np.isfinite(x):
+        return "NA"
+    if abs(x - round(x)) < 1e-6:
+        return str(int(round(x)))
+    return f"{x:.3f}".rstrip("0").rstrip(".").replace(".", "p")
+
+
 def _table_root(contrast_root: str | Path) -> Path:
     base = Path(contrast_root)
     if (base / "tables").is_dir():
@@ -71,6 +83,81 @@ def _resolve_contrast_parquet(
     )
 
 
+def _resampled_contrast_candidate(row: pd.Series, contrast_root: str | Path) -> Path:
+    table_root = _table_root(contrast_root)
+    subj = _sanitize_token(str(row.get("sheet", row.get("subj", "NA"))))
+    direction = _sanitize_token(str(row.get("direction", "NA")))
+    td = _fmt_num_token(row.get("td_ms", np.nan))
+    gbase = _sanitize_token(str(row.get("gbase", "g")))
+    n1 = _fmt_num_token(row.get("N_1", np.nan))
+    n2 = _fmt_num_token(row.get("N_2", np.nan))
+    model = _sanitize_token(str(row.get("model", "model")))
+    roi = _sanitize_token(str(row.get("roi", "NA")))
+    folder = table_root / f"{subj}_dir{direction}_td{td}_{gbase}_N{n1}-N{n2}_model-{model}"
+    return folder / f"roi-{roi}.resampled_contrast.parquet"
+
+
+def _resolve_contrast_parquet_for_row(
+    fit_row: pd.Series,
+    *,
+    contrast_root: str | Path,
+    cache: dict[Path, pd.DataFrame] | None = None,
+) -> Path:
+    analysis_id = str(fit_row.get("analysis_id", ""))
+    sheet = fit_row.get("sheet", None)
+    try:
+        return _resolve_contrast_parquet(
+            analysis_id=analysis_id,
+            sheet=sheet,
+            contrast_root=contrast_root,
+        )
+    except FileNotFoundError as direct_error:
+        candidate = _resampled_contrast_candidate(fit_row, contrast_root)
+        if candidate.exists():
+            return candidate
+
+        table_root = _table_root(contrast_root)
+        roi_token = _sanitize_token(str(fit_row.get("roi", "")))
+        patterns = []
+        if roi_token:
+            patterns.append(f"**/roi-{roi_token}.resampled_contrast.parquet")
+        patterns.append("**/resampled_contrasts.long.parquet")
+        candidates: list[Path] = []
+        for pattern in patterns:
+            candidates.extend(sorted(table_root.glob(pattern)))
+
+        matches: list[Path] = []
+        seen: set[Path] = set()
+        for path in candidates:
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                df = _load_contrast_table_cached(path, cache) if cache is not None else pd.read_parquet(path)
+                if not _subset_group(df, fit_row).empty:
+                    matches.append(path)
+            except Exception:
+                continue
+
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise FileNotFoundError(
+                "Could not find a contrast table matching "
+                f"analysis_id={analysis_id!r}, sheet={sheet!r}, roi={fit_row.get('roi', None)!r}, "
+                f"direction={fit_row.get('direction', None)!r}, td_ms={fit_row.get('td_ms', None)!r}, "
+                f"N=({fit_row.get('N_1', None)!r}, {fit_row.get('N_2', None)!r}), "
+                f"model={fit_row.get('model', None)!r} in {table_root}. "
+                f"Original direct-table error: {direct_error}"
+            )
+        raise FileNotFoundError(
+            "Found multiple contrast tables matching "
+            f"analysis_id={analysis_id!r}, roi={fit_row.get('roi', None)!r}, "
+            f"direction={fit_row.get('direction', None)!r}, td_ms={fit_row.get('td_ms', None)!r}: "
+            f"{[str(p) for p in matches[:8]]}"
+        )
+
+
 def _load_contrast_table_cached(
     path: Path,
     cache: dict[Path, pd.DataFrame],
@@ -83,13 +170,71 @@ def _load_contrast_table_cached(
     return df
 
 
+def _filter_string_column(df: pd.DataFrame, fit_row: pd.Series, col: str) -> pd.DataFrame:
+    if col not in df.columns or col not in fit_row.index:
+        return df
+
+    value = fit_row.get(col, None)
+    if value is None or pd.isna(value):
+        return df
+
+    return df[df[col].astype(str) == str(value)].copy()
+
+
+def _filter_numeric_column(
+    df: pd.DataFrame,
+    fit_row: pd.Series,
+    col: str,
+    *,
+    atol: float = 1e-6,
+) -> pd.DataFrame:
+    if col not in df.columns or col not in fit_row.index:
+        return df
+
+    value = pd.to_numeric(pd.Series([fit_row.get(col, None)]), errors="coerce").iloc[0]
+    if not np.isfinite(value):
+        return df
+
+    values = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+    keep = np.isclose(values, float(value), atol=atol, equal_nan=False)
+
+    return df.loc[keep].copy()
+
+
+def _filter_numeric_pair(
+    df: pd.DataFrame,
+    fit_row: pd.Series,
+    candidates: tuple[str, ...],
+    *,
+    atol: float = 1e-6,
+) -> pd.DataFrame:
+    row_col = next((col for col in candidates if col in fit_row.index), None)
+    df_col = next((col for col in candidates if col in df.columns), None)
+    if row_col is None or df_col is None:
+        return df
+
+    value = pd.to_numeric(pd.Series([fit_row.get(row_col, None)]), errors="coerce").iloc[0]
+    if not np.isfinite(value):
+        return df
+
+    values = pd.to_numeric(df[df_col], errors="coerce").to_numpy(dtype=float)
+    keep = np.isclose(values, float(value), atol=atol, equal_nan=False)
+    return df.loc[keep].copy()
+
+
 def _subset_group(df: pd.DataFrame, fit_row: pd.Series) -> pd.DataFrame:
     out = df.copy()
-    out = out[out["roi"].astype(str) == str(fit_row["roi"])].copy()
-    out = out[out["direction"].astype(str) == str(fit_row["direction"])].copy()
-    stat = fit_row.get("stat", None)
-    if stat is not None and "stat" in out.columns and str(stat) != "nan":
-        out = out[out["stat"].astype(str) == str(stat)].copy()
+
+    # Match the same acquisition, anatomical, statistical and model group when
+    # the columns are present in both the fit row and the contrast table.
+    for col in ("analysis_id", "sheet", "subj", "roi", "direction", "stat", "model", "gbase", "ycol"):
+        out = _filter_string_column(out, fit_row, col)
+
+    # Match the same diffusion time and OGSE contrast pair.
+    out = _filter_numeric_column(out, fit_row, "td_ms", atol=1e-3)
+    out = _filter_numeric_pair(out, fit_row, ("N_1", "N1", "n_1", "n1"), atol=0.0)
+    out = _filter_numeric_pair(out, fit_row, ("N_2", "N2", "n_2", "n2"), atol=0.0)
+
     return out
 
 
@@ -114,7 +259,10 @@ def _extract_plot_arrays(df_group: pd.DataFrame, fit_row: pd.Series) -> tuple[np
     G1 = _maybe_scale_g_thorsten(gbase, G1)
     G2 = _maybe_scale_g_thorsten(gbase, G2)
 
-    f_corr_1, f_corr_2 = _fit_row_correction_pair(fit_row)
+    if "resample_grid" in df_group.columns and df_group["resample_grid"].astype(str).str.contains("corrected", case=False, na=False).any():
+        f_corr_1, f_corr_2 = 1.0, 1.0
+    else:
+        f_corr_1, f_corr_2 = _fit_row_correction_pair(fit_row)
     G1 = G1 * f_corr_1
     G2 = G2 * f_corr_2
 
@@ -190,6 +338,8 @@ def plot_contrast_fit_panels(
     rois: list[str] | None = None,
     directions: list[str] | None = None,
     exclude_td_ms: list[float] | None = None,
+    n1: int | None = None,
+    n2: int | None = None,
     ok_only: bool = True,
 ) -> list[Path]:
     df = load_contrast_fit_params(
@@ -205,14 +355,47 @@ def plot_contrast_fit_panels(
     if df.empty:
         raise ValueError("No valid fits remained after filtering.")
 
+    if n1 is not None and "N_1" in df.columns:
+        df = df[pd.to_numeric(df["N_1"], errors="coerce") == int(n1)].copy()
+
+    if n2 is not None and "N_2" in df.columns:
+        df = df[pd.to_numeric(df["N_2"], errors="coerce") == int(n2)].copy()
+
+    if df.empty:
+        raise ValueError("No valid fits remained after filtering N_1/N_2.")
+
     if exclude_td_ms:
         td_vals = pd.to_numeric(df["td_ms"], errors="coerce")
         keep = np.ones(len(df), dtype=bool)
         for td_excl in exclude_td_ms:
             keep &= ~np.isclose(td_vals.to_numpy(dtype=float), float(td_excl), atol=1e-3, equal_nan=False)
         df = df.loc[keep].copy()
+
         if df.empty:
             raise ValueError("No valid fits remained after excluding td_ms.")
+
+    dedup_cols = [
+        col
+        for col in (
+            "analysis_id",
+            "sheet",
+            "subj",
+            "roi",
+            "direction",
+            "stat",
+            "td_ms",
+            "N_1",
+            "N_2",
+            "model",
+            "gbase",
+            "ycol",
+            "xplot",
+        )
+        if col in df.columns
+    ]
+
+    if dedup_cols:
+        df = df.drop_duplicates(subset=dedup_cols, keep="last").copy()
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -270,10 +453,10 @@ def plot_contrast_fit_panels(
                     td_val = float(row["td_ms"])
                     color = td_to_color.get(td_val, "#1f77b4")
                     try:
-                        contrast_path = _resolve_contrast_parquet(
-                            analysis_id=str(row["analysis_id"]),
-                            sheet=row.get("sheet", None),
+                        contrast_path = _resolve_contrast_parquet_for_row(
+                            row,
                             contrast_root=contrast_root,
+                            cache=cache,
                         )
                         contrast_df = _load_contrast_table_cached(contrast_path, cache)
                         df_group = _subset_group(contrast_df, row)

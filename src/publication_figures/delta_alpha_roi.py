@@ -72,14 +72,23 @@ def _collapse_phantom_rows(out: pd.DataFrame) -> pd.DataFrame:
     if out.empty:
         return out
 
-    collapsed = out.copy()
-    collapsed["_priority"] = collapsed["subj"].astype(str).str.contains("DDE", case=False, na=False).astype(int)
-    collapsed = collapsed.sort_values(["dataset", "metric", "roi", "direction", "_priority", "subj"], kind="stable")
-    collapsed = collapsed.drop_duplicates(subset=["dataset", "metric", "roi", "direction"], keep="first")
-    collapsed = collapsed.drop(columns=["_priority"])
-    collapsed["subj"] = "phantom"
-    collapsed["error"] = np.nan
-    return collapsed.reset_index(drop=True)
+    work = out.copy()
+    work["_priority"] = work["subj"].astype(str).str.contains("DDE", case=False, na=False).astype(int)
+
+    rows: list[dict[str, object]] = []
+    for _, group in work.groupby(["dataset", "metric", "roi", "direction"], sort=False):
+        preferred = group[group["_priority"] == group["_priority"].min()].copy()
+        subj = sorted(preferred["subj"].astype(str).unique().tolist())[0]
+        selected = preferred[preferred["subj"].astype(str) == subj].copy()
+
+        row = selected.iloc[0].drop(labels=["_priority"]).to_dict()
+        row["subj"] = "phantom"
+        row["value"] = float(pd.to_numeric(selected["value"], errors="coerce").mean())
+        row["error"] = np.nan
+        row["source_table"] = ";".join(sorted(selected["source_table"].astype(str).unique().tolist()))
+        rows.append(row)
+
+    return pd.DataFrame(rows).reset_index(drop=True)
 
 
 def _single_centered_jitter(width: float, n_items: int, fraction: float) -> np.ndarray:
@@ -326,10 +335,10 @@ def _plot_points_metric_panel(
                     value,
                     yerr=None if not np.isfinite(error) else error,
                     marker=markers.get(subj, "o"),
-                    markersize=7.5,
+                    markersize=12,
                     markerfacecolor="white",
                     markeredgecolor=color,
-                    markeredgewidth=1.6,
+                    markeredgewidth=3,
                     color=color,
                     ecolor=color,
                     elinewidth=1.2,
@@ -414,10 +423,10 @@ def _plot_bars_metric_panel(
                     x[roi_idx] + offsets[idx] + jitter.get(subj, 0.0),
                     value,
                     marker=markers.get(subj, "o"),
-                    markersize=7.2,
+                    markersize=12,
                     markerfacecolor="white",
                     markeredgecolor=color,
-                    markeredgewidth=1.6,
+                    markeredgewidth=3,
                     alpha=0.72,
                     linestyle="none",
                     zorder=7,
@@ -538,7 +547,7 @@ def plot_delta_alpha_figure(
                         markerfacecolor="white",
                         markeredgecolor="black",
                         lw=0,
-                        markersize=9,
+                        markersize=12,
                         label=label,
                     )
                 )
@@ -550,7 +559,7 @@ def plot_delta_alpha_figure(
         ncol=max(1, min(6, len(direction_handles) + len(marker_handles))),
         frameon=False,
         bbox_to_anchor=(0.5, 1.0),
-        fontsize=13,
+        fontsize=18,
     )
 
     fig.tight_layout(rect=(0, 0, 1, 0.91))

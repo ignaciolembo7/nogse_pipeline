@@ -23,6 +23,7 @@ CONTRAST_SOURCE="${CONTRAST_SOURCE:-direct}" # direct or fitted_resampled
 SIGNAL_MODEL="${SIGNAL_MODEL:-monoexp}"
 SIGNAL_G_TYPE="${SIGNAL_G_TYPE:-g}"
 MODEL="${MODEL:-free}"
+GLOBAL_PARAMS="${GLOBAL_PARAMS:-}"
 APPLY_GRAD_CORR="${APPLY_GRAD_CORR:-false}"
 CORR_XLSX="${CORR_XLSX:-$ANALYSIS_ROOT/fits/grad_correction_rotated/Syringe.grad_correction_rotated.xlsx}"
 CORR_ROI="${CORR_ROI:-Syringe}"
@@ -173,6 +174,12 @@ elif [[ -n "${FIX_C// }" ]]; then
     c_args+=(--fix_C "$FIX_C")
 fi
 
+global_args=()
+if [[ -n "${GLOBAL_PARAMS// }" ]]; then
+    read -r -a global_param_values <<< "${GLOBAL_PARAMS//,/ }"
+    global_args+=(--global_params "${global_param_values[@]}")
+fi
+
 bound_args=()
 if [[ -n "${M0_BOUNDS// }" ]]; then
     read -r -a m0_bound_values <<< "${M0_BOUNDS//,/ }"
@@ -253,6 +260,7 @@ while read -r file; do
         "${d0_args[@]}" \
         "${tc_args[@]}" \
         "${c_args[@]}" \
+        "${global_args[@]}" \
         "${bound_args[@]}" \
         "${roi_args[@]}"; then
         ok=$((ok + 1))
