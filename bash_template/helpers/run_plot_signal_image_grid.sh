@@ -16,7 +16,7 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 
 PY="${PY:-$DEFAULT_PY}"
-PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_signal_image_grid.py}"
+PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plotting/plot_signal_image_grid.py}"
 SIGNAL_ROOT="${SIGNAL_ROOT:-$PROJECT_ROOT/Data-signals}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/analysis/qc/signal_image_grids}"
 NAME="${NAME:-}"

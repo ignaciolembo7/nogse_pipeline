@@ -34,7 +34,7 @@ OUT_XLSX="${OUT_XLSX:-}"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 
-EXPORT_SCRIPT="$REPO_ROOT/scripts/dicom_export_file_parameters.py"
+EXPORT_SCRIPT="$REPO_ROOT/scripts/dicom/dicom_export_file_parameters.py"
 
 if [[ ! -f "$EXPORT_SCRIPT" ]]; then
     echo "ERROR: export script not found: $EXPORT_SCRIPT" >&2

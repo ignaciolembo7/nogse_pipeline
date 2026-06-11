@@ -17,7 +17,7 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-MAKE_SCRIPT="$REPO_ROOT/scripts/make_grad_correction_table.py"
+MAKE_SCRIPT="$REPO_ROOT/scripts/data/make_grad_correction_table.py"
 
 ROI="water"
 MONOEXP_REF_NS=(1 4 8)

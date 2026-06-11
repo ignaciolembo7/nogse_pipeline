@@ -23,7 +23,7 @@ PY="${PY:-$DEFAULT_PY}"
 
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$PROJECT_ROOT/analysis/phantoms/nogse_experiments}"
 TABLES_ROOT="${TABLES_ROOT:-$ANALYSIS_ROOT/contrast_data/tables/20260506-PHANTOM_FIBER}"
-FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fit_nogse_contrast_vs_g.py}"
+FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fitting/fit_nogse_contrast_vs_g.py}"
 FILE_PATTERN="${FILE_PATTERN:-*.long.parquet}"
 
 EXPERIMENT="nogse_contrast_vs_g"

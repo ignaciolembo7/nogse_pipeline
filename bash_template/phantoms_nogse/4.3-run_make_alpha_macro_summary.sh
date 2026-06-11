@@ -18,7 +18,7 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-SUMMARY_SCRIPT="$REPO_ROOT/scripts/make_alpha_macro_summary.py"
+SUMMARY_SCRIPT="$REPO_ROOT/scripts/summary/make_alpha_macro_summary.py"
 
 DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables"
 SUBJS="ALL"

@@ -30,7 +30,7 @@ SORT_BY="${SORT_BY:-abs_correlation}"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 
-SCRIPT_PATH="$REPO_ROOT/scripts/dicom_correlate_asconv_with_gradient.py"
+SCRIPT_PATH="$REPO_ROOT/scripts/dicom/dicom_correlate_asconv_with_gradient.py"
 
 if [[ ! -f "$SCRIPT_PATH" ]]; then
     echo "ERROR: script not found: $SCRIPT_PATH" >&2

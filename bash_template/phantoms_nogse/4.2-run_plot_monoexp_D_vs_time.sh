@@ -20,7 +20,7 @@ fi
 PY="${PY:-$DEFAULT_PY}"
 FITS_ROOT="${1:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/ogse_signal_vs_g_monoexp}"
 OUT_ROOT="${2:-$FITS_ROOT/summary_plots}"
-PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plot_monoexp_D_vs_time.py}"
+PLOT_SCRIPT="${3:-$REPO_ROOT/scripts/plotting/plot_monoexp_D_vs_time.py}"
 ROIS="ALL"
 DIRECTIONS="ALL"
 NS="${NS:-ALL}"

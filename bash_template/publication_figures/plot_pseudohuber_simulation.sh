@@ -18,7 +18,7 @@ if [[ -z "${PY:-}" ]]; then
     fi
 fi
 
-PLOT_SCRIPT="$REPO_ROOT/scripts/plot_publication_pseudohuber_simulation.py"
+PLOT_SCRIPT="$REPO_ROOT/scripts/publication/plot_publication_pseudohuber_simulation.py"
 OUT_DIR="${OUT_DIR:-$PROJECT_ROOT/analysis/publication_figures/pseudohuber_simulation}"
 
 # Edit these values to change the simulated model curves.

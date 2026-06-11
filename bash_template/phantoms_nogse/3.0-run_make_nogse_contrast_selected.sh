@@ -15,7 +15,7 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
-MAKE_CONTRAST_SCRIPT="$REPO_ROOT/scripts/make_contrast.py"
+MAKE_CONTRAST_SCRIPT="$REPO_ROOT/scripts/data/make_contrast.py"
 
 # ------------------------------------------------------------------
 # Configuration

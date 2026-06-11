@@ -18,7 +18,7 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-TC_SCRIPT="$REPO_ROOT/scripts/run_tc_vs_td.py"
+TC_SCRIPT="$REPO_ROOT/scripts/fitting/run_tc_vs_td.py"
 
 METHOD="${METHOD:-pseudohuber_fixed_macro}"
 GROUPFITS="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr/groupfits_rest.parquet"

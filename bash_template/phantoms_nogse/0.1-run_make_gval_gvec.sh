@@ -79,7 +79,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 EXP_ROOT="$PROJECT_ROOT/$EXP_PARENT/$SUBJ"
-SCRIPT_PATH="$PROJECT_ROOT/nogse_pipeline/scripts/make_gval_gvec_from_filenames.py"
+SCRIPT_PATH="$PROJECT_ROOT/nogse_pipeline/scripts/data/make_gval_gvec_from_filenames.py"
 
 if [[ ! -d "$EXP_ROOT" ]]; then
   echo "ERROR: experiment root does not exist:"

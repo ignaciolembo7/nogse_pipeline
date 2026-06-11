@@ -85,8 +85,8 @@ case "${DATASET_KIND,,}" in
         ;;
 esac
 
-FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fit_global_signal.py}"
-EXPORT_RESAMPLED_SCRIPT="${EXPORT_RESAMPLED_SCRIPT:-$REPO_ROOT/scripts/export_ogse_resampled_contrasts_from_fits.py}"
+FIT_SCRIPT="${FIT_SCRIPT:-$REPO_ROOT/scripts/fitting/fit_global_signal.py}"
+EXPORT_RESAMPLED_SCRIPT="${EXPORT_RESAMPLED_SCRIPT:-$REPO_ROOT/scripts/fitting/export_ogse_resampled_contrasts_from_fits.py}"
 ANALYSIS_ROOT="${ANALYSIS_ROOT:-$ANALYSIS_ROOT_DEFAULT}"
 DATA_ROOT="${DATA_ROOT:-$DATA_ROOT_DEFAULT}"
 CONTRAST_ROOT="${CONTRAST_ROOT:-$CONTRAST_ROOT_DEFAULT}"

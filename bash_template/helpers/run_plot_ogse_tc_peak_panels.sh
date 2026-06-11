@@ -13,7 +13,7 @@ PY="${PY:-python}"
 # Configuration
 FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/fits/fit_rest_ogse_contrast_rotated_corr}"
 CONTRAST_ROOT="${CONTRAST_ROOT:-$PROJECT_ROOT/analysis/ogse_experiments/contrast-data-rotated}"
-PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse-contrast_tc_peak_panels.py}"
+PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plotting/plot_ogse-contrast_tc_peak_panels.py}"
 OUT_DIR="${OUT_DIR:-$FITS_ROOT/tc_peak_panels}"
 FIT_PARAMS_PATTERN="${FIT_PARAMS_PATTERN:-**/fit_params.*}"
 CONTRAST_SOURCE="${CONTRAST_SOURCE:-direct}"

@@ -18,7 +18,7 @@ elif command -v python3 >/dev/null 2>&1; then
 fi
 PY="${PY:-$DEFAULT_PY}"
 
-MAKE_CONTRAST_SCRIPT="${MAKE_CONTRAST_SCRIPT:-$REPO_ROOT/scripts/make_contrast.py}"
+MAKE_CONTRAST_SCRIPT="${MAKE_CONTRAST_SCRIPT:-$REPO_ROOT/scripts/data/make_contrast.py}"
 DATA_ROOT="${DATA_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/nogse-contrast-data}"
 DIRECTIONS="${DIRECTIONS:-ALL}"

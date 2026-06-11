@@ -17,7 +17,7 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fit_ogse_signal_vs_g.py}"
+FIT_SCRIPT="${1:-$REPO_ROOT/scripts/fitting/fit_ogse_signal_vs_g.py}"
 DATA_ROOT="${2:-$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables}"
 FITS_DIR="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits"
 EXPERIMENT="ogse_signal_vs_g"

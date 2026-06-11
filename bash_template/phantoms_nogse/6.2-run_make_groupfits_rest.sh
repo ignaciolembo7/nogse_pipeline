@@ -18,9 +18,9 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-PIPELINE_SCRIPT="$REPO_ROOT/scripts/run_tc_pipeline.py"
+PIPELINE_SCRIPT="$REPO_ROOT/scripts/fitting/run_tc_pipeline.py"
 PLOT_FIT_PANELS_SCRIPT="$REPO_ROOT/bash_template/helpers/run_plot_ogse_contrast_fit_panels.sh"
-PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/scripts/plot_ogse-contrast_tc_peak_panels.py"
+PLOT_TC_PEAK_PANELS_SCRIPT="$REPO_ROOT/scripts/plotting/plot_ogse-contrast_tc_peak_panels.py"
 
 FIT_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/fits/nogse_contrast_vs_g_rest_corr"
 CONTRAST_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/contrast-data"

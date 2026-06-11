@@ -13,7 +13,7 @@ PY="${PY:-python}"
 # Configuration
 FITS_ROOT="${FITS_ROOT:-$PROJECT_ROOT/analysis/brains/ogse_experiments/fits/ogse_contrast_vs_gresampled_rest_offset_corr}"
 CONTRAST_ROOT="${CONTRAST_ROOT:-$FITS_ROOT/contrast}"
-PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plot_ogse-contrast_fit_panels.py}"
+PLOT_SCRIPT="${PLOT_SCRIPT:-$REPO_ROOT/scripts/plotting/plot_ogse-contrast_fit_panels.py}"
 OUT_DIR="${OUT_DIR:-$FITS_ROOT/contrast_fit_panels}"
 MODELS="${MODELS:-rest_offset}"
 SUBJS="${SUBJS:-ALL}"

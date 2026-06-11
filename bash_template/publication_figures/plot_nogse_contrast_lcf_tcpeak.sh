@@ -18,7 +18,7 @@ if [[ -z "${PY:-}" ]]; then
     fi
 fi
 
-PLOT_SCRIPT="$REPO_ROOT/scripts/plot_publication_contrast_lcf_tcpeak.py"
+PLOT_SCRIPT="$REPO_ROOT/scripts/publication/plot_publication_contrast_lcf_tcpeak.py"
 OUT_DIR="${OUT_DIR:-$PROJECT_ROOT/analysis/publication_figures/nogse_contrast_lcf_tcpeak}"
 
 # Edit these values to change the exact publication panel.

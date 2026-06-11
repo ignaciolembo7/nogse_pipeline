@@ -18,7 +18,7 @@ elif command -v python3 >/dev/null 2>&1; then
     DEFAULT_PY="$(command -v python3)"
 fi
 PY="${PY:-$DEFAULT_PY}"
-PLOT_SCRIPT="$REPO_ROOT/scripts/plot_D0_vs_Delta.py"
+PLOT_SCRIPT="$REPO_ROOT/scripts/plotting/plot_D0_vs_Delta.py"
 
 DPROJ_ROOT="$PROJECT_ROOT/analysis/phantoms/ogse_experiments/data/tables"
 SUBJS="ALL"

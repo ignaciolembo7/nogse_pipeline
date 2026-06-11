@@ -9,7 +9,7 @@ if [[ -z "${PROJECT_ROOT:-}" || -z "${REPO_ROOT:-}" ]]; then
 fi
 
 PY="${PY:-python}"
-SCRIPT_PATH="$REPO_ROOT/scripts/extract_dicom_sequence_metadata.py"
+SCRIPT_PATH="$REPO_ROOT/scripts/dicom/extract_dicom_sequence_metadata.py"
 
 DICOM_ROOT="${DICOM_ROOT:-$PROJECT_ROOT/Data-DICOM}"
 NIFTI_ROOT="${NIFTI_ROOT:-}"
