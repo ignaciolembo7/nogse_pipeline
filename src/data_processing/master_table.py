@@ -253,7 +253,7 @@ def append_master_rows(
     if drop_duplicates:
         combined = combined.drop_duplicates().reset_index(drop=True)
     if out_path is not None:
-        write_master_table(combined, out_path)
+        write_master_table(combined, out_path, xlsx_path=out_path.with_suffix(".xlsx"))
     return combined
 
 
