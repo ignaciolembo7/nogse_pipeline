@@ -90,6 +90,8 @@ ogse_experiments/
 # Uncomment if you do NOT want to version output tables
 *.csv
 *.parquet
+!bash_template/manifests/**/*.csv
+!bash_template_2/manifests/**/*.csv
 
 # Jupyter
 *.ipynb_checkpoints
