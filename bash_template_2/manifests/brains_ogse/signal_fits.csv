@@ -1,0 +1,3 @@
+subj,sheet,roi,direction,td_ms,N,Hz,model
+# Example:
+# BRAIN,20220622_BRAIN,Left-Lateral-Ventricle,long,90,4,25,monoexp

@@ -1,0 +1,3 @@
+subj,sheet,roi,direction,td_ms,N,Hz,model
+# Example:
+# PHANTOM,20260122-PHANTOM_FIBER,Bundle,long,90,4,25,monoexp

@@ -1,0 +1,3 @@
+subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+# Example:
+# PHANTOM,20260122-PHANTOM_FIBER,Bundle,long,90,8,4,50,25
