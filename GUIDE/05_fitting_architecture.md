@@ -56,7 +56,7 @@ appropriate axis, timing, fixed parameters, and bounds.
 
 Entry points:
 
-- `scripts/fit_ogse_signal_vs_g.py` with `--model monoexp`
+- `scripts/fitting/fit_ogse_signal_vs_g.py` with `--model monoexp`
 
 Reusable implementation:
 
@@ -80,8 +80,8 @@ Summary plotting is implemented in:
 
 Entry points:
 
-- `scripts/fit_ogse_signal_vs_g.py`
-- `scripts/fit_ogse_contrast_vs_g.py`
+- `scripts/fitting/fit_ogse_signal_vs_g.py`
+- `scripts/fitting/fit_ogse_contrast_vs_g.py`
 
 Reusable implementation:
 
@@ -105,8 +105,8 @@ Supported OGSE contrast models include:
 
 Entry points:
 
-- `scripts/fit_nogse_signal_vs_g.py`
-- `scripts/fit_nogse_contrast_vs_g.py`
+- `scripts/fitting/fit_nogse_signal_vs_g.py`
+- `scripts/fitting/fit_nogse_contrast_vs_g.py`
 
 Reusable implementation:
 
@@ -122,8 +122,8 @@ separate display axis when needed.
 
 Entry points:
 
-- `scripts/run_tc_vs_td.py`
-- `scripts/run_tc_pipeline.py`
+- `scripts/fitting/run_tc_vs_td.py`
+- `scripts/fitting/run_tc_pipeline.py`
 
 Reusable implementation:
 

@@ -74,12 +74,10 @@ Batch scripts should not:
 
 ## Entry-Point Runners
 
-The top-level runners are:
+The current OGSE runners are the numbered scripts in:
 
-- `bash_template/brains_ogse/run_brains_pipeline_ogse.sh`
-- `bash_template/phantoms_ogse/run_phantoms_pipeline_ogse.sh`
-- `bash_template/phantoms_nogse/run_phantoms_pipeline_nogse.sh`
+- `bash_template_2/brains_ogse/`
+- `bash_template_2/phantoms_ogse/`
 
-These runners are useful for seeing the stage order, but the numbered scripts
-are the best reference for exact parameters.
-
+For NOGSE, the older numbered scripts under `bash_template/phantoms_nogse/`
+remain until that flow is moved to the master-table structure.

@@ -25,7 +25,7 @@ tables into the canonical long form.
 
 The main CLI is:
 
-- `scripts/process_one_results.py`
+- `scripts/data/process_one_results.py`
 
 The reusable modules are:
 

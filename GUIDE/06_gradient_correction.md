@@ -7,7 +7,7 @@ fitters through explicit CLI flags. It is not hidden in plotting code.
 
 Entry point:
 
-- `scripts/make_grad_correction_table.py`
+- `scripts/data/make_grad_correction_table.py`
 
 Reusable implementation:
 

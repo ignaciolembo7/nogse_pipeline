@@ -10,7 +10,7 @@ axes.
 
 Entry point:
 
-- `scripts/rotate_ogse_tensor.py`
+- `scripts/data/rotate_ogse_tensor.py`
 
 Reusable implementation:
 
@@ -29,7 +29,7 @@ inspection and plotting.
 
 Entry point:
 
-- `scripts/make_contrast.py`
+- `scripts/data/make_contrast.py`
 
 Reusable implementation:
 
