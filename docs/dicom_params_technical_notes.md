@@ -24,9 +24,9 @@ correlation.py
 Thin command-line wrappers live in:
 
 ```text
-scripts/extract_dicom_sequence_metadata.py
-scripts/dicom_export_file_parameters.py
-scripts/dicom_correlate_asconv_with_gradient.py
+scripts/dicom/extract_dicom_sequence_metadata.py
+scripts/dicom/dicom_export_file_parameters.py
+scripts/dicom/dicom_correlate_asconv_with_gradient.py
 ```
 
 Bash launchers live in:

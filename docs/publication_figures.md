@@ -2,10 +2,10 @@
 
 This repository keeps publication-specific figures separate from the core analysis pipeline. The current figure builders are:
 
-- `scripts/plot_publication_delta_alpha.py`
-- `scripts/plot_publication_contrast_lcf_tcpeak.py`
-- `scripts/plot_publication_contrast_td_tcpeak.py`
-- `scripts/plot_publication_tc_param_vars.py`
+- `scripts/publication/plot_publication_delta_alpha.py`
+- `scripts/publication/plot_publication_contrast_lcf_tcpeak.py`
+- `scripts/publication/plot_publication_contrast_td_tcpeak.py`
+- `scripts/publication/plot_publication_tc_param_vars.py`
 
 It reads already-generated OGSE result tables and writes editable PDF plus high-resolution PNG panels for:
 

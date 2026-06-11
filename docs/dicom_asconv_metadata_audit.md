@@ -67,7 +67,7 @@ first level by itself.
 The core DICOM extraction script is:
 
 ```text
-scripts/extract_dicom_sequence_metadata.py
+scripts/dicom/extract_dicom_sequence_metadata.py
 ```
 
 It does the following:
@@ -114,9 +114,9 @@ src/dicom_params/
 Thin command-line wrappers live under:
 
 ```text
-scripts/extract_dicom_sequence_metadata.py
-scripts/dicom_correlate_asconv_with_gradient.py
-scripts/dicom_export_file_parameters.py
+scripts/dicom/extract_dicom_sequence_metadata.py
+scripts/dicom/dicom_correlate_asconv_with_gradient.py
+scripts/dicom/dicom_export_file_parameters.py
 ```
 
 User-facing bash launchers live under:
@@ -147,7 +147,7 @@ or from the NIfTI/protocol naming convention used by the extraction workflow.
 Example:
 
 ```bash
-python scripts/dicom_correlate_asconv_with_gradient.py \
+python scripts/dicom/dicom_correlate_asconv_with_gradient.py \
   analysis/dicom_metadata/20260505_PHANTOM_FIBER/QUALITY_JACK_19800122TMSF/dicom_asconv_key_values.long.parquet \
   --nifti-table analysis/dicom_metadata/20260505_PHANTOM_FIBER/QUALITY_JACK_19800122TMSF/sequence_parameters_by_nifti_from_dicom.parquet
 ```
@@ -192,7 +192,7 @@ when the full long table is too large and one image needs to be inspected in Exc
 Example:
 
 ```bash
-python scripts/dicom_export_file_parameters.py \
+python scripts/dicom/dicom_export_file_parameters.py \
   analysis/dicom_metadata/20260505_PHANTOM_FIBER/QUALITY_JACK_19800122TMSF/dicom_asconv_key_values.long.parquet \
   --dicom-file QUALITY_JACK.MR.JOVICICHJORGE_IGNACIOLEMBOFERRARI_NOGSE.0003.0060.2026.05.05.16.58.45.590234.521849008
 ```

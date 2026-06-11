@@ -115,7 +115,7 @@ NOGSE acquisitions, step `0.1` can create `.gval/.gvec` sidecars from the NIfTI 
 `0.1-run_make_gval_gvec.sh` calls:
 
 ```bash
-python nogse_pipeline/scripts/make_gval_gvec_from_filenames.py "$EXP_ROOT" \
+python nogse_pipeline/scripts/data/make_gval_gvec_from_filenames.py "$EXP_ROOT" \
   --glob "$DWI_GLOB" \
   --direction "$DIR_X" "$DIR_Y" "$DIR_Z"
 ```
@@ -266,7 +266,7 @@ Step `0.1` still uses the filename as the source of `G`. The dedicated metadata
 extractor added for audit/provenance is:
 
 ```text
-scripts/extract_dicom_sequence_metadata.py
+scripts/dicom/extract_dicom_sequence_metadata.py
 ```
 
 It reads the DICOM/Phoenix text available in the files, extracts candidate gradient
@@ -404,7 +404,7 @@ be inspected before choosing an analysis axis.
 Example:
 
 ```bash
-python nogse_pipeline/scripts/extract_dicom_sequence_metadata.py \
+python nogse_pipeline/scripts/dicom/extract_dicom_sequence_metadata.py \
   Data-DICOM/20260505_PHANTOM_FIBER/QUALITY_JACK_19800122TMSF \
   --out-root analysis/dicom_metadata/20260505_PHANTOM_FIBER/QUALITY_JACK_19800122TMSF \
   --nifti-root Data-NIFTI/20260505-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF \
