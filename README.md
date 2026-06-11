@@ -10,7 +10,7 @@ This repository contains the end-to-end analysis pipeline used here for brain an
 
 The detailed scientific walkthrough now lives in [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md), including an expanded explanation of gradient correction, the `b ~ g^2` scaling logic, and short code snippets for the key pipeline steps.
 
-For OGSE signal fitting, the workflow entrypoint is `scripts/fit_ogse_signal_vs_g.py` and model choice is explicit (`--model`). In the `4.x` batch stages, the selected model is the true monoexponential model implemented in `src/monoexp_fitting`.
+For OGSE signal fitting, the workflow entrypoint is `scripts/fitting/fit_ogse_signal_vs_g.py` and model choice is explicit (`--model`). In the `4.x` batch stages, the selected model is the true monoexponential model implemented in `src/monoexp_fitting`.
 
 ## What the pipeline does
 
@@ -45,29 +45,29 @@ The main batch runners are:
   - `src/signal_extraction/coreg_extract_phantom.py`
   - `src/signal_extraction/extract_roi_tables.py`
 - results-to-table conversion:
-  - `scripts/process_one_results.py`
+  - `scripts/data/process_one_results.py`
   - `src/data_processing/reshape.py`
   - `src/data_processing/schema.py`
 - rotation and projection:
-  - `scripts/rotate_ogse_tensor.py`
+  - `scripts/data/rotate_ogse_tensor.py`
   - `src/signal_rotation/rotation_tensor.py`
 - contrast construction:
-  - `scripts/make_contrast.py`
+  - `scripts/data/make_contrast.py`
   - `src/fitting/contrast.py`
 - fitting:
-  - `scripts/fit_ogse_signal_vs_g.py`
-  - `scripts/fit_nogse_signal_vs_g.py`
-  - `scripts/fit_ogse_contrast_vs_g.py`
-  - `scripts/fit_nogse_contrast_vs_g.py`
+  - `scripts/fitting/fit_ogse_signal_vs_g.py`
+  - `scripts/fitting/fit_nogse_signal_vs_g.py`
+  - `scripts/fitting/fit_ogse_contrast_vs_g.py`
+  - `scripts/fitting/fit_nogse_contrast_vs_g.py`
   - `src/ogse_fitting/*`
   - `src/nogse_fitting/*`
 - physical model formulas:
   - `src/models/model_fitting.py`
 - correction and final summaries:
-  - `scripts/make_grad_correction_table.py`
-  - `scripts/make_alpha_macro_summary.py`
-  - `scripts/run_tc_pipeline.py`
-  - `scripts/run_tc_vs_td.py`
+  - `scripts/data/make_grad_correction_table.py`
+  - `scripts/summary/make_alpha_macro_summary.py`
+  - `scripts/fitting/run_tc_pipeline.py`
+  - `scripts/fitting/run_tc_vs_td.py`
 
 ## External tools
 
