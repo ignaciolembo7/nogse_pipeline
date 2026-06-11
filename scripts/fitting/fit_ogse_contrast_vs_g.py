@@ -4,7 +4,6 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 
@@ -16,8 +15,6 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
-    load_master_input,
-    require_legacy_or_master,
 )
 from fitting.experiments import experiment_models, validate_experiment_model
 from fitting.model_registry import canonical_contrast_model_name, get_contrast_model
@@ -36,6 +33,7 @@ from ogse_fitting.fit_ogse_contrast_vs_g import (
     fit_ogse_contrast_mixed_global_long,
     plot_fit_one_group,
 )
+from pipeline.recipe import selected_rows_or_legacy_paths
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 
 
@@ -249,7 +247,6 @@ def main() -> None:
     )
     args = ap.parse_args()
     validate_experiment_model("ogse_contrast_vs_g", args.model)
-    require_legacy_or_master(args.contrast_parquet, args.master_parquet, label="contrast_parquet")
 
     backend_model = {
         "ogse_free": "free",
@@ -273,14 +270,13 @@ def main() -> None:
     if plan is not None and plan.global_params() and args.model != "mixed_global":
         args.global_params = sorted({*(args.global_params or []), *plan.global_params()})
 
-    temp_dir: tempfile.TemporaryDirectory[str] | None = None
-    if args.master_parquet is not None:
-        df_master = load_master_input(args, default_row_kind=str(args.row_kind or "contrast"))
-        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_ogse_contrast_")
-        contrast_paths = [Path(temp_dir.name) / "master_selection.long.parquet"]
-        df_master.to_parquet(contrast_paths[0], index=False)
-    else:
-        contrast_paths = [Path(p) for p in args.contrast_parquet]
+    selected = selected_rows_or_legacy_paths(
+        args,
+        legacy_paths=args.contrast_parquet,
+        default_row_kind=str(args.row_kind or "contrast"),
+        temp_prefix="nogse_master_ogse_contrast_",
+    )
+    contrast_paths = selected.paths
     use_global_params = bool(args.global_params)
     if backend_model != "mixed_global" and not use_global_params and len(contrast_paths) != 1:
         raise ValueError("Multiple contrast parquet inputs require --model mixed_global or --global_params.")
@@ -416,6 +412,7 @@ def main() -> None:
         df = df[df["subj"].astype(str).isin([str(x) for x in subjs])].copy()
         if df.empty:
             print(f"Skipped: {analysis_id} (no match for subjs={subjs})")
+            selected.cleanup()
             return
 
     stat_keep = args.stat
@@ -428,6 +425,7 @@ def main() -> None:
             combined = combined[combined["subj"].astype(str).isin([str(x) for x in subjs])].copy()
             if combined.empty:
                 print(f"Skipped: mixed_global (no match for subjs={subjs})")
+                selected.cleanup()
                 return
         if use_corr:
             if args.corr_xlsx is None:
@@ -489,11 +487,12 @@ def main() -> None:
             args,
             fit_kind="ogse_contrast",
             model=str(backend_model),
-            source="master" if args.master_parquet is not None else "legacy",
+            source=selected.source,
         )
         print("Saved fit table:", out_parquet)
         if not args.no_plots:
             print("Plots for model=mixed_global are not generated yet; saved table only.")
+        selected.cleanup()
         return
 
     if use_global_params:
@@ -502,6 +501,7 @@ def main() -> None:
             combined = combined[combined["subj"].astype(str).isin([str(x) for x in subjs])].copy()
             if combined.empty:
                 print(f"Skipped: global fit (no match for subjs={subjs})")
+                selected.cleanup()
                 return
         if use_corr:
             if args.corr_xlsx is None:
@@ -571,11 +571,12 @@ def main() -> None:
             args,
             fit_kind="ogse_contrast",
             model=f"{backend_model}_global",
-            source="master" if args.master_parquet is not None else "legacy",
+            source=selected.source,
         )
         print("Saved fit table:", out_parquet)
         if not args.no_plots:
             print("Plots for --global_params fits are not generated yet; saved table only.")
+        selected.cleanup()
         return
 
     fit_df = fit_ogse_contrast_long(
@@ -631,12 +632,13 @@ def main() -> None:
         args,
         fit_kind="ogse_contrast",
         model=str(backend_model),
-        source="master" if args.master_parquet is not None else "legacy",
+        source=selected.source,
     )
 
     print("Saved fit table:", out_parquet)
 
     if args.no_plots:
+        selected.cleanup()
         return
 
     # Plots: one per roi/direction/stat row
@@ -658,6 +660,7 @@ def main() -> None:
         plot_fit_one_group(g, r.to_dict(), out_png=out_png, gbase=args.gbase, ycol=args.ycol)
 
     print("Saved plots in:", plots_dir)
+    selected.cleanup()
 
 
 if __name__ == "__main__":

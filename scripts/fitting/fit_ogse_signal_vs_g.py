@@ -4,7 +4,6 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 
@@ -14,8 +13,6 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
-    load_master_input,
-    require_legacy_or_master,
 )
 from fitting.experiments import experiment_models, fit_output_name, split_all_or_values, validate_experiment_model
 from fitting.model_registry import canonical_signal_model_name, get_signal_model
@@ -26,6 +23,7 @@ from fitting.gradient_correction import (
     read_correction_table,
 )
 from ogse_fitting.fit_ogse_signal_vs_g import run_fit_ogse_signal_vs_g_from_parquet
+from pipeline.recipe import selected_rows_or_legacy_table
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 
@@ -183,7 +181,6 @@ def main() -> None:
     args = ap.parse_args()
 
     model = validate_experiment_model(EXPERIMENT, args.model)
-    require_legacy_or_master([args.parquet] if args.parquet is not None else None, args.master_parquet, label="parquet")
     backend_model = {
         "ogse_free": "free_ogse",
         "ogse_rest": "rest",
@@ -222,19 +219,14 @@ def main() -> None:
     if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
         raise ValueError("--auto_fit_max_points must be >= --auto_fit_min_points.")
 
-    temp_dir: tempfile.TemporaryDirectory[str] | None = None
-    parquet_for_backend = args.parquet
-    if args.master_parquet is not None:
-        df_master = load_master_input(
-            args,
-            default_row_kind=str(args.row_kind or "signal_rotated"),
-            signal_rotated=str(args.row_kind or "signal_rotated") == "signal_rotated",
-        )
-        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_ogse_signal_")
-        parquet_for_backend = Path(temp_dir.name) / "master_selection.long.parquet"
-        df_master.to_parquet(parquet_for_backend, index=False)
-    if parquet_for_backend is None:
-        raise ValueError("Provide parquet or --master-parquet.")
+    selected = selected_rows_or_legacy_table(
+        args,
+        legacy_path=args.parquet,
+        default_row_kind=str(args.row_kind or "signal_rotated"),
+        signal_rotated=str(args.row_kind or "signal_rotated") == "signal_rotated",
+        temp_prefix="nogse_master_ogse_signal_",
+    )
+    parquet_for_backend = selected.paths[0]
 
     df = _load_parquet_context(parquet_for_backend)
     inferred = _infer_overrides_from_df(df)
@@ -308,11 +300,10 @@ def main() -> None:
             args,
             fit_kind="ogse_signal",
             model=str(backend_model),
-            source="master" if args.master_parquet is not None else "legacy",
+            source=selected.source,
         )
     finally:
-        if temp_dir is not None:
-            temp_dir.cleanup()
+        selected.cleanup()
 
 
 if __name__ == "__main__":

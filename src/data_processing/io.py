@@ -91,6 +91,19 @@ def read_result_xls(path: str | Path, stat_sheets=DEFAULT_STAT_SHEETS) -> dict[s
     return _read_xlsx_stats(xls)
 
 
+def read_table_file(path: str | Path) -> pd.DataFrame:
+    """Read one physical table file as a DataFrame."""
+    p = Path(path)
+    suffix = p.suffix.lower()
+    if suffix == ".parquet":
+        return pd.read_parquet(p)
+    if suffix == ".csv":
+        return pd.read_csv(p)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(p, sheet_name=0)
+    raise ValueError(f"Unsupported table format for {p}")
+
+
 def write_table_outputs(
     df: pd.DataFrame,
     parquet_path: str | Path,

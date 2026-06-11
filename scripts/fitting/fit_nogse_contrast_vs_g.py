@@ -4,7 +4,6 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 
@@ -15,8 +14,6 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
-    load_master_input,
-    require_legacy_or_master,
 )
 from fitting.experiments import experiment_models, validate_experiment_model
 from fitting.model_registry import canonical_contrast_model_name, get_contrast_model
@@ -28,6 +25,7 @@ from fitting.gradient_correction import (
     unique_int,
 )
 from nogse_fitting.fit_nogse_contrast_vs_g import fit_nogse_contrast_long, plot_nogse_contrast_fit_one_group
+from pipeline.recipe import selected_rows_or_legacy_table
 from data_processing.io import fit_params_output_basename, write_table_outputs
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 
@@ -163,7 +161,6 @@ def main() -> None:
     add_fit_master_output_args(ap)
     args = ap.parse_args()
     validate_experiment_model("nogse_contrast_vs_g", args.model)
-    require_legacy_or_master([args.contrast_parquet] if args.contrast_parquet is not None else None, args.master_parquet, label="contrast_parquet")
     backend_model = {
         "nogse_free": "free",
         "nogse_tort": "tort",
@@ -182,15 +179,13 @@ def main() -> None:
             log_params=spec.log_params,
         )
 
-    temp_dir: tempfile.TemporaryDirectory[str] | None = None
-    contrast_path = args.contrast_parquet
-    if args.master_parquet is not None:
-        df_master = load_master_input(args, default_row_kind=str(args.row_kind or "contrast"))
-        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_nogse_contrast_")
-        contrast_path = Path(temp_dir.name) / "master_selection.long.parquet"
-        df_master.to_parquet(contrast_path, index=False)
-    if contrast_path is None:
-        raise ValueError("Provide contrast_parquet or --master-parquet.")
+    selected = selected_rows_or_legacy_table(
+        args,
+        legacy_path=args.contrast_parquet,
+        default_row_kind=str(args.row_kind or "contrast"),
+        temp_prefix="nogse_master_nogse_contrast_",
+    )
+    contrast_path = selected.paths[0]
 
     df = pd.read_parquet(contrast_path)
     analysis_id = _analysis_id_from_path(contrast_path)
@@ -327,6 +322,7 @@ def main() -> None:
         df = df[df["subj"].astype(str).isin([str(x) for x in subjs])].copy()
         if df.empty:
             print(f"Skipped: {analysis_id} (no match for subjs={subjs})")
+            selected.cleanup()
             return
 
     stat_keep = args.stat
@@ -383,12 +379,13 @@ def main() -> None:
         args,
         fit_kind="nogse_contrast",
         model=str(backend_model),
-        source="master" if args.master_parquet is not None else "legacy",
+        source=selected.source,
     )
 
     print("Saved fit table:", out_parquet)
 
     if args.no_plots:
+        selected.cleanup()
         return
 
     # Plots: one per roi/direction/stat row
@@ -410,6 +407,7 @@ def main() -> None:
         plot_nogse_contrast_fit_one_group(g, r.to_dict(), out_png=out_png, gbase=args.gbase, ycol=args.ycol)
 
     print("Saved plots in:", plots_dir)
+    selected.cleanup()
 
 
 if __name__ == "__main__":

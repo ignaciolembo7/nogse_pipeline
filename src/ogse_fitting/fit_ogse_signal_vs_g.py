@@ -22,6 +22,7 @@ from fitting.core import chi2 as _chi2
 from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import rmse_log as _rmse_log
+from fitting.signal_tables import normalize_signal_curve_keys, signal_table_analysis_id
 from models.model_fitting import M_ogse_free, M_ogse_rest, M_ogse_rest_offset
 from monoexp_fitting.fit_monoexp_signal_vs_bval import run_fit_from_parquet as run_fit_monoexp_from_parquet
 from ogse_plotting.plot_ogse_signal_vs_g import plot_ogse_signal_fit
@@ -59,11 +60,7 @@ VALID_OGSE_SIGNAL_MODELS = {
 
 
 def infer_exp_id(p: Path) -> str:
-    name = p.name
-    for suf in [".rot_tensor.long.parquet", ".long.parquet", ".parquet", ".xlsx", ".xls"]:
-        if name.endswith(suf):
-            return name[: -len(suf)]
-    return p.stem
+    return signal_table_analysis_id(p)
 
 
 def _unique_float_any(df: pd.DataFrame, cols: Sequence[str], *, required: bool, name: str) -> Optional[float]:
@@ -201,17 +198,7 @@ def _require_strict_columns(df: pd.DataFrame) -> None:
 
 
 def _ensure_keys_types(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    out["direction"] = out["direction"].astype(str)
-    out["roi"] = out["roi"].astype(str)
-    bs = pd.to_numeric(out["b_step"], errors="coerce")
-    if bs.isna().any():
-        bad = out.loc[bs.isna(), ["roi", "direction", "b_step"]].head(10)
-        raise ValueError(f"b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
-    out["b_step"] = bs.astype(int)
-    if "stat" in out.columns:
-        out["stat"] = out["stat"].astype(str)
-    return out
+    return normalize_signal_curve_keys(df, label="fit_ogse_signal_vs_g", strict_columns=False)
 
 
 def _normalize_g_type(g_type: str) -> str:

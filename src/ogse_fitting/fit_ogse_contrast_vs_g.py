@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
+from data_processing.io import read_table_file
 from fitting.b_from_g import (
     axes_share_gradient_family,
     axis_from_gradient,
@@ -16,6 +17,15 @@ from fitting.b_from_g import (
     gradient_base_for_axis,
     normalize_axis_base,
     split_axis_side,
+)
+from fitting.contrast_tables import (
+    analysis_id_from_source_file as _analysis_id_from_source_file,
+    coerce_correction_pair as _coerce_correction_pair,
+    fit_row_correction_pair as _fit_row_correction_pair,
+    maybe_scale_gradient as _maybe_scale_g_thorsten,
+    normalize_contrast_keys as _normalize_keys,
+    require_columns as _require_cols,
+    unique_scalar as _unique_scalar,
 )
 from fitting.core import CurveFitParameter
 from fitting.core import chi2 as _chi2
@@ -37,9 +47,15 @@ from models.model_fitting import (
     OGSE_contrast_vs_g_rest_offset,
     OGSE_contrast_vs_g_tort,
 )
+from ogse_fitting.contrast_parameter_plan import (
+    MODEL_PARAM_NAMES,
+    contrast_parameter_vary_flags as _param_vary_flags,
+    fixed_contrast_parameter_values as _param_fixed_values,
+    normalize_global_contrast_params as _normalize_global_params,
+    seed_bounds_for_contrast_parameter as _param_seed_bounds,
+)
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
-from tools.strict_columns import raise_on_unrecognized_column_names
 from tools.value_formatting import scalar_or_compact_series, truthy_series
 
 
@@ -51,48 +67,6 @@ VALID_GBASES = {"g", "g_max", "g_lin_max", "g_thorsten"}
 GAMMA_DEFAULT = 267.5221900
 
 
-def _require_cols(df: pd.DataFrame, cols: Iterable[str], *, label: str) -> None:
-    missing = [c for c in cols if c not in df.columns]
-    if missing:
-        raise KeyError(f"{label}: missing required columns {missing}. Columns={list(df.columns)}")
-
-
-def _normalize_keys(df: pd.DataFrame, *, label: str) -> pd.DataFrame:
-    """
-    Strict schema: keep direction as string and b_step as int.
-    This function does not rename columns; it only enforces stable types for grouping and plotting.
-    """
-    out = df.copy()
-    raise_on_unrecognized_column_names(out.columns, context=label)
-
-    _require_cols(out, KEY_COLS, label=label)
-
-    out["direction"] = out["direction"].astype(str)
-
-    bs = pd.to_numeric(out["b_step"], errors="coerce")
-    if bs.isna().any():
-        bad = out.loc[bs.isna(), ["roi", "direction", "b_step"]].head(10)
-        raise ValueError(f"{label}: b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
-    out["b_step"] = bs.astype(int)
-
-    # Keep stat as a string when present.
-    if "stat" in out.columns:
-        out["stat"] = out["stat"].astype(str)
-
-    return out
-
-
-def _unique_scalar(series: pd.Series, *, name: str, required: bool = False) -> Any:
-    u = series.dropna().unique()
-    if len(u) == 0:
-        if required:
-            raise ValueError(f"Could not infer '{name}': column is empty or all-NaN.")
-        return None
-    if len(u) > 1:
-        raise ValueError(f"'{name}' is not unique within the group. Values={u.tolist()[:10]}")
-    return u[0]
-
-
 def _normalize_gbase(gbase: str) -> str:
     return gradient_base_for_axis(gbase)
 
@@ -100,37 +74,6 @@ def _normalize_gbase(gbase: str) -> str:
 def _gcols(gbase: str) -> tuple[str, str]:
     b = _normalize_gbase(gbase)
     return f"{b}_1", f"{b}_2"
-
-
-def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
-    del gbase
-    return np.asarray(arr, dtype=float)
-
-
-def _coerce_correction_pair(value: Any) -> tuple[float, float]:
-    if value is None:
-        return 1.0, 1.0
-
-    if isinstance(value, (tuple, list, np.ndarray, pd.Series)) and len(value) >= 2:
-        f1 = float(value[0])
-        f2 = float(value[1])
-    else:
-        f1 = float(value)
-        f2 = f1
-
-    if not np.isfinite(f1) or f1 <= 0:
-        f1 = 1.0
-    if not np.isfinite(f2) or f2 <= 0:
-        f2 = 1.0
-    return f1, f2
-
-
-def _fit_row_correction_pair(fit_row: dict[str, Any] | pd.Series) -> tuple[float, float]:
-    f1 = fit_row.get("f_corr_1", np.nan)
-    f2 = fit_row.get("f_corr_2", np.nan)
-    if pd.notna(f1) and pd.notna(f2):
-        return _coerce_correction_pair((f1, f2))
-    return 1.0, 1.0
 
 
 def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None, xplot: str) -> str:
@@ -149,15 +92,6 @@ def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None, xplot: str) -> s
             f"Received gbase={fit_axis!r}, plot_xcol={plot_axis!r}."
         )
     return f"{plot_base}_{resolved_side}"
-
-
-def _analysis_id_from_source_file(source_file: str | None) -> str:
-    if not source_file:
-        return ""
-    stem = Path(str(source_file)).stem
-    if stem.endswith(".long"):
-        stem = stem[: -len(".long")]
-    return stem
 
 
 @dataclass(frozen=True)
@@ -1176,15 +1110,7 @@ def _fit_selected_contrast_model(
 
 
 def _read_table(path: str | Path) -> pd.DataFrame:
-    p = Path(path)
-    suffix = p.suffix.lower()
-    if suffix == ".parquet":
-        return pd.read_parquet(p)
-    if suffix == ".csv":
-        return pd.read_csv(p)
-    if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(p, sheet_name=0)
-    raise ValueError(f"Unsupported table format for {p}")
+    return read_table_file(path)
 
 
 def _normalize_alpha_table(
@@ -1626,101 +1552,6 @@ def _prepare_mixed_global_contrast_data(
     if not rows:
         raise ValueError("No valid curves remained for mixed_global.")
     return pd.concat(rows, ignore_index=True)
-
-
-MODEL_PARAM_NAMES: dict[str, tuple[str, ...]] = {
-    "free": ("M0", "D0_m2_ms"),
-    "tort": ("alpha", "M0", "D0_m2_ms"),
-    "rest": ("tc_ms", "M0", "D0_m2_ms"),
-    "rest_offset": ("tc_ms", "M0", "D0_m2_ms", "C"),
-    "rest_offset_globC": ("tc_ms", "M0", "D0_m2_ms", "C"),
-    "mixed": ("tc_ms", "alpha", "M0", "D0_m2_ms"),
-}
-
-
-PARAM_ALIASES = {
-    "D0": "D0_m2_ms",
-    "D0_m2_ms": "D0_m2_ms",
-    "D0_mm2_s": "D0_m2_ms",
-    "M0": "M0",
-    "tc": "tc_ms",
-    "tc_ms": "tc_ms",
-    "alpha": "alpha",
-    "C": "C",
-}
-
-
-def _normalize_global_params(model: str, values: Sequence[str] | None) -> list[str]:
-    if not values:
-        return []
-    if len(values) == 1 and str(values[0]).upper() in {"NONE", "LOCAL"}:
-        return []
-    allowed = set(MODEL_PARAM_NAMES.get(str(model), ()))
-    out: list[str] = []
-    for item in values:
-        for token in str(item).replace(",", " ").split():
-            if not token:
-                continue
-            resolved = PARAM_ALIASES.get(token, PARAM_ALIASES.get(token.strip(), None))
-            if resolved is None:
-                raise ValueError(f"Unknown global parameter {token!r}. Allowed aliases: {sorted(PARAM_ALIASES)}.")
-            if resolved not in allowed:
-                raise ValueError(f"Parameter {resolved!r} is not available for model={model!r}. Allowed: {sorted(allowed)}.")
-            if resolved not in out:
-                out.append(resolved)
-    return out
-
-
-def _param_seed_bounds(
-    name: str,
-    *,
-    M0_value: float,
-    D0_value: float,
-    C_value: float,
-    tc_value: float,
-    tc_bounds: tuple[float, float] | None,
-    m0_bounds: tuple[float, float] | None,
-    d0_bounds: tuple[float, float] | None,
-    c_bounds: tuple[float, float] | None,
-) -> tuple[float, float, float]:
-    if name == "M0":
-        lo, hi = (0.0, 5.0) if m0_bounds is None else (float(m0_bounds[0]), float(m0_bounds[1]))
-        return float(np.clip(float(M0_value), lo, hi)), lo, hi
-    if name == "D0_m2_ms":
-        lo, hi = (float(D0_value / 100.0), float(D0_value * 100.0)) if d0_bounds is None else (
-            float(d0_bounds[0]),
-            float(d0_bounds[1]),
-        )
-        return float(np.clip(float(D0_value), lo, hi)), lo, hi
-    if name == "tc_ms":
-        lo, hi = (0.1, 1000.0) if tc_bounds is None else (float(tc_bounds[0]), float(tc_bounds[1]))
-        return float(np.clip(float(tc_value), lo, hi)), lo, hi
-    if name == "alpha":
-        return 0.5, 0.0, 1.0
-    if name == "C":
-        lo, hi = (0.0, 1.0) if c_bounds is None else (float(c_bounds[0]), float(c_bounds[1]))
-        return float(np.clip(float(C_value), lo, hi)), lo, hi
-    raise ValueError(f"Unsupported fit parameter {name!r}.")
-
-
-def _param_vary_flags(*, M0_vary: bool, D0_vary: bool, C_vary: bool, tc_vary: bool) -> dict[str, bool]:
-    return {
-        "M0": bool(M0_vary),
-        "D0_m2_ms": bool(D0_vary),
-        "tc_ms": bool(tc_vary),
-        "C": bool(C_vary),
-        "alpha": True,
-    }
-
-
-def _param_fixed_values(*, M0_value: float, D0_value: float, C_value: float, tc_value: float) -> dict[str, float]:
-    return {
-        "M0": float(M0_value),
-        "D0_m2_ms": float(D0_value),
-        "tc_ms": float(tc_value),
-        "C": float(C_value),
-        "alpha": 0.5,
-    }
 
 
 def _prepare_global_contrast_data(

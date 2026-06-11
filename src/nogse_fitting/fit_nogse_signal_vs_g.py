@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from data_processing.io import fit_params_output_basename, read_table_file, write_table_outputs
 from fitting.b_from_g import (
     VALID_AXIS_BASES,
     axes_share_gradient_family,
@@ -19,11 +20,12 @@ from fitting.b_from_g import (
 from fitting.core import chi2 as fit_chi2
 from fitting.core import fit_least_squares
 from fitting.core import r2_score, rmse as fit_rmse
+from fitting.experiments import split_all_or_values
+from fitting.signal_tables import signal_table_analysis_id
 from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_group
 from models.model_fitting import M_nogse_free, M_nogse_mixed
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
-from data_processing.io import fit_params_output_basename, write_table_outputs
 from tools.value_formatting import scalar_or_compact_column, scalar_or_compact_series
 
 
@@ -81,19 +83,7 @@ GAMMA_DEFAULT = 267.5221900
 
 
 def analysis_id_from_path(path: Path) -> str:
-    stem = path.stem
-    if stem.endswith(".long"):
-        stem = stem[: -len(".long")]
-    return stem
-
-
-def split_all_or_values(values: Sequence[str] | None) -> list[str] | None:
-    if values is None:
-        return None
-    values = [str(v) for v in values]
-    if len(values) == 1 and values[0].upper() == "ALL":
-        return None
-    return values
+    return signal_table_analysis_id(path)
 
 
 def _unique_scalar(df: pd.DataFrame, col: str, *, required: bool = False):
@@ -213,15 +203,7 @@ def _coerce_optional_time(value: object | None) -> float | None:
 
 
 def _read_table(path: str | Path) -> pd.DataFrame:
-    p = Path(path)
-    suffix = p.suffix.lower()
-    if suffix == ".parquet":
-        return pd.read_parquet(p)
-    if suffix == ".csv":
-        return pd.read_csv(p)
-    if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(p, sheet_name=0)
-    raise ValueError(f"Unsupported table format for {p}")
+    return read_table_file(path)
 
 
 def _ensure_subject_column(df: pd.DataFrame, *, analysis_id: str, source_file: str) -> pd.DataFrame:

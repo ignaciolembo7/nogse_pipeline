@@ -4,7 +4,6 @@ import repo_bootstrap  # noqa: F401
 
 import argparse
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 
@@ -15,8 +14,6 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
-    load_master_input,
-    require_legacy_or_master,
 )
 from fitting.experiments import experiment_models, split_all_or_values, validate_experiment_model
 from fitting.model_registry import canonical_signal_model_name, get_signal_model
@@ -35,6 +32,7 @@ from nogse_fitting.fit_nogse_signal_vs_g import (
     validate_fixed_value,
     validate_log_bounds,
 )
+from pipeline.recipe import selected_rows_or_legacy_paths
 
 
 EXPERIMENT = "nogse_signal_vs_g"
@@ -142,7 +140,6 @@ def main() -> None:
     args = ap.parse_args()
 
     validate_experiment_model(EXPERIMENT, args.model)
-    require_legacy_or_master(args.signal_parquet, args.master_parquet, label="signal_parquet")
 
     has_param_plan = any(getattr(args, name) for name in ("param_mode", "param_init", "param_fixed", "param_bounds"))
     plan = None
@@ -185,14 +182,14 @@ def main() -> None:
         validate_log_bounds("D0", d0_bounds)
     validate_log_bounds("tc", tc_bounds)
 
-    temp_dir: tempfile.TemporaryDirectory[str] | None = None
-    if args.master_parquet is not None:
-        df_master = load_master_input(args, default_row_kind=str(args.row_kind or "signal"), signal_rotated=str(args.row_kind or "signal") == "signal_rotated")
-        temp_dir = tempfile.TemporaryDirectory(prefix="nogse_master_nogse_signal_")
-        signal_paths = [Path(temp_dir.name) / "master_selection.long.parquet"]
-        df_master.to_parquet(signal_paths[0], index=False)
-    else:
-        signal_paths = [Path(p) for p in args.signal_parquet]
+    selected = selected_rows_or_legacy_paths(
+        args,
+        legacy_paths=args.signal_parquet,
+        default_row_kind=str(args.row_kind or "signal"),
+        signal_rotated=str(args.row_kind or "signal") == "signal_rotated",
+        temp_prefix="nogse_master_nogse_signal_",
+    )
+    signal_paths = selected.paths
 
     backend_model = args.model
     if backend_model == "nogse_free":
@@ -244,7 +241,7 @@ def main() -> None:
                 args,
                 fit_kind="nogse_signal",
                 model=str(backend_model),
-                source="master" if args.master_parquet is not None else "legacy",
+                source=selected.source,
             )
             return
 
@@ -270,11 +267,10 @@ def main() -> None:
             args,
             fit_kind="nogse_signal",
             model=str(backend_model),
-            source="master" if args.master_parquet is not None else "legacy",
+            source=selected.source,
         )
     finally:
-        if temp_dir is not None:
-            temp_dir.cleanup()
+        selected.cleanup()
 
 
 if __name__ == "__main__":

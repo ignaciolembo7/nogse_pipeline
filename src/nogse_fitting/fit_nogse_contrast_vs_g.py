@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,15 @@ from fitting.b_from_g import (
     gradient_base_for_axis,
     normalize_axis_base,
     split_axis_side,
+)
+from fitting.contrast_tables import (
+    analysis_id_from_source_file as _analysis_id_from_source_file,
+    coerce_correction_pair as _coerce_correction_pair,
+    fit_row_correction_pair as _fit_row_correction_pair,
+    maybe_scale_gradient as _maybe_scale_g_thorsten,
+    normalize_contrast_keys as _normalize_keys,
+    require_columns as _require_cols,
+    unique_scalar as _unique_scalar,
 )
 from fitting.core import CurveFitParameter
 from fitting.core import chi2 as _chi2
@@ -31,55 +40,12 @@ from models.model_fitting import (
 from nogse_plotting.plot_nogse_contrast_vs_g import plot_nogse_contrast_fit
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
-from tools.strict_columns import raise_on_unrecognized_column_names
 from tools.value_formatting import scalar_or_compact_series, truthy_series
 
 
 KEY_COLS = ("roi", "direction", "b_step")
 VALID_GBASES = {"g", "g_max", "g_lin_max", "g_thorsten"}
 GAMMA_DEFAULT = 267.5221900
-
-
-def _require_cols(df: pd.DataFrame, cols: Iterable[str], *, label: str) -> None:
-    missing = [c for c in cols if c not in df.columns]
-    if missing:
-        raise KeyError(f"{label}: missing required columns {missing}. Columns={list(df.columns)}")
-
-
-def _normalize_keys(df: pd.DataFrame, *, label: str) -> pd.DataFrame:
-    out = df.copy()
-    raise_on_unrecognized_column_names(out.columns, context=label)
-    _require_cols(out, KEY_COLS, label=label)
-    out["direction"] = out["direction"].astype(str)
-    if "stat" in out.columns:
-        out["stat"] = out["stat"].astype(str)
-
-    bs = pd.to_numeric(out["b_step"], errors="coerce")
-    if bs.isna().any():
-        bad = out.loc[bs.isna(), ["roi", "direction", "b_step"]].head(10)
-        raise ValueError(f"{label}: b_step contains non-numeric values. Examples:\n{bad.to_string(index=False)}")
-    out["b_step"] = bs.astype(int)
-    return out
-
-
-def _unique_scalar(series: pd.Series, *, name: str, required: bool = False) -> Any:
-    u = pd.Series(series).dropna().unique()
-    if len(u) == 0:
-        if required:
-            raise ValueError(f"Could not infer '{name}': column is empty or all-NaN.")
-        return None
-    if len(u) > 1:
-        raise ValueError(f"'{name}' is not unique within the group. Values={u.tolist()[:10]}")
-    return u[0]
-
-
-def _analysis_id_from_source_file(source_file: str | None) -> str:
-    if not source_file:
-        return ""
-    stem = Path(str(source_file)).stem
-    if stem.endswith(".long"):
-        stem = stem[: -len(".long")]
-    return stem
 
 
 def _normalize_gbase(gbase: str) -> str:
@@ -94,37 +60,6 @@ def _gcol(df: pd.DataFrame, gbase: str, *, side: int = 1) -> str:
     if b in df.columns:
         return b
     raise KeyError(f"contrast_long: missing gradient column {side_col!r} or {b!r}. Columns={list(df.columns)}")
-
-
-def _maybe_scale_g_thorsten(gbase: str, arr: np.ndarray) -> np.ndarray:
-    del gbase
-    return np.asarray(arr, dtype=float)
-
-
-def _coerce_correction_pair(value: Any) -> tuple[float, float]:
-    if value is None:
-        return 1.0, 1.0
-
-    if isinstance(value, (tuple, list, np.ndarray, pd.Series)) and len(value) >= 2:
-        f1 = float(value[0])
-        f2 = float(value[1])
-    else:
-        f1 = float(value)
-        f2 = f1
-
-    if not np.isfinite(f1) or f1 <= 0:
-        f1 = 1.0
-    if not np.isfinite(f2) or f2 <= 0:
-        f2 = 1.0
-    return f1, f2
-
-
-def _fit_row_correction_pair(fit_row: dict[str, Any] | pd.Series) -> tuple[float, float]:
-    f1 = fit_row.get("f_corr_1", np.nan)
-    f2 = fit_row.get("f_corr_2", np.nan)
-    if pd.notna(f1) and pd.notna(f2):
-        return _coerce_correction_pair((f1, f2))
-    return 1.0, 1.0
 
 
 def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None) -> str:

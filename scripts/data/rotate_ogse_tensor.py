@@ -10,9 +10,9 @@ from data_processing.io import write_table_outputs
 from data_processing.master_table import (
     append_master_rows,
     build_analysis_id_from_columns,
-    load_master_table,
-    select_signal,
 )
+from fitting.cli_common import add_master_source_args
+from pipeline.recipe import selected_rows_or_legacy_dataframe
 from signal_rotation.rotation_tensor import rotate_signals_tensor
 
 
@@ -30,36 +30,6 @@ def _infer_exp_dir(df: pd.DataFrame, long_parquet: Path) -> str:
     if "_ep2d" in stem:
         return stem.split("_ep2d")[0]
     return stem
-
-
-def _split_values(values: list[str] | None) -> list[str] | None:
-    if values is None:
-        return None
-    out: list[str] = []
-    for value in values:
-        out.extend(str(value).replace(",", " ").split())
-    return out or None
-
-
-def _master_selectors(args: argparse.Namespace) -> dict[str, object]:
-    selectors: dict[str, object] = {}
-    for arg_name, col_name in [
-        ("analysis_id", "analysis_id"),
-        ("subj", "subj"),
-        ("sheet", "sheet"),
-        ("roi", "roi"),
-        ("stat", "stat"),
-        ("source_file", "source_file"),
-    ]:
-        values = _split_values(getattr(args, arg_name))
-        if values is not None:
-            selectors[col_name] = values
-
-    for arg_name, col_name in [("td_ms", "td_ms"), ("N", "N"), ("Hz", "Hz")]:
-        value = getattr(args, arg_name)
-        if value is not None:
-            selectors[col_name] = float(value)
-    return selectors
 
 
 def _analysis_id_from_columns(df: pd.DataFrame, *, row_kind: str) -> str:
@@ -86,39 +56,11 @@ def _analysis_id_from_columns(df: pd.DataFrame, *, row_kind: str) -> str:
     return build_analysis_id_from_columns(df, columns=unique_cols, prefix=row_kind)
 
 
-def _load_input(args: argparse.Namespace) -> tuple[pd.DataFrame, str]:
-    if args.master_parquet is not None and args.long_parquet is None:
-        master = load_master_table(args.master_parquet)
-        selectors = _master_selectors(args)
-        df = select_signal(master, rotated=False, **selectors)
-        if df.empty:
-            raise SystemExit(f"No unrotated signal rows matched selectors: {selectors}")
-        return df, "master"
-
-    if args.long_parquet is None:
-        raise SystemExit("Provide long_parquet or use --master-parquet with selectors.")
-    return pd.read_parquet(args.long_parquet), "parquet"
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("long_parquet", type=Path, nargs="?", help="Legacy input clean signal .long.parquet.")
     ap.add_argument("--out_dir", type=Path, default=Path("analysis/ogse_experiments/data-rotated/tables"))
-    ap.add_argument(
-        "--master-parquet",
-        type=Path,
-        default=None,
-        help="Optional master table. Without long_parquet, input rows are selected from this table; rotated rows are appended back.",
-    )
-    ap.add_argument("--analysis-id", action="append", default=None, help="Master-table analysis_id selector.")
-    ap.add_argument("--subj", action="append", default=None, help="Master-table subj selector.")
-    ap.add_argument("--sheet", action="append", default=None, help="Master-table sheet selector.")
-    ap.add_argument("--roi", action="append", default=None, help="Master-table ROI selector. Can be repeated.")
-    ap.add_argument("--stat", action="append", default=None, help="Master-table stat selector.")
-    ap.add_argument("--source-file", action="append", default=None, help="Master-table source_file selector.")
-    ap.add_argument("--td_ms", type=float, default=None, help="Master-table td_ms selector.")
-    ap.add_argument("--N", type=float, default=None, help="Master-table N selector.")
-    ap.add_argument("--Hz", type=float, default=None, help="Master-table Hz selector.")
+    add_master_source_args(ap, default_row_kind="signal")
     ap.add_argument(
         "--no-legacy-output",
         action="store_true",
@@ -138,7 +80,16 @@ def main() -> None:
     if args.dirs_txt is not None and args.dirs_csv is not None:
         raise SystemExit("Use only one of --dirs_txt or --dirs_csv.")
 
-    df, input_kind = _load_input(args)
+    selected = selected_rows_or_legacy_dataframe(
+        args,
+        legacy_path=args.long_parquet,
+        default_row_kind=str(args.row_kind or "signal"),
+        signal_rotated=False,
+    )
+    df = selected.df
+    if df is None:
+        raise SystemExit("No input rows were selected.")
+    input_kind = selected.source
     dirs_file = args.dirs_txt if args.dirs_txt is not None else args.dirs_csv
 
     res = rotate_signals_tensor(
