@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
@@ -45,15 +44,6 @@ class CurveData:
     b_step: np.ndarray
 
 
-def source_key(text: object) -> str:
-    name = Path(str(text)).name.strip()
-    lower = name.lower()
-    for suffix in (".rot_tensor.long.parquet", ".long.parquet", ".parquet", ".xlsx", ".xls"):
-        if lower.endswith(suffix):
-            return name[: -len(suffix)]
-    return Path(name).stem
-
-
 def split_values(values: Sequence[str] | None) -> list[str] | None:
     if values is None:
         return None
@@ -63,31 +53,6 @@ def split_values(values: Sequence[str] | None) -> list[str] | None:
     if not out or (len(out) == 1 and out[0].upper() == "ALL"):
         return None
     return out
-
-
-def analysis_id_from_path(path: Path) -> str:
-    name = path.name
-    for suffix in (".rot_tensor.long.parquet", ".long.parquet", ".parquet"):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return path.stem
-
-
-def load_signal_inputs(paths: Sequence[Path]) -> pd.DataFrame:
-    """Load legacy signal tables. Prefer ``load_master_signal_input`` in new workflows."""
-    frames: list[pd.DataFrame] = []
-    for path in paths:
-        df = pd.read_parquet(path)
-        raise_on_unrecognized_column_names(df.columns, context=f"fit_global_signal({path})")
-        if "source_file" not in df.columns:
-            df["source_file"] = path.name
-        if "analysis_id" not in df.columns:
-            df["analysis_id"] = analysis_id_from_path(path)
-        df["source_path"] = str(path)
-        frames.append(df)
-    if not frames:
-        raise ValueError("At least one input parquet is required.")
-    return pd.concat(frames, ignore_index=True, sort=False)
 
 
 def load_master_signal_input(args: Any) -> pd.DataFrame:
@@ -114,70 +79,8 @@ def load_master_signal_input(args: Any) -> pd.DataFrame:
     df = filter_master_rows(master, **selectors)
     if df.empty:
         raise ValueError(f"No master rows matched selectors: {selectors}")
-    if "source_path" not in df.columns:
-        df["source_path"] = str(args.master_parquet)
-    if "source_file" not in df.columns:
-        df["source_file"] = Path(args.master_parquet).name
+    raise_on_unrecognized_column_names(df.columns, context=f"fit_global_signal({args.master_parquet})")
     return df
-
-
-def build_contrast_side_index(contrast_root: Path | None) -> dict[tuple[str, str, str, str], dict[str, Any]]:
-    """Index legacy contrast tables so signal curves can be labeled by contrast side."""
-    if contrast_root is None:
-        return {}
-    table_root = Path(contrast_root) / "tables" if (Path(contrast_root) / "tables").is_dir() else Path(contrast_root)
-    if not table_root.is_dir():
-        raise FileNotFoundError(f"contrast_root does not exist or has no tables: {contrast_root}")
-
-    index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
-    columns = [
-        "analysis_id",
-        "source_file_1",
-        "source_file_2",
-        "N_1",
-        "N_2",
-        "td_ms_1",
-        "td_ms_2",
-        "sheet",
-        "subj",
-        "roi",
-        "direction",
-        "stat",
-    ]
-    for path in sorted(table_root.glob("**/*.parquet")):
-        if path.name.endswith(".signal_fit_params.parquet") or path.name.endswith(".signal_fit_points.parquet"):
-            continue
-        try:
-            df = pd.read_parquet(path, columns=[c for c in columns if c])
-        except Exception:
-            df = pd.read_parquet(path)
-        needed = {"source_file_1", "source_file_2", "roi", "direction"}
-        if not needed.issubset(df.columns):
-            continue
-        if "analysis_id" not in df.columns:
-            df["analysis_id"] = path.name[: -len(".long.parquet")] if path.name.endswith(".long.parquet") else path.stem
-        if "stat" not in df.columns:
-            df["stat"] = ""
-        meta_cols = [c for c in columns if c in df.columns]
-        for _, row in df[meta_cols].drop_duplicates().iterrows():
-            roi = str(row.get("roi", ""))
-            direction = str(row.get("direction", ""))
-            stat = str(row.get("stat", ""))
-            for side in (1, 2):
-                source = row.get(f"source_file_{side}", "")
-                key = (source_key(source), roi, direction, stat)
-                if key in index:
-                    continue
-                index[key] = {
-                    "contrast_analysis_id": str(row.get("analysis_id", "")),
-                    "contrast_source_file": path.name,
-                    "contrast_side": int(side),
-                    "contrast_N_1": float(row.get("N_1", np.nan)),
-                    "contrast_N_2": float(row.get("N_2", np.nan)),
-                }
-                wildcard_key = (source_key(source), roi, direction, "")
-                index.setdefault(wildcard_key, index[key])
-    return index
 
 
 def unique_text(df: pd.DataFrame, col: str, default: str = "") -> str:
@@ -234,7 +137,6 @@ def prepare_signal_curves(
     corr_tol_ms: float,
     corr_sheet: str | None,
     corr_missing: str,
-    contrast_index: dict[tuple[str, str, str, str], dict[str, Any]] | None = None,
 ) -> list[CurveData]:
     """Build the physical curves that enter the global least-squares problem."""
     work = df.copy()
@@ -261,7 +163,6 @@ def prepare_signal_curves(
         raise ValueError("No signal rows remain after filtering.")
 
     group_cols = [
-        "source_path",
         "analysis_id",
         "source_file",
         "subj",
@@ -277,7 +178,6 @@ def prepare_signal_curves(
             group_cols.append(optional_col)
 
     curves: list[CurveData] = []
-    skipped_unmatched_contrast = 0
     for curve_id, (_key, group) in enumerate(work.groupby(group_cols, sort=False, dropna=False)):
         g_raw = pd.to_numeric(group[g_type], errors="coerce").to_numpy(dtype=float)
         y = pd.to_numeric(group[ycol], errors="coerce").to_numpy(dtype=float)
@@ -299,25 +199,13 @@ def prepare_signal_curves(
         subj = unique_text(group, "subj")
         stat_value = unique_text(group, "stat", default=str(stat or ""))
 
-        contrast_meta: dict[str, Any] = {}
-        if contrast_index:
-            key = (source_key(source_file), roi, direction, stat_value)
-            contrast_meta = contrast_index.get(key, {})
-            if not contrast_meta and stat_value:
-                key = (source_key(source_file), roi, direction, "")
-                contrast_meta = contrast_index.get(key, {})
-            if not contrast_meta:
-                skipped_unmatched_contrast += 1
-                continue
-
-        contrast_analysis_id = str(contrast_meta.get("contrast_analysis_id", ""))
-        contrast_side = int(contrast_meta.get("contrast_side", 0) or 0)
-        contrast_n1 = float(contrast_meta.get("contrast_N_1", np.nan))
-        contrast_n2 = float(contrast_meta.get("contrast_N_2", np.nan))
-        if contrast_analysis_id:
-            pair_key = f"contrast:{contrast_analysis_id}|{roi}|{direction}|{stat_value}"
-        else:
-            pair_key = f"fallback:{subj}|{sheet}|{roi}|{direction}|{stat_value}|td={td_value:.6g}"
+        contrast_analysis_id = unique_text(group, "contrast_analysis_id")
+        contrast_source_file = unique_text(group, "contrast_source_file")
+        contrast_side_value = unique_float(group, "contrast_side")
+        contrast_side = int(contrast_side_value) if np.isfinite(contrast_side_value) else 0
+        contrast_n1 = float(unique_float(group, "contrast_N_1"))
+        contrast_n2 = float(unique_float(group, "contrast_N_2"))
+        pair_key = f"{subj}|{sheet}|{roi}|{direction}|{stat_value}|td={td_value:.6g}"
 
         f_corr = 1.0
         corr_status = "not_requested"
@@ -380,7 +268,7 @@ def prepare_signal_curves(
                 sheet=sheet,
                 protocol=unique_text(group, "protocol"),
                 contrast_analysis_id=contrast_analysis_id,
-                contrast_source_file=str(contrast_meta.get("contrast_source_file", "")),
+                contrast_source_file=contrast_source_file,
                 contrast_side=contrast_side,
                 contrast_N_1=contrast_n1,
                 contrast_N_2=contrast_n2,
@@ -394,8 +282,6 @@ def prepare_signal_curves(
         )
     if not curves:
         raise ValueError("No valid curves remained after filtering and min-points checks.")
-    if skipped_unmatched_contrast:
-        print("Skipped curves without a matching contrast table:", int(skipped_unmatched_contrast))
     return curves
 
 

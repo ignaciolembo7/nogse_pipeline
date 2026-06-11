@@ -4,7 +4,7 @@ from __future__ import annotations
 
 This script is intentionally a thin orchestration layer:
 
-1. read signal rows, preferably from the master table;
+1. read signal rows from the master table;
 2. build one curve per subject/ROI/direction/td/N selection;
 3. fit each subject/ROI/direction group with one concatenated least-squares problem;
 4. write the standard fit tables and optional plots.
@@ -26,10 +26,8 @@ from data_processing.io import write_table_outputs
 from fitting.b_from_g import normalize_axis_base
 from fitting.global_signal_fit import build_global_signal_rows, fit_global_curve_group, param_order
 from fitting.global_signal_inputs import (
-    build_contrast_side_index,
     group_curves_by_subject_roi_direction,
     load_master_signal_input,
-    load_signal_inputs,
     prepare_signal_curves,
     split_values,
 )
@@ -105,23 +103,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         allow_abbrev=False,
         description=(
-            "Global signal fit. Use --master-parquet whenever possible so the "
-            "fit reads value/value_norm, labels, td, N, and gradient columns "
-            "from the master table."
+            "Global signal fit from master-table signal rows."
         ),
     )
-    ap.add_argument("parquet", nargs="*", type=Path, help="Legacy input signal *.long.parquet tables.")
-    ap.add_argument("--master-parquet", type=Path, default=None, help="Read signal rows from the master table.")
+    ap.add_argument("--master-parquet", type=Path, required=True, help="Master table containing the signal rows to fit.")
     ap.add_argument("--row-kind", default="signal_rotated", help="Master row_kind to fit. Defaults to signal_rotated.")
     ap.add_argument("--out_root", required=True, type=Path)
     ap.add_argument("--family", choices=["ogse", "nogse"], default="ogse")
     ap.add_argument("--model", default=None, choices=signal_model_names())
-    ap.add_argument(
-        "--contrast_root",
-        type=Path,
-        default=None,
-        help="Existing contrast root containing tables/, used only to reuse contrast analysis_id/source metadata.",
-    )
     ap.add_argument("--ycol", default="value", help="Signal column to fit. Use value or value_norm.")
     ap.add_argument("--g_type", default="g_thorsten", help="Gradient column used as G in mT/m.")
     ap.add_argument("--subjs", nargs="*", default=None)
@@ -186,8 +175,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if args.master_parquet is None and not args.parquet:
-        raise ValueError("Provide input parquet files or --master-parquet.")
 
     g_type = normalize_axis_base(str(args.g_type))
     model_name = str(args.model or f"{args.family}_mixed_offset")
@@ -196,8 +183,7 @@ def main() -> None:
         raise ValueError(f"Model {model_spec.name!r} belongs to family {model_spec.family!r}, not {args.family!r}.")
 
     param_configs = build_param_configs(args, model_spec=model_spec)
-    signal_df = load_master_signal_input(args) if args.master_parquet is not None else load_signal_inputs(args.parquet)
-    contrast_index = build_contrast_side_index(args.contrast_root)
+    signal_df = load_master_signal_input(args)
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
     corr = None
@@ -220,7 +206,6 @@ def main() -> None:
         corr_tol_ms=float(args.corr_tol_ms),
         corr_sheet=args.corr_sheet,
         corr_missing=str(args.corr_missing),
-        contrast_index=contrast_index,
     )
 
     fit_rows: list[dict[str, object]] = []

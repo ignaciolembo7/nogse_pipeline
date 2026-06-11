@@ -5,10 +5,8 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
-import pandas as pd
-
 from data_processing.master_table import build_analysis_id_from_columns, load_master_table, select_plot_signal, split_selector_values
-from nogse_plotting.plot_nogse_signal_vs_g import analysis_id_from_path, plot_nogse_signal_table, split_all_or_values
+from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_table, split_all_or_values
 
 
 def _master_selectors(args: argparse.Namespace) -> dict[str, object]:
@@ -31,9 +29,8 @@ def _master_selectors(args: argparse.Namespace) -> dict[str, object]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Plot NOGSE signal curves from long parquet tables.")
-    ap.add_argument("signal_parquet", type=Path, nargs="?", default=None)
-    ap.add_argument("--master-parquet", type=Path, default=None, help="Read signal rows from the master table.")
+    ap = argparse.ArgumentParser(description="Plot NOGSE signal curves from master-table signal rows.")
+    ap.add_argument("--master-parquet", type=Path, required=True, help="Read signal rows from the master table.")
     ap.add_argument("--row-kind", choices=["signal", "signal_rotated"], default="signal_rotated")
     ap.add_argument("--analysis-id", action="append", default=None)
     ap.add_argument("--subj", action="append", default=None)
@@ -51,28 +48,22 @@ def main() -> None:
     ap.add_argument("--directions", nargs="*", default=None)
     args = ap.parse_args()
 
-    if args.master_parquet is not None:
-        master = load_master_table(args.master_parquet)
-        df = select_plot_signal(
-            master,
-            rotated=args.row_kind == "signal_rotated",
-            **_master_selectors(args),
+    master = load_master_table(args.master_parquet)
+    df = select_plot_signal(
+        master,
+        rotated=args.row_kind == "signal_rotated",
+        **_master_selectors(args),
+    )
+    if df.empty:
+        raise ValueError("No master signal rows matched the requested selectors.")
+    try:
+        analysis_id = build_analysis_id_from_columns(
+            df,
+            columns=("subj", "sheet", "td_ms", "N", "Hz"),
+            prefix=args.row_kind,
         )
-        if df.empty:
-            raise ValueError("No master signal rows matched the requested selectors.")
-        try:
-            analysis_id = build_analysis_id_from_columns(
-                df,
-                columns=("subj", "sheet", "td_ms", "N", "Hz"),
-                prefix=args.row_kind,
-            )
-        except ValueError:
-            analysis_id = f"{args.row_kind}_master_selection"
-    else:
-        if args.signal_parquet is None:
-            raise ValueError("Pass signal_parquet or --master-parquet with selectors.")
-        df = pd.read_parquet(args.signal_parquet)
-        analysis_id = analysis_id_from_path(args.signal_parquet)
+    except ValueError:
+        analysis_id = f"{args.row_kind}_master_selection"
 
     out_paths = plot_nogse_signal_table(
         df,

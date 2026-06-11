@@ -106,7 +106,7 @@ def add_master_source_args(
     include_N: bool = True,
     include_Hz: bool = True,
 ) -> None:
-    parser.add_argument("--master-parquet", type=Path, default=None, help="Read input rows from the master table instead of legacy parquet input.")
+    parser.add_argument("--master-parquet", type=Path, default=None, help="Read input rows from the master table.")
     parser.add_argument("--row-kind", default=default_row_kind, help="Master row_kind selector. Defaults to the fitter's natural input kind.")
     parser.add_argument("--analysis-id", action="append", default=None, help="Master analysis_id selector. Can be repeated or comma-separated.")
     parser.add_argument("--subj", action="append", default=None, help="Master subj selector. Can be repeated or comma-separated.")
@@ -119,9 +119,9 @@ def add_master_source_args(
     if include_stat:
         parser.add_argument("--stat", default=None, help="Master stat selector.")
     if include_td_ms:
-        parser.add_argument("--td_ms", type=float, default=None, help="Master td_ms selector and legacy override where supported.")
+        parser.add_argument("--td_ms", type=float, default=None, help="Master td_ms selector.")
     if include_N:
-        parser.add_argument("--N", type=float, default=None, help="Master N selector and legacy override where supported.")
+        parser.add_argument("--N", type=float, default=None, help="Master N selector.")
     if include_Hz:
         parser.add_argument("--Hz", type=float, default=None, help="Master Hz selector.")
 
@@ -270,11 +270,6 @@ def load_master_input(args: argparse.Namespace, *, default_row_kind: str, signal
     if out.empty:
         raise ValueError(f"No master rows matched row_kind={row_kind!r} and selectors={selectors}.")
     return out
-
-
-def require_legacy_or_master(paths: Sequence[Path] | None, master_parquet: Path | None, *, label: str) -> None:
-    if master_parquet is None and not paths:
-        raise ValueError(f"Provide {label} or --master-parquet with selectors.")
 
 
 def resolve_master_fit_params_path(args: argparse.Namespace) -> Path | None:
