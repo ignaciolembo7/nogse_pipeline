@@ -32,12 +32,7 @@ def row_get(row: pd.Series, keys: list[str], default=None):
 
 
 def to_float(value):
-    if value is None:
-        return np.nan
-    try:
-        return float(value)
-    except Exception:
-        return np.nan
+    return float(pd.to_numeric(value, errors="coerce"))
 
 
 def ensure_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:

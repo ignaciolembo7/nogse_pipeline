@@ -10,6 +10,7 @@ from data_processing.io import write_table_outputs
 from data_processing.master_table import (
     append_master_rows,
     build_analysis_id_from_columns,
+    load_master_table,
 )
 from fitting.cli_common import add_master_source_args
 from pipeline.recipe import selected_rows_or_legacy_dataframe
@@ -54,6 +55,30 @@ def _analysis_id_from_columns(df: pd.DataFrame, *, row_kind: str) -> str:
         if len(values) == 1:
             unique_cols.append(col)
     return build_analysis_id_from_columns(df, columns=unique_cols, prefix=row_kind)
+
+
+def _drop_existing_rotation_rows(master: pd.DataFrame, rotated: pd.DataFrame) -> pd.DataFrame:
+    """Remove previous rotated/dproj rows for the same acquisition group."""
+    out = master.copy()
+    group_cols = [c for c in ["subj", "sheet", "td_ms", "N", "Hz"] if c in rotated.columns and c in out.columns]
+    if not group_cols:
+        return out
+
+    groups = rotated[group_cols].drop_duplicates()
+    remove = out["row_kind"].astype(str).isin({"signal_rotated", "dproj"})
+    for col in group_cols:
+        values = groups[col].dropna().unique()
+        if len(values) == 0:
+            continue
+        if pd.api.types.is_numeric_dtype(rotated[col]) or pd.api.types.is_numeric_dtype(out[col]):
+            col_values = pd.to_numeric(out[col], errors="coerce")
+            col_match = False
+            for value in values:
+                col_match = col_match | col_values.sub(float(value)).abs().le(1e-6)
+            remove = remove & col_match
+        else:
+            remove = remove & out[col].astype(str).isin({str(v) for v in values})
+    return out.loc[~remove].reset_index(drop=True)
 
 
 def main() -> None:
@@ -101,9 +126,12 @@ def main() -> None:
     )
 
     if args.master_parquet is not None:
+        master = load_master_table(args.master_parquet) if args.master_parquet.exists() else None
+        if master is not None:
+            master = _drop_existing_rotation_rows(master, res.rotated_signal_long)
         rotated_analysis_id = _analysis_id_from_columns(res.rotated_signal_long, row_kind="signal_rotated")
         append_master_rows(
-            args.master_parquet if args.master_parquet.exists() else None,
+            master,
             res.rotated_signal_long,
             row_kind="signal_rotated",
             analysis_id=rotated_analysis_id,

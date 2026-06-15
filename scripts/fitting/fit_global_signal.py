@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--master-parquet", type=Path, required=True, help="Master table containing the signal rows to fit.")
     ap.add_argument("--row-kind", default="signal_rotated", help="Master row_kind to fit. Defaults to signal_rotated.")
     ap.add_argument("--out_root", required=True, type=Path)
-    ap.add_argument("--family", choices=["ogse", "nogse"], default="ogse")
+    ap.add_argument("--type-seq", "--type_seq", "--family", dest="type_seq", choices=["ogse", "nogse"], default="ogse")
     ap.add_argument("--model", default=None, choices=signal_model_names())
     ap.add_argument("--ycol", default="value", help="Signal column to fit. Use value or value_norm.")
     ap.add_argument("--g_type", default="g_thorsten", help="Gradient column used as G in mT/m.")
@@ -177,10 +177,10 @@ def main() -> None:
     args = build_parser().parse_args()
 
     g_type = normalize_axis_base(str(args.g_type))
-    model_name = str(args.model or f"{args.family}_mixed_offset")
+    model_name = str(args.model or f"{args.type_seq}_mixed_offset")
     model_spec = get_signal_model(model_name)
-    if model_spec.family != str(args.family):
-        raise ValueError(f"Model {model_spec.name!r} belongs to family {model_spec.family!r}, not {args.family!r}.")
+    if model_spec.family != str(args.type_seq):
+        raise ValueError(f"Model {model_spec.name!r} belongs to type_seq {model_spec.family!r}, not {args.type_seq!r}.")
 
     param_configs = build_param_configs(args, model_spec=model_spec)
     signal_df = load_master_signal_input(args)

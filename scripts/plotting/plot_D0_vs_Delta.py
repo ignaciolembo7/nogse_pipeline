@@ -16,7 +16,7 @@ from tc_fittings.alpha_macro_summary import load_dproj_measurements_from_table
 
 
 def _master_selectors(args: argparse.Namespace, *, N: float | None) -> dict[str, object]:
-    selectors: dict[str, object] = {"row_kind": "dproj"}
+    selectors: dict[str, object] = {"row_kind": "signal_rotated"}
     for arg_name, col_name in [
         ("analysis_id", "analysis_id"),
         ("subjs", "subj"),
@@ -39,7 +39,7 @@ def main() -> None:
         description="Build D vs Delta_app_ms curves from *.Dproj.long.parquet tables."
     )
     ap.add_argument("--dproj-root", default=None, help="Root folder with *.Dproj.long.parquet tables.")
-    ap.add_argument("--master-parquet", type=Path, default=None, help="Read D_proj rows from the master table.")
+    ap.add_argument("--master-parquet", type=Path, default=None, help="Read D_proj values from signal_rotated rows in the master table.")
     ap.add_argument("--analysis-id", action="append", default=None, help="Master analysis_id selector.")
     ap.add_argument("--sheets", nargs="+", default=None, help="Master sheet selector.")
     ap.add_argument("--pattern", default="**/*.Dproj.long.parquet", help="Relative glob inside dproj-root.")
@@ -79,6 +79,8 @@ def main() -> None:
     if args.master_parquet is not None:
         master = load_master_table(args.master_parquet)
         dproj = filter_master_rows(master, **_master_selectors(args, N=N))
+        if "D_proj" in dproj.columns:
+            dproj = dproj[dproj["D_proj"].notna()].copy()
         df = load_dproj_measurements_from_table(
             dproj,
             directions=args.dirs,

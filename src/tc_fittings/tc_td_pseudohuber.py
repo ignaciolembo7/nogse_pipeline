@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, Tuple, List, Sequence
+from typing import Optional, Dict, Tuple, List, Sequence, Callable
 
 import numpy as np
 import pandas as pd
@@ -11,44 +11,16 @@ from data_processing.io import write_xlsx_csv_outputs
 from data_processing.master_table import select_alpha_macro
 from fitting.core import least_squares_with_standard_errors
 from tools.brain_labels import infer_subj_label
-
-
-# ---------------------------
-# Pseudo-Huber model (reparameterized)
-# ---------------------------
-def tc_pseudohuber(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
-    Td = np.asarray(Td, float)
-    delta = float(delta)
-    return c + alpha_macro * delta * (np.sqrt(1.0 + (Td / delta) ** 2) - 1.0)
-
-def alpha_of_Td(Td: np.ndarray, delta: float, alpha_macro: float) -> np.ndarray:
-    Td = np.asarray(Td, float)
-    return alpha_macro * Td / np.sqrt(delta**2 + Td**2)
-
-def tc_quadratic_smallTd(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
-    Td = np.asarray(Td, float)
-    q = alpha_macro / (2.0 * delta)
-    return c + q * Td**2
-
-def tc_linear_largeTd(Td: np.ndarray, c: float, delta: float, alpha_macro: float) -> np.ndarray:
-    Td = np.asarray(Td, float)
-    return c - alpha_macro * delta + alpha_macro * Td
-
-def A_from_params(delta: float, alpha_macro: float) -> float:
-    return float(alpha_macro / delta) if delta > 0 else float("nan")
-
-def qquad_from_params(delta: float, alpha_macro: float) -> float:
-    return float(alpha_macro / (2.0 * delta)) if delta > 0 else float("nan")
-
-def qquad_se(delta: float, alpha_macro: float, delta_se: float, alpha_se: float) -> float:
-    if not np.isfinite(delta) or delta <= 0:
-        return float("nan")
-    if not np.isfinite(delta_se) or not np.isfinite(alpha_se):
-        return float("nan")
-    dqda = 1.0 / (2.0 * delta)
-    dqdd = -alpha_macro / (2.0 * delta**2)
-    var = (dqda**2) * (alpha_se**2) + (dqdd**2) * (delta_se**2)
-    return float(np.sqrt(var))
+from tc_fittings.tc_td_models import (
+    tc_pseudohuber,
+    tc_linear,
+    alpha_of_Td,
+    tc_quadratic_smallTd,
+    tc_linear_largeTd,
+    A_from_params,
+    qquad_from_params,
+    qquad_se,
+)
 
 # ===========================
 # Generic helpers
@@ -1302,12 +1274,17 @@ def block1d_fullrange_tc_with_approximations(
 # ---------------------------
 # Section 4: q vs alpha_macro (generic)
 # ---------------------------
-def block4_qquad_vs_alpha_macro(
+def _block4_param_vs_alpha_macro(
     df_fit: pd.DataFrame,
     out_dir: Path,
     alpha_macro_df: pd.DataFrame,
     palette: list[str],
     method_tag: str,
+    *,
+    y_col: str,
+    y_label: str,
+    filename_prefix: str,
+    skip_msg: str,
     region_order: list[str] | None = None,
 ) -> None:
     import matplotlib.colors as mcolors
@@ -1326,7 +1303,10 @@ def block4_qquad_vs_alpha_macro(
 
     dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
     if dfm.empty:
-        print("[INFO] No overlap between pseudo-huber and summary -> skipping q-vs-alpha plot.")
+        print(f"[INFO] No overlap between pseudo-huber and summary -> skipping {skip_msg}.")
+        return
+    if y_col not in dfm.columns:
+        print(f"[INFO] fit table has no {y_col!r} column -> skipping {skip_msg}.")
         return
 
     regions = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
@@ -1338,53 +1318,63 @@ def block4_qquad_vs_alpha_macro(
     directions = _directions_present(dfm)
     ncols = len(directions)
     fig, axes = plt.subplots(1, ncols, figsize=(6*ncols, 6), sharey=True)
-
     if ncols == 1:
         axes = [axes]
 
     for i, dir_actual in enumerate(directions):
         ax = axes[i]
         sub = dfm[dfm["direction"] == dir_actual]
-
         vpos = {v: j for j, v in enumerate(volunteers)}
         n = max(1, len(volunteers))
 
         for _, row in sub.iterrows():
             v = row["subj"]
             region = row["roi"]
-
             fade = vpos[v] / (n - 1) if n > 1 else 0.5
             base = region2color.get(region, "#000000")
             rgba = (*mcolors.to_rgb(base), 0.35 + 0.65 * (1 - fade))
-
             x = float(row["alpha_macro_summary"])
-            y = float(row["q_quad"])
-
+            y = float(row[y_col])
             ax.plot(x, y, linestyle="None", marker=markers[v], markersize=9,
                     markerfacecolor=rgba, markeredgecolor=rgba)
-
             ax.text(
-                x, y, region,
-                fontsize=8, color="black", ha="left", va="bottom",
+                x, y, region, fontsize=8, color="black", ha="left", va="bottom",
                 bbox=dict(boxstyle="round,pad=0.15", facecolor=rgba, edgecolor="none", alpha=0.25),
             )
 
         ax.set_xlabel(r"$\alpha_{macro}$ summary", fontsize=16)
         if i == 0:
-            ax.set_ylabel(r"$q=\alpha_{macro}/(2\delta)$", fontsize=16)
+            ax.set_ylabel(y_label, fontsize=16)
         ax.set_title(f"dir={dir_actual}", fontsize=14)
         ax.grid(True)
-
         handles = [
             Line2D([0], [0], marker=markers[v], linestyle="None", color="black", label=v, markersize=9)
             for v in volunteers
         ]
         ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
 
-    plt.suptitle(f"q vs alpha_macro | {method_tag}", fontsize=16)
+    plt.suptitle(f"{filename_prefix} vs alpha_macro | {method_tag}", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"q_vs_alpha_macro_{method_tag}.png", dpi=400)
+    plt.savefig(out_dir / f"{filename_prefix}_vs_alpha_macro_{method_tag}.png", dpi=400)
     plt.close()
+
+
+def block4_qquad_vs_alpha_macro(
+    df_fit: pd.DataFrame,
+    out_dir: Path,
+    alpha_macro_df: pd.DataFrame,
+    palette: list[str],
+    method_tag: str,
+    region_order: list[str] | None = None,
+) -> None:
+    _block4_param_vs_alpha_macro(
+        df_fit, out_dir, alpha_macro_df, palette, method_tag,
+        y_col="q_quad",
+        y_label=r"$q=\alpha_{macro}/(2\delta)$",
+        filename_prefix="q",
+        skip_msg="q-vs-alpha plot",
+        region_order=region_order,
+    )
 
 
 def block4_delta_vs_alpha_macro(
@@ -1395,81 +1385,180 @@ def block4_delta_vs_alpha_macro(
     method_tag: str,
     region_order: list[str] | None = None,
 ) -> None:
-    import matplotlib.colors as mcolors
-    from matplotlib.lines import Line2D
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    df_fit = _ensure_alpha_macro_cols(_ensure_subj(_ensure_direction(df_fit)))
-    alpha_macro_df = _ensure_subj(_ensure_direction(alpha_macro_df))
-    alpha_summary = alpha_macro_df.rename(
-        columns={
-            "alpha_macro": "alpha_macro_summary",
-            "alpha_macro_error": "alpha_macro_summary_error",
-        }
+    _block4_param_vs_alpha_macro(
+        df_fit, out_dir, alpha_macro_df, palette, method_tag,
+        y_col="delta",
+        y_label=r"$\delta$ [ms]",
+        filename_prefix="delta",
+        skip_msg="delta-vs-alpha plot",
+        region_order=region_order,
     )
 
-    dfm = df_fit.merge(alpha_summary, on=["subj", "roi", "direction"], how="inner")
-    if dfm.empty:
-        print("[INFO] No overlap between pseudo-huber and summary -> skipping delta-vs-alpha plot.")
-        return
-    if "delta" not in dfm.columns:
-        print("[INFO] pseudo-huber fit table has no delta column -> skipping delta-vs-alpha plot.")
-        return
 
-    regions = _ordered_regions(region_order, dfm["roi"].astype(str).unique().tolist())
-    region2color = _region2color(regions, palette)
+# ---------------------------------------------------------------------------
+# Generic tc vs Td fitting function
+#
+# Used by tc_td_registry to run any model registered in METHODS.
+# For pseudohuber-specific features (fixed_macro mode, alpha vs Td plots,
+# etc.) use fit_tc_vs_td_pseudohuber() directly.
+# ---------------------------------------------------------------------------
 
-    volunteers = sorted(dfm["subj"].unique())
-    markers = _markers_for_subjs(volunteers)
+def fit_tc_vs_td(
+    df_params: pd.DataFrame,
+    *,
+    model_func: Callable,
+    param_names: tuple[str, ...],
+    param_inits: dict[str, float],
+    param_bounds: dict[str, tuple[float, float]],
+    fixed_params: dict[str, float] | None = None,
+    k_last: int | None = None,
+    y_col: str = "tc_peak_ms",
+    y_label: str = r"$t_{c,peak}$ [ms]",
+    td_min_ms: float | None = None,
+    td_max_ms: float | None = None,
+    out_dir: Path | None = None,
+    cfg_regions: list[str] | None = None,
+    palette: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Generic tc vs Td fitting loop for any model in tc_td_models.
 
-    directions = _directions_present(dfm)
-    ncols = len(directions)
-    fig, axes = plt.subplots(1, ncols, figsize=(6*ncols, 6), sharey=True)
+    Parameters
+    ----------
+    model_func   : function(Td, *params) → np.ndarray
+    param_names  : tuple of parameter names in the same order as model_func args
+    param_inits  : initial guess for each parameter  {name: value}
+    param_bounds : bounds for each parameter          {name: (lower, upper)}
+    fixed_params : parameters held constant           {name: value}
+                   (the rest are fitted freely)
+    """
+    fixed_params = fixed_params or {}
+    free_names = [n for n in param_names if n not in fixed_params]
 
-    if ncols == 1:
-        axes = [axes]
+    df = df_params.copy()
+    df["roi"] = df["roi"].astype(str).str.replace("_norm", "", regex=False)
+    df = _ensure_subj(df)
+    df = _ensure_direction(df)
+    _ensure_required_cols(df, ["td_ms", y_col], "fit_tc_vs_td")
 
-    for i, dir_actual in enumerate(directions):
-        ax = axes[i]
-        sub = dfm[dfm["direction"] == dir_actual]
+    if td_min_ms is not None:
+        df = df[df["td_ms"] >= float(td_min_ms)]
+    if td_max_ms is not None:
+        df = df[df["td_ms"] <= float(td_max_ms)]
 
-        vpos = {v: j for j, v in enumerate(volunteers)}
-        n = max(1, len(volunteers))
+    regions_avail = sorted(df["roi"].unique())
+    if cfg_regions:
+        regions = [r.replace("_norm", "") for r in cfg_regions if r.replace("_norm", "") in regions_avail]
+        if not regions:
+            regions = regions_avail
+    else:
+        regions = regions_avail
 
-        for _, row in sub.iterrows():
-            v = row["subj"]
-            region = row["roi"]
+    pal = palette or ["#a65628", "#e41a1c", "#ff7f00", "#984ea3", "#377eb8", "#999999"]
+    region2color = _region2color(regions, pal)
+    subjs = sorted(df["subj"].unique())
+    markers = _markers_for_subjs(subjs)
+    dirs = _directions_present(df)
 
-            fade = vpos[v] / (n - 1) if n > 1 else 0.5
-            base = region2color.get(region, "#000000")
-            rgba = (*mcolors.to_rgb(base), 0.35 + 0.65 * (1 - fade))
+    rows: list[dict] = []
 
-            x = float(row["alpha_macro_summary"])
-            y = float(row["delta"])
+    for dir_actual in dirs:
+        df_dir = df[df["direction"] == dir_actual]
+        nrows, ncols = _make_grid(len(regions), ncols=3)
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4.6 * nrows), sharex=True, sharey=False)
+        axes = np.array(axes).reshape(-1)
 
-            ax.plot(x, y, linestyle="None", marker=markers[v], markersize=9,
-                    markerfacecolor=rgba, markeredgecolor=rgba)
+        for ax, region in zip(axes, regions):
+            base_color = region2color.get(region, "#1f77b4")
+            any_data = False
 
-            ax.text(
-                x, y, region,
-                fontsize=8, color="black", ha="left", va="bottom",
-                bbox=dict(boxstyle="round,pad=0.15", facecolor=rgba, edgecolor="none", alpha=0.25),
-            )
+            for i, subj in enumerate(subjs):
+                sub = df_dir[(df_dir["subj"] == subj) & (df_dir["roi"] == region)].sort_values("td_ms")
+                if sub.empty:
+                    continue
 
-        ax.set_xlabel(r"$\alpha_{macro}$ summary", fontsize=16)
-        if i == 0:
-            ax.set_ylabel(r"$\delta$ [ms]", fontsize=16)
-        ax.set_title(f"dir={dir_actual}", fontsize=14)
-        ax.grid(True)
+                x = sub["td_ms"].to_numpy(dtype=float)
+                y = sub[y_col].to_numpy(dtype=float)
+                m = np.isfinite(x) & np.isfinite(y)
+                x, y = x[m], y[m]
+                if len(x) == 0:
+                    continue
 
-        handles = [
-            Line2D([0], [0], marker=markers[v], linestyle="None", color="black", label=v, markersize=9)
-            for v in volunteers
-        ]
-        ax.legend(handles=handles, title="Volunteer", fontsize=9, title_fontsize=10, loc="best")
+                x_fit, y_fit = _subset_last(x, y, k_last)
+                if len(x_fit) < max(1, len(free_names)):
+                    continue
 
-    plt.suptitle(f"delta vs alpha_macro | {method_tag}", fontsize=16)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(out_dir / f"delta_vs_alpha_macro_{method_tag}.png", dpi=400)
-    plt.close()
+                p0 = np.array([param_inits[n] for n in free_names], dtype=float)
+                lo = np.array([param_bounds[n][0] for n in free_names], dtype=float)
+                hi = np.array([param_bounds[n][1] for n in free_names], dtype=float)
+
+                def _residuals(p, x_fit=x_fit, y_fit=y_fit):
+                    param_vals = dict(fixed_params)
+                    param_vals.update(zip(free_names, p))
+                    args = [param_vals[n] for n in param_names]
+                    return model_func(x_fit, *args) - y_fit
+
+                p_fit, se_fit, _ = _fit_least_squares(_residuals, p0, (lo, hi))
+                param_vals = dict(fixed_params)
+                param_vals.update(zip(free_names, p_fit))
+                se_vals = dict(zip(free_names, se_fit))
+
+                args_fit = [param_vals[n] for n in param_names]
+                yhat = model_func(x_fit, *args_fit)
+                ss_res = float(np.sum((y_fit - yhat) ** 2))
+                ss_tot = float(np.sum((y_fit - np.mean(y_fit)) ** 2))
+                r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+                row: dict = {
+                    "subj": subj,
+                    "roi": region,
+                    "direction": dir_actual,
+                    "k_last": k_last,
+                    "y_col": y_col,
+                    "y_label": y_label,
+                    "r2": r2,
+                }
+                for n in param_names:
+                    row[n] = float(param_vals[n])
+                    row[f"{n}_se"] = float(se_vals.get(n, 0.0 if n in fixed_params else float("nan")))
+                rows.append(row)
+
+                col = _shade(base_color, [0.25, 0.5, 1.0][i % 3])
+                ax.plot(x, y, markers[subj], color=col, label=subj, markersize=7)
+                any_data = True
+                if len(x) >= 2:
+                    xx = np.linspace(np.min(x), np.max(x), 200)
+                    yy = model_func(xx, *args_fit)
+                    ax.plot(xx, yy, "-", color=col, linewidth=2)
+
+            ax.set_title(region, fontsize=14)
+            ax.set_xlabel("Diffusion time $T_d$ [ms]", fontsize=16)
+            ax.set_ylabel(y_label, fontsize=16)
+            if td_min_ms is not None and td_max_ms is not None:
+                ax.set_xlim(float(td_min_ms), float(td_max_ms))
+            ax.grid(True)
+            if any_data:
+                ax.legend(fontsize=9)
+
+        for ax in axes[len(regions):]:
+            ax.axis("off")
+
+        model_name = getattr(model_func, "__name__", "model")
+        plt.suptitle(f"{model_name} fit | y={y_col} | dir={dir_actual} | k_last={k_last}", fontsize=18)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        if out_dir is not None:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            plt.savefig(out_dir / f"tc_td_{y_col}_fit_{model_name}_dir={dir_actual}_k={k_last}.png", dpi=300)
+        plt.close()
+
+    if not rows:
+        raise ValueError(
+            f"fit_tc_vs_td({model_func.__name__}): no rows produced. "
+            "Check that df_params has enough (td_ms, y_col) points per (subj, roi, direction)."
+        )
+
+    df_fit = pd.DataFrame(rows)
+    if out_dir is not None:
+        model_name = getattr(model_func, "__name__", "model")
+        write_xlsx_csv_outputs(df_fit, out_dir / f"params_{model_name}_y={y_col}_k={k_last}.xlsx")
+    return df_fit

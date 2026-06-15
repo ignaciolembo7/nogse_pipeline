@@ -11,6 +11,7 @@ from fitting.gradient_correction import (
     SignalCorrectionLookupSpec,
     build_signal_direction_factors,
 )
+from tools.scalar import unique_float, unique_float_any, unique_text
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 
@@ -82,35 +83,6 @@ def load_master_signal_input(args: Any) -> pd.DataFrame:
     raise_on_unrecognized_column_names(df.columns, context=f"fit_global_signal({args.master_parquet})")
     return df
 
-
-def unique_text(df: pd.DataFrame, col: str, default: str = "") -> str:
-    if col not in df.columns:
-        return default
-    values = pd.Series(df[col]).dropna().astype(str).unique().tolist()
-    if len(values) == 1:
-        return str(values[0])
-    if len(values) == 0:
-        return default
-    return "|".join(str(v) for v in values)
-
-
-def unique_float(df: pd.DataFrame, col: str) -> float:
-    if col not in df.columns:
-        return np.nan
-    values = pd.to_numeric(df[col], errors="coerce").dropna().unique()
-    if len(values) == 1:
-        return float(values[0])
-    if len(values) == 0:
-        return np.nan
-    raise ValueError(f"Column {col!r} is not unique inside a curve: {values[:10].tolist()}")
-
-
-def unique_float_any(df: pd.DataFrame, cols: Sequence[str]) -> float:
-    for col in cols:
-        value = unique_float(df, col)
-        if np.isfinite(value):
-            return float(value)
-    return np.nan
 
 
 def preferred_correction_side(group: pd.DataFrame) -> int | None:

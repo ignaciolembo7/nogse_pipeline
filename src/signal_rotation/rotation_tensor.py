@@ -63,6 +63,7 @@ def _build_signal_row(
     bvalue_g: float,
     bvalue_g_lin_max: float,
     bvalue_thorsten: float,
+    D_proj_value: float = np.nan,
 ) -> dict:
     row = template.to_dict()
     row["direction"] = direction
@@ -78,6 +79,7 @@ def _build_signal_row(
     row["bvalue_g"] = bvalue_g
     row["bvalue_g_lin_max"] = bvalue_g_lin_max
     row["bvalue_thorsten"] = bvalue_thorsten
+    row["D_proj"] = D_proj_value
     return row
 
 
@@ -359,10 +361,12 @@ def rotate_signals_tensor(
             }
 
             signal_cache: dict[str, float] = {}
+            dproj_cache: dict[str, float] = {}
             for axis_name, axis_vec in axes_full.items():
                 Dp = D_proj(D, axis_vec)
                 S = S0 * np.exp(-b_fit * Dp)
                 signal_cache[axis_name] = S
+                dproj_cache[axis_name] = Dp
 
                 rotated_rows.append(
                     _build_signal_row(
@@ -379,10 +383,11 @@ def rotate_signals_tensor(
                         bvalue_g=bvalue_g,
                         bvalue_g_lin_max=bvalue_g_lin_max,
                         bvalue_thorsten=bvalue_thorsten,
+                        D_proj_value=Dp,
                     )
                 )
 
-                if axis_name in {"x", "y", "z", "eig1", "eig2", "eig3"}:
+                if axis_name in {"x", "y", "z", "eig1", "eig2", "eig3", "long"}:
                     dproj_rows.append(
                         _build_dproj_row(
                             template,
@@ -399,6 +404,23 @@ def rotate_signals_tensor(
                             bvalue_thorsten=bvalue_thorsten,
                         )
                     )
+
+            dproj_rows.append(
+                _build_dproj_row(
+                    template,
+                    direction="tra",
+                    b_step=int(b_step),
+                    bvalue=b_fit,
+                    D_proj=0.5 * (dproj_cache["y"] + dproj_cache["z"]),
+                    g=g_dir1,
+                    g_max=g_max_for_lin,
+                    g_lin_max=g_lin,
+                    g_thorsten=g_th_dir1,
+                    bvalue_g=bvalue_g,
+                    bvalue_g_lin_max=bvalue_g_lin_max,
+                    bvalue_thorsten=bvalue_thorsten,
+                )
+            )
 
             for k in range(ndirs):
                 dproj_rows.append(
@@ -433,6 +455,7 @@ def rotate_signals_tensor(
                     bvalue_g=bvalue_g,
                     bvalue_g_lin_max=bvalue_g_lin_max,
                     bvalue_thorsten=bvalue_thorsten,
+                    D_proj_value=0.5 * (dproj_cache["y"] + dproj_cache["z"]),
                 )
             )
 

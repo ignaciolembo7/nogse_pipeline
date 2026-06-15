@@ -1,87 +1,128 @@
 # NOGSE / OGSE Pipeline
 
-This repository contains the end-to-end analysis pipeline used here for brain and phantom diffusion experiments. In practice, the pipeline turns ROI-level diffusion signals into:
+End-to-end analysis pipeline for brain and phantom diffusion MRI experiments
+using N-pulse Oscillating Gradient Spin Echo (NOGSE) and Oscillating Gradient
+Spin Echo (OGSE) sequences.
 
+The pipeline converts per-session ROI-level diffusion signals into:
 - clean long-form signal tables,
-- OGSE or NOGSE contrast tables,
-- monoexponential diffusivity fits,
-- contrast-model fits (`free`, `tort`, `rest`),
-- grouped `t_c` summaries and final `t_c`-vs-`t_d` fits.
+- OGSE or NOGSE contrast tables (`S(N1, Hz1) − S(N2, Hz2)`),
+- monoexponential diffusivity fits (D₀ per ROI/direction/Td),
+- physical contrast-model fits (free, tort, rest, mixed, ...),
+- α\_macro summaries from D\_proj(Δ),
+- tc-vs-Td fits using the pseudo-Huber or linear model.
 
-The detailed scientific walkthrough now lives in [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md), including an expanded explanation of gradient correction, the `b ~ g^2` scaling logic, and short code snippets for the key pipeline steps.
+## Quick start
 
-For OGSE signal fitting, the workflow entrypoint is `scripts/fitting/fit_ogse_signal_vs_g.py` and model choice is explicit (`--model`). In the `4.x` batch stages, the selected model is the true monoexponential model implemented in `src/monoexp_fitting`.
+**For a complete step-by-step guide for all four pipeline cases**
+(ogse\_brain, ogse\_phantom, nogse\_brain, nogse\_phantom) **see
+[bash\_template/PIPELINE\_GUIDE.md](bash_template/PIPELINE_GUIDE.md).**
+
+All analysis commands use the unified runner from the project root:
+
+```bash
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest rotate contrast
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_monoexp alpha tc
+bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest rotate contrast fit_contrast_free tc
+```
+
+For the full step reference and environment variables, run:
+
+```bash
+bash nogse_pipeline/bash_template/run_dataset.sh --help
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse <step> --help
+```
 
 ## What the pipeline does
 
-At a high level, the repository implements these stages:
+1. **Preprocessing** — DICOM → NIfTI → `*_results.xlsx` signal tables.
+   Scripts live in `bash_template/steps/preprocessing/`.
 
-1. prepare NIfTI inputs and gradient sidecars,
-2. extract ROI signals from each acquisition,
-3. convert those signals into canonical long-form experiment tables,
-4. optionally rotate brain OGSE data into tensor-informed axes,
-5. build matched contrasts between acquisitions,
-6. fit physical signal or contrast models,
-7. derive correction factors and final cross-experiment summaries.
+2. **Ingest** — Read `*_results.xlsx` into `master.long.parquet`
+   (`row_kind=signal`).
 
-## Brain and phantom workflows
+3. **Rotate** — Rotate diffusion tensor directions; append `row_kind=signal_rotated`
+   rows with `D_proj`.
 
-The repository has two front ends:
+4. **Contrast** — Subtract two signal groups; append `row_kind=contrast` rows.
 
-- brains: structural-registration workflow based on FreeSurfer, T1-to-DWI alignment, atlas ROI transfer, tensor rotation, contrast fitting, and `t_c`-vs-`t_d` summary fitting
-- phantoms: direct DWI-space masking workflow with optional direct-`g` curve assembly, CPMG-vs-Hahn contrast building, contrast fitting, and optional summary stages
+5. **Fit signals** — Monoexponential or NOGSE model per ROI/direction/Td;
+   append fit params to `master_fit_params.parquet`.
 
-The main batch runners are:
+6. **Fit contrasts** — Physical contrast model (OGSE: free/rest/mixed;
+   NOGSE: nogse\_free); append fit params.
 
-- `bash_template/brains/run_brains_pipeline.sh`
-- `bash_template/phantoms/run_phantoms_pipeline.sh`
-- `bash_template/phantoms/run_phantoms_pipeline_ogse.sh`
-- `bash_template/phantoms/run_phantoms_pipeline_nogse.sh`
+7. **Summaries** — α\_macro from D\_proj(Δ); tc-vs-Td pseudo-Huber fit.
+
+All steps read and write `master.long.parquet`; nothing is stored twice.
+
+## Directory layout
+
+```
+nogse_pipeline/
+├── bash_template/
+│   ├── run_dataset.sh              unified analysis runner
+│   ├── PIPELINE_GUIDE.md           complete per-case walkthrough
+│   ├── README.md                   quick reference
+│   ├── manifests/                  CSV manifests per dataset
+│   └── steps/
+│       ├── 01_ingest_results.sh    … 13_fit_global_signals.sh
+│       └── preprocessing/          DICOM → Results scripts
+├── scripts/
+│   ├── data/                       ingest, rotate, contrast scripts
+│   ├── fitting/                    signal, contrast, tc fitting scripts
+│   └── summary/                    alpha_macro, grad_correction scripts
+└── src/
+    ├── data_processing/            schema, reshape, features
+    ├── fitting/                    model registry, experiment registry
+    ├── models/                     physical model formulas
+    ├── ogse_fitting/               OGSE contrast fitting loop + registry
+    ├── tc_fittings/                tc-vs-Td models and fitting
+    └── signal_extraction/          NIfTI → per-ROI signal extraction
+```
 
 ## Most important code locations
 
-- signal extraction:
-  - `src/signal_extraction/coreg_extract_brain.py`
-  - `src/signal_extraction/coreg_extract_phantom.py`
-  - `src/signal_extraction/extract_roi_tables.py`
-- results-to-table conversion:
-  - `scripts/data/process_one_results.py`
-  - `src/data_processing/reshape.py`
-  - `src/data_processing/schema.py`
-- rotation and projection:
-  - `scripts/data/rotate_ogse_tensor.py`
-  - `src/signal_rotation/rotation_tensor.py`
-- contrast construction:
-  - `scripts/data/make_contrast.py`
-  - `src/fitting/contrast.py`
-- fitting:
-  - `scripts/fitting/fit_ogse_signal_vs_g.py`
-  - `scripts/fitting/fit_nogse_signal_vs_g.py`
-  - `scripts/fitting/fit_ogse_contrast_vs_g.py`
-  - `scripts/fitting/fit_nogse_contrast_vs_g.py`
-  - `src/ogse_fitting/*`
-  - `src/nogse_fitting/*`
-- physical model formulas:
-  - `src/models/model_fitting.py`
-- correction and final summaries:
-  - `scripts/data/make_grad_correction_table.py`
-  - `scripts/summary/make_alpha_macro_summary.py`
-  - `scripts/fitting/run_tc_pipeline.py`
-  - `scripts/fitting/run_tc_vs_td.py`
+| Task | File |
+|------|------|
+| Physical model formulas | `src/models/model_fitting.py` |
+| OGSE contrast model registry | `src/ogse_fitting/contrast_model_registry.py` |
+| tc-vs-Td model registry | `src/tc_fittings/tc_td_registry.py` |
+| tc-vs-Td physics functions | `src/tc_fittings/tc_td_models.py` |
+| Experiment/model registry | `src/fitting/experiments.py` |
+| Results → master table | `scripts/data/process_one_results.py` |
+| Tensor rotation | `scripts/data/rotate_ogse_tensor.py` |
+| Contrast construction | `scripts/data/make_contrast.py` |
+| OGSE signal fitting | `scripts/fitting/fit_ogse_signal_vs_g.py` |
+| NOGSE signal fitting | `scripts/fitting/fit_nogse_signal_vs_g.py` |
+| OGSE contrast fitting | `scripts/fitting/fit_ogse_contrast_vs_g.py` |
+| NOGSE contrast fitting | `scripts/fitting/fit_nogse_contrast_vs_g.py` |
+| tc-vs-Td fitting runner | `scripts/fitting/run_tc_vs_td.py` |
+| α\_macro summary | `scripts/summary/make_alpha_macro_summary.py` |
+| Gradient correction | `scripts/data/make_grad_correction_table.py` |
+| Brain signal extraction | `src/signal_extraction/coreg_extract.py` |
+
+## Extending the pipeline
+
+**Adding a new tc-vs-Td fitting model** (e.g., a linear model):
+1. Add `tc_mymodel(Td, param1, param2)` in `src/tc_fittings/tc_td_models.py`
+2. Add an entry to `METHODS` in `src/tc_fittings/tc_td_registry.py`
+3. Run via `TC_METHOD=mymodel bash ... tc`
+
+**Adding a new OGSE contrast model:**
+1. Add `_eval_mymodel(td_ms, G1, G2, n_1, n_2, params)` in
+   `src/ogse_fitting/contrast_model_registry.py`
+2. Add an entry to `OGSE_CONTRAST_FIT_SPECS`
+3. The fitting loop, plot panels, and `experiments.py` pick it up automatically
 
 ## External tools
 
-Depending on the stage, the pipeline expects some or all of:
+Depending on the stage:
 
-- FreeSurfer: `recon-all`, `mri_convert`
-- MRtrix3: `dwiextract`
-- FSL: `bet`, `fslmaths`, `fslmeants`, `fslroi`
-- ANTs: `antsRegistration`, `antsApplyTransforms`
+- **FreeSurfer**: `recon-all`, `mri_convert` (brain parcellation)
+- **FSL**: `bet`, `fslmaths`, `fslmeants`, `fslroi` (brain/phantom masking)
+- **ANTs**: `antsRegistration`, `antsApplyTransforms` (T1→DWI registration)
+- **MRtrix3**: `dwiextract` (DWI volume selection)
+- **dcm2niix**: DICOM to NIfTI conversion
 
-Python 3.10+ is recommended. The package itself is defined in `pyproject.toml`, and the environment files in the repository document the broader scientific stack used around it.
-
-## Where to start
-
-- For a scientific explanation of how the pipeline works: read [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md).
-- For the brain batch order: read `bash_template/brains/run_brains_pipeline.sh`.
-- For the phantom batch order: read `bash_template/phantoms/run_phantoms_pipeline*.sh`.
+Python 3.10+ with the `nogse_pipe_env` conda environment.

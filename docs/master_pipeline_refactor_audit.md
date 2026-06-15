@@ -5,8 +5,8 @@ pipeline.
 
 ## Current Main Path
 
-- `bash_template_2/brains_ogse/*.sh`
-- `bash_template_2/phantoms_ogse/*.sh`
+- `bash_template/run_dataset.sh`
+- `bash_template/steps/*.sh`
 - `scripts/data/*`
 - `scripts/fitting/*`
 - `scripts/plotting/*`
@@ -21,7 +21,8 @@ or long lists of parquet files.
 
 ## Removed
 
-The old OGSE post-Results bash wrappers under these directories were removed:
+The old OGSE post-Results wrappers formerly mixed into these `bash_template`
+dataset directories were removed:
 
 - `bash_template/brains_ogse`
 - `bash_template/phantoms_ogse`
@@ -31,8 +32,8 @@ signal extraction.
 
 ## Kept For Now
 
-- NOGSE bash templates remain because the NOGSE flow has not yet been rebuilt
-  around `bash_template_2`.
+- Some NOGSE numbered templates remain because that flow is only partially
+  rebuilt around the master-table runner.
 - Publication figure scripts remain separate because they are figure-specific
   entrypoints, not routine pipeline stages.
 - Some plotting CLIs still have family-specific names. They now live under

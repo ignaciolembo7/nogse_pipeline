@@ -15,6 +15,7 @@ vocabulary.
 6. [Gradient Correction](06_gradient_correction.md)
 7. [Plotting And Summaries](07_plotting_and_summaries.md)
 8. [Output Schemas And Validation](08_output_schemas_and_validation.md)
+9. [Complete Pipeline User Guide](09_pipeline_user_guide.md)
 
 ## Current Repository Rules
 
@@ -26,4 +27,3 @@ vocabulary.
 - Fit output schemas are centralized in `src/tools/fit_params_schema.py`.
 - Supported experiment and model families are centralized in
   `src/fitting/experiments.py`.
-

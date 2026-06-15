@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from tools.brain_labels import canonical_sheet_name
+from tools.scalar import unique_float
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 
@@ -33,19 +34,10 @@ class SignalCorrectionLookupSpec:
     preferred_side: Literal[1, 2] | None = None
 
 
-def unique_float(df: pd.DataFrame, col: str) -> float | None:
-    if col not in df.columns:
-        return None
-    u = pd.to_numeric(df[col], errors="coerce").dropna().unique()
-    if len(u) == 1:
-        return float(u[0])
-    return None
-
-
 def unique_int(df: pd.DataFrame, *cols: str) -> int | None:
     for col in cols:
         v = unique_float(df, col)
-        if v is not None:
+        if np.isfinite(v):
             return int(round(float(v)))
     return None
 
@@ -61,9 +53,9 @@ def infer_td_ms(
 
     # Prefer contrast-style columns when available.
     td1 = unique_float(df, "td_ms_1")
-    if td1 is not None:
+    if np.isfinite(td1):
         td2 = unique_float(df, "td_ms_2")
-        if td2 is None:
+        if not np.isfinite(td2):
             return float(td1)
         if abs(float(td1) - float(td2)) < 1e-3:
             return float(0.5 * (td1 + td2))
@@ -71,12 +63,12 @@ def infer_td_ms(
 
     # Fall back to generic signal columns.
     td = unique_float(df, "td_ms")
-    if td is not None:
+    if np.isfinite(td):
         return float(td)
 
     max_dur_ms = unique_float(df, "max_dur_ms")
     tm_ms = unique_float(df, "tm_ms")
-    if max_dur_ms is not None and tm_ms is not None:
+    if np.isfinite(max_dur_ms) and np.isfinite(tm_ms):
         return float(2.0 * max_dur_ms + tm_ms)
 
     # Fallback: parse tdXX from the analysis id.

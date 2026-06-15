@@ -14,7 +14,7 @@ CLEAN_SIGNAL_LONG_COLUMNS = [
     "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
     "one_g_per_sequence",
-    "value","value_norm","S0",
+    "value","value_norm","S0","D_proj",
     "TE","TR","td_ms","Hz",
     "max_dur_ms","Delta_app_ms","delta_ms","tm_ms", 
     "TN","N","G","x", "y",
@@ -40,7 +40,7 @@ SIGNAL_LONG_PREFIX = [
     "g","g_max","g_lin_max","g_thorsten",
     "gradient_axis_kind",
     "one_g_per_sequence",
-    "value","value_norm","S0",
+    "value","value_norm","S0","D_proj",
     "TE","TR","td_ms","Hz",
     "max_dur_ms","Delta_app_ms","delta_ms","tm_ms", 
     "TN","N","G","x","y",
@@ -74,10 +74,8 @@ def _unique_scalar(df: pd.DataFrame, col: str) -> float | None:
     u = pd.Series(df[col]).dropna().unique()
     if len(u) != 1:
         return None
-    try:
-        return float(u[0])
-    except Exception:
-        return None
+    val = pd.to_numeric(u[0], errors="coerce")
+    return float(val) if pd.notna(val) else None
 
 def _apply_renames(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()

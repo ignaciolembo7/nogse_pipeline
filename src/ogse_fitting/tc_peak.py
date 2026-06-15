@@ -11,7 +11,11 @@ from models.model_fitting import (
     OGSE_contrast_vs_g_rest_offset,
     OGSE_contrast_vs_g_tort,
 )
-from ogse_fitting.fit_ogse_contrast_vs_g import _coerce_correction_pair, _gcols, _maybe_scale_g_thorsten
+from fitting.contrast_tables import (
+    coerce_correction_pair as _coerce_correction_pair,
+    gcols as _gcols,
+    maybe_scale_gradient as _maybe_scale_g_thorsten,
+)
 
 @dataclass(frozen=True)
 class PeakResult:
@@ -159,6 +163,31 @@ def peak_from_data_group(
         g2_peak=float(G2[i]),
         y_peak=float(y_s[i]),
     )
+
+
+def _tc_peak_from_notebook_formula(
+    *,
+    td_ms: float,
+    g_peak_mTpm: float,
+    D0_fix_m2_ms: float,
+    gamma_rad_ms_mT: float,
+) -> tuple[float, float, float, float]:
+    """Compute characteristic length scales and tc from the peak gradient position."""
+    g_peak = float(g_peak_mTpm)
+    if not np.isfinite(g_peak) or g_peak <= 0:
+        return (np.nan, np.nan, np.nan, np.nan)
+
+    D0 = float(D0_fix_m2_ms)
+    gamma = float(gamma_rad_ms_mT)
+    td = float(td_ms)
+
+    l_G = (D0 / (gamma * g_peak)) ** (1.0 / 3.0)
+    l_d = np.sqrt(D0 * td)
+    L_d = l_d / l_G
+    L_cf = ((3.0 / 2.0) ** (1.0 / 4.0)) * (L_d ** (-1.0 / 2.0))
+    lcf = L_cf * l_G
+    tc_peak_ms = (lcf**2) / D0
+    return (float(l_G), float(L_cf), float(lcf), float(tc_peak_ms))
 
 
 def tc_from_peak(

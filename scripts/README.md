@@ -17,7 +17,7 @@ parse CLI options, call library code, and write outputs.
 ## Adding A New Results Experiment To Master
 
 Use `scripts/data/process_one_results.py` with the experiment Results file and
-the sequence-parameter workbook for that family.
+the sequence-parameter workbook for that `type_subj`.
 
 Brains example:
 
@@ -43,21 +43,43 @@ To ingest every `*_results.xlsx` currently under `Data-signals/Results`, use the
 template step:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/01-ingest_results_to_master.sh
-bash nogse_pipeline/bash_template_2/phantoms_ogse/01-ingest_results_to_master.sh
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
+bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest
 ```
 
 To ingest one new Results folder only:
 
 ```bash
 RESULTS_ROOT=Data-signals/Results/20220622_BRAIN \
-  bash nogse_pipeline/bash_template_2/brains_ogse/01-ingest_results_to_master.sh
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
 ```
 
 Override `PARAMS_XLSX` when the matching sequence-parameter workbook is not the
-default family workbook.
+default `type_subj` workbook.
 
 The important rule is that all metadata needed later must be columns in
 `master.long.parquet`. After ingestion, downstream steps should select by
 columns such as `subj`, `sheet`, `roi`, `direction`, `td_ms`, `N`, `Hz`, `g`,
 `b_step`, and `stat`.
+
+## Exporting Master For Inspection
+
+The canonical master table is parquet. The pipeline does not maintain a live
+`master.long.xlsx` because large Excel writes are slow and fragile.
+
+Create an Excel copy explicitly when you want to inspect the current master:
+
+```bash
+python nogse_pipeline/scripts/data/export_master_table.py \
+  analysis/brains/ogse_experiments/master.long.parquet \
+  --out-xlsx analysis/brains/ogse_experiments/master.inspect.xlsx
+```
+
+Export only selected row kinds:
+
+```bash
+python nogse_pipeline/scripts/data/export_master_table.py \
+  analysis/brains/ogse_experiments/master.long.parquet \
+  --row-kind signal_rotated \
+  --out-xlsx analysis/brains/ogse_experiments/master.rotated.inspect.xlsx
+```

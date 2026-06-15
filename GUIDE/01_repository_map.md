@@ -35,13 +35,18 @@ Reusable implementation. The important subpackages are:
 
 `bash_template/`
 
-Canonical batch scripts. These scripts define the production workflows for:
+Canonical batch scripts. Preparation drivers stay in dataset folders, while
+post-Results analysis is centralized in `run_dataset.sh` and `steps/`.
 
-- `brains_ogse`
-- `phantoms_ogse`
-- `phantoms_nogse`
-- `dicom_params`
-- `helpers`
+- `brains_ogse`: brain OGSE DICOM conversion and signal extraction.
+- `phantoms_ogse`: phantom OGSE DICOM conversion, sidecars, preparation, and
+  signal extraction.
+- `phantoms_nogse`: phantom NOGSE DICOM conversion, sidecars, preparation, and
+  signal extraction.
+- `dicom_params`: scanner metadata utilities.
+- `helpers`: shared shell helpers used by the preparation drivers and runner.
+- `run_dataset.sh` and `steps/`: master-table post-Results workflow for
+  `brain|phantom` and `ogse|nogse`.
 
 `bash/`
 
@@ -73,4 +78,3 @@ naming pattern:
 ```
 
 This registry is the first place to check before adding or renaming a fit mode.
-

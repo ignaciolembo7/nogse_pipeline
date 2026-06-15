@@ -19,7 +19,7 @@ from data_processing.master_table import (
     select_fit_params,
 )
 from tc_fittings.contrast_fit_table import canonicalize_contrast_fit_params, load_contrast_fit_params
-from tc_fittings.tc_td_registry import METHODS
+from tc_fittings.tc_td_registry import METHODS, get_run_function
 from tc_fittings.tc_td_pseudohuber import load_alpha_macro_summary
 
 
@@ -301,7 +301,7 @@ def main() -> None:
 
     df_params = _load_df_params(args)
     spec = METHODS[args.method]
-    k_last = args.k_last if args.k_last is not None else spec.default_k_last
+    k_last = args.k_last  # None means "use all points"; the run function handles it
 
     alpha_macro_df = _load_alpha_macro_from_master_sources(args)
     if alpha_macro_df is not None:
@@ -336,7 +336,8 @@ def main() -> None:
     cfg = None
     if args.rois is not None:
         cfg = SimpleNamespace(regions=[str(r).replace("_norm", "") for r in args.rois])
-    spec.func(
+    run_fn = get_run_function(args.method)
+    run_fn(
         cfg=cfg,
         df_params=df_params,
         out_dir=out_dir,

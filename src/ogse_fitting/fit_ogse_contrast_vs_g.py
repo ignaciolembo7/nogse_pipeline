@@ -54,6 +54,8 @@ from ogse_fitting.contrast_parameter_plan import (
     normalize_global_contrast_params as _normalize_global_params,
     seed_bounds_for_contrast_parameter as _param_seed_bounds,
 )
+from ogse_fitting.contrast_model_registry import ContrastFitSpec, OGSE_CONTRAST_FIT_SPECS as CONTRAST_MODEL_SPECS
+from ogse_fitting.tc_peak import _tc_peak_from_notebook_formula
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
 from tools.value_formatting import scalar_or_compact_series, truthy_series
@@ -69,11 +71,6 @@ GAMMA_DEFAULT = 267.5221900
 
 def _normalize_gbase(gbase: str) -> str:
     return gradient_base_for_axis(gbase)
-
-
-def _gcols(gbase: str) -> tuple[str, str]:
-    b = _normalize_gbase(gbase)
-    return f"{b}_1", f"{b}_2"
 
 
 def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None, xplot: str) -> str:
@@ -94,154 +91,7 @@ def _resolve_plot_axis(*, fit_axis: str, plot_axis: str | None, xplot: str) -> s
     return f"{plot_base}_{resolved_side}"
 
 
-@dataclass(frozen=True)
-class ContrastModelSpec:
-    name: str
-    evaluator: Callable[[float, np.ndarray, np.ndarray, int, int, dict[str, Any]], np.ndarray]
-    maxfev: int
-
-
-def _eval_free(
-    td_ms: float,
-    G1: np.ndarray,
-    G2: np.ndarray,
-    n_1: int,
-    n_2: int,
-    params: dict[str, Any],
-) -> np.ndarray:
-    return OGSE_contrast_vs_g_free(td_ms, G1, G2, n_1, n_2, float(params["M0"]), float(params["D0_m2_ms"]))
-
-
-def _eval_tort(
-    td_ms: float,
-    G1: np.ndarray,
-    G2: np.ndarray,
-    n_1: int,
-    n_2: int,
-    params: dict[str, Any],
-) -> np.ndarray:
-    return OGSE_contrast_vs_g_tort(
-        td_ms,
-        G1,
-        G2,
-        n_1,
-        n_2,
-        float(params["alpha"]),
-        float(params["M0"]),
-        float(params["D0_m2_ms"]),
-    )
-
-
-def _eval_rest(
-    td_ms: float,
-    G1: np.ndarray,
-    G2: np.ndarray,
-    n_1: int,
-    n_2: int,
-    params: dict[str, Any],
-) -> np.ndarray:
-    return OGSE_contrast_vs_g_rest(
-        td_ms,
-        G1,
-        G2,
-        n_1,
-        n_2,
-        float(params["tc_ms"]),
-        float(params["M0"]),
-        float(params["D0_m2_ms"]),
-    )
-
-
-def _eval_rest_offset(
-    td_ms: float,
-    G1: np.ndarray,
-    G2: np.ndarray,
-    n_1: int,
-    n_2: int,
-    params: dict[str, Any],
-) -> np.ndarray:
-    return OGSE_contrast_vs_g_rest_offset(
-        td_ms,
-        G1,
-        G2,
-        n_1,
-        n_2,
-        float(params["tc_ms"]),
-        float(params["M0"]),
-        float(params["D0_m2_ms"]),
-        float(params["C"]),
-    )
-
-
-def _eval_mixed(
-    td_ms: float,
-    G1: np.ndarray,
-    G2: np.ndarray,
-    n_1: int,
-    n_2: int,
-    params: dict[str, Any],
-) -> np.ndarray:
-    return OGSE_contrast_vs_g_mixed(
-        td_ms,
-        G1,
-        G2,
-        n_1,
-        n_2,
-        float(params["tc_ms"]),
-        float(params["alpha"]),
-        float(params["M0"]),
-        float(params["D0_m2_ms"]),
-    )
-
-
-def _eval_ogse_mixed_offset(
-    td_ms: float,
-    G1: np.ndarray,
-    G2: np.ndarray,
-    n_1: int,
-    n_2: int,
-    params: dict[str, Any],
-) -> np.ndarray:
-    x1 = float(td_ms) / float(n_1)
-    x2 = float(td_ms) / float(n_2)
-    return M_ogse_mixed_offset(
-        td_ms,
-        G1,
-        n_1,
-        x1,
-        float(params["tc_ms"]),
-        float(params["alpha"]),
-        float(params["M0"]),
-        float(params["D0_m2_ms"]),
-        float(params.get("C", 0.0)),
-        float(params.get("RN", 0.0)),
-    ) - M_ogse_mixed_offset(
-        td_ms,
-        G2,
-        n_2,
-        x2,
-        float(params["tc_ms"]),
-        float(params["alpha"]),
-        float(params["M0"]),
-        float(params["D0_m2_ms"]),
-        float(params.get("C", 0.0)),
-        float(params.get("RN", 0.0)),
-    )
-
-
-CONTRAST_MODEL_SPECS: dict[str, ContrastModelSpec] = {
-    "free": ContrastModelSpec(name="free", evaluator=_eval_free, maxfev=400000),
-    "tort": ContrastModelSpec(name="tort", evaluator=_eval_tort, maxfev=600000),
-    "rest": ContrastModelSpec(name="rest", evaluator=_eval_rest, maxfev=600000),
-    "rest_offset": ContrastModelSpec(name="rest_offset", evaluator=_eval_rest_offset, maxfev=800000),
-    "rest_offset_globC": ContrastModelSpec(name="rest_offset_globC", evaluator=_eval_rest_offset, maxfev=800000),
-    "mixed": ContrastModelSpec(name="mixed", evaluator=_eval_mixed, maxfev=800000),
-    "ogse_mixed_offset": ContrastModelSpec(
-        name="ogse_mixed_offset",
-        evaluator=_eval_ogse_mixed_offset,
-        maxfev=800000,
-    ),
-}
+ContrastModelSpec = ContrastFitSpec  # backward-compat alias
 
 
 def _fit_contrast_model(
@@ -340,30 +190,6 @@ def _model_side_yhat(
         )
 
     raise ValueError(f"Unsupported model {model!r} for side-curve evaluation.")
-
-
-def _tc_peak_from_notebook_formula(
-    *,
-    td_ms: float,
-    g_peak_mTpm: float,
-    D0_fix_m2_ms: float,
-    gamma_rad_ms_mT: float,
-) -> tuple[float, float, float, float]:
-    g_peak = float(g_peak_mTpm)
-    if not np.isfinite(g_peak) or g_peak <= 0:
-        return (np.nan, np.nan, np.nan, np.nan)
-
-    D0 = float(D0_fix_m2_ms)
-    gamma = float(gamma_rad_ms_mT)
-    td = float(td_ms)
-
-    l_G = (D0 / (gamma * g_peak)) ** (1.0 / 3.0)
-    l_d = np.sqrt(D0 * td)
-    L_d = l_d / l_G
-    L_cf = ((3.0 / 2.0) ** (1.0 / 4.0)) * (L_d ** (-1.0 / 2.0))
-    lcf = L_cf * l_G
-    tc_peak_ms = (lcf**2) / D0
-    return (float(l_G), float(L_cf), float(lcf), float(tc_peak_ms))
 
 
 def _compute_peak_metrics(

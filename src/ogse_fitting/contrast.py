@@ -15,7 +15,7 @@ from fitting.b_from_g import (
     normalize_axis_base,
 )
 from fitting.contrast import ContrastResult, make_contrast
-from ogse_fitting.fit_ogse_contrast_vs_g import _tc_peak_from_notebook_formula
+from ogse_fitting.tc_peak import _tc_peak_from_notebook_formula
 from monoexp_fitting.fit_monoexp_signal_vs_bval import (
     _b_from_mode as _monoexp_b_from_mode,
     _select_fit_result as _select_monoexp_fit_result,

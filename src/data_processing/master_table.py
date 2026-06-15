@@ -187,10 +187,8 @@ def load_master_table(path: str | Path, *, validate: bool = True) -> pd.DataFram
         df = pd.read_parquet(p)
     elif suffix == ".csv":
         df = pd.read_csv(p)
-    elif suffix in {".xlsx", ".xls"}:
-        df = pd.read_excel(p, sheet_name=0)
     else:
-        raise ValueError(f"Unsupported master table format: {p}")
+        raise ValueError(f"Unsupported master table format: {p}. Use parquet or csv.")
     return validate_master_table(df) if validate else df
 
 
@@ -199,11 +197,9 @@ def write_master_table(
     path: str | Path,
     *,
     validate: bool = True,
-    xlsx_path: str | Path | None = None,
-    csv_path: str | Path | None = None,
 ) -> Path:
     out = validate_master_table(df) if validate else df
-    return write_table_outputs(out, path, xlsx_path=xlsx_path, csv_path=csv_path)
+    return write_table_outputs(out, path)
 
 
 def normalize_master_rows(
@@ -253,7 +249,7 @@ def append_master_rows(
     if drop_duplicates:
         combined = combined.drop_duplicates().reset_index(drop=True)
     if out_path is not None:
-        write_master_table(combined, out_path, xlsx_path=out_path.with_suffix(".xlsx"))
+        write_master_table(combined, out_path)
     return combined
 
 

@@ -4,41 +4,39 @@ The batch layer lives in `bash_template/`. It is intentionally explicit: each
 script names the inputs, output roots, model choice, axes, ROIs, correction
 mode, and Python entry point used for one stage.
 
-## Canonical Workflow Families
+## Canonical Workflow Layers
 
 `bash_template/brains_ogse/`
 
-Brain OGSE workflow:
+Brain OGSE preparation:
 
 - DICOM to NIfTI conversion.
 - Brain signal extraction.
-- ROI result processing.
-- Tensor rotation.
-- OGSE contrast construction and plotting.
-- Monoexponential OGSE signal fits.
-- `D0` summaries and alpha summaries.
-- Free, mixed, mixed-global, rest, and corrected contrast fits.
-- Final `t_c` vs `t_d` summaries.
 
 `bash_template/phantoms_ogse/`
 
-Phantom OGSE workflow:
+Phantom OGSE preparation:
 
 - DICOM conversion and gradient sidecar preparation.
 - Phantom signal extraction.
-- OGSE signal processing and fitting.
-- OGSE and NOGSE contrast construction.
-- Gradient correction and corrected contrast fits.
 
 `bash_template/phantoms_nogse/`
 
-Phantom NOGSE workflow:
+Phantom NOGSE preparation:
 
 - DICOM conversion and gradient sidecar preparation.
 - Phantom signal extraction.
-- NOGSE signal plotting and fitting.
-- NOGSE contrast construction.
-- Gradient correction and corrected contrast fits.
+
+`bash_template/run_dataset.sh`
+
+Shared post-Results analysis for all `type_subj` and `type_seq` combinations:
+
+- ROI result processing into `master.long.parquet`.
+- Tensor rotation.
+- OGSE/NOGSE contrast construction and plotting.
+- Signal fits, contrast fits, and global signal fits.
+- Gradient correction.
+- `D0`, alpha, monoexponential-D, and `t_c` summaries.
 
 `bash_template/dicom_params/`
 
@@ -74,10 +72,17 @@ Batch scripts should not:
 
 ## Entry-Point Runners
 
-The current OGSE runners are the numbered scripts in:
+The current master-table runner is:
 
-- `bash_template_2/brains_ogse/`
-- `bash_template_2/phantoms_ogse/`
+- `bash_template/run_dataset.sh`
 
-For NOGSE, the older numbered scripts under `bash_template/phantoms_nogse/`
-remain until that flow is moved to the master-table structure.
+Use `type_subj` (`brain` or `phantom`) and `type_seq` (`ogse` or `nogse`) to
+select the workflow:
+
+```bash
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
+bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest
+```
+
+Use `GUIDE/09_pipeline_user_guide.md` for the full step-by-step command
+reference, arguments, inputs, and expected outputs.

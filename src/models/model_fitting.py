@@ -2,428 +2,296 @@
 
 import numpy as np
 
+_GYRO = 267.52218744  # gyromagnetic ratio of 1H, units: ms^-1 mT^-1; [D0] = m2/ms
+
+
+# ---------------------------------------------------------------------------
+# Internal helper: restricted-diffusion log-attenuation terms
+# ---------------------------------------------------------------------------
+
+def _rest_log_attenuation(N, x, y, tc, bSE):
+    """Return the three additive log-attenuation terms for the Callaghan
+    restricted-diffusion model shared by both NOGSE and OGSE signal functions.
+
+    Parameters are already cast to numpy arrays by the caller.
+    The signal is:  M0 * exp(-phi_SE) * exp(-phi_N) * exp(phi_cross)
+
+    Physical meaning of the three terms:
+      phi_SE    -- SE lobe (last lobe, duration y)
+      phi_N     -- N-1 NOGSE/OGSE lobes
+      phi_cross -- cross-correlation between the two groups of lobes
+    """
+    # --- sub-expressions that repeat inside the NOGSE/OGSE lobe sum ---
+    e_train     = np.exp(-(N - 1) * x / tc)          # decay over all N-1 lobes
+    e_lobe      = e_train ** (1 / (N - 1))            # single-lobe decay  = exp(-x/tc)
+    e_lobe_half = e_train ** (1 / (N - 1) / 2)        # half-lobe decay    = exp(-x/(2*tc))
+    neg_lobe_N  = (-e_lobe) ** (N - 1)                # sign-alternating train factor
+    D           = e_lobe + 1                           # denominator in interference sums
+
+    # --- phase from the N-1 NOGSE/OGSE lobes ---
+    phi_N = bSE**2 * tc**2 * (
+        (N - 1) * x / tc
+        + (-1) ** (N - 1) * e_train
+        + 1 - 2 * N
+        - 4 * e_lobe_half * neg_lobe_N     / D
+        + 4 * e_lobe_half                  / D
+        + 4 * neg_lobe_N  * e_lobe         / D**2
+        + 4 * e_lobe * ((N - 1) * e_lobe + N - 2) / D**2
+    )
+
+    # --- phase from the final SE lobe (duration y) ---
+    phi_SE = bSE**2 * tc**2 * (
+        4 * np.exp(-y / tc / 2)
+        - np.exp(-y / tc)
+        - 3
+        + y / tc
+    )
+
+    # --- cross-correlation between NOGSE lobes and SE lobe ---
+    inner_cross = (
+        (
+            np.exp((-y + 2 * x) / tc / 2)
+            + np.exp((x - 2 * y) / tc / 2)
+            - np.exp((x - y) / tc) / 2
+            - np.exp(-y / tc) / 2
+            + np.exp(x / tc / 2)
+            + np.exp(-y / tc / 2)
+            - np.exp(x / tc) / 2
+            - 0.1e1 / 0.2e1
+        ) * (-1) ** (2 * N)
+        + 2 * (-1) ** (1 + N) * np.exp(-(2 * N * x - 3 * x + y) / tc / 2)
+        + (
+            np.exp(((3 - 2 * N) * x - 2 * y) / tc / 2)
+            - np.exp((-N * x + 2 * x - y) / tc) / 2
+            + np.exp(-(2 * N * x - 4 * x + y) / tc / 2)
+            + np.exp(-(2 * N * x - 2 * x + y) / tc / 2)
+            - np.exp((-N * x + x - y) / tc) / 2
+            + np.exp(-x * (-3 + 2 * N) / tc / 2)
+            - np.exp(-x * (N - 2) / tc) / 2
+            - e_train / 2
+        ) * (-1) ** N
+        + 2 * (-1) ** (1 + 2 * N) * np.exp((x - y) / tc / 2)
+    )
+    phi_cross = 2 * tc**2 * inner_cross * bSE**2 / (np.exp(x / tc) + 1)
+
+    return phi_SE, phi_N, phi_cross
+
+
+# ---------------------------------------------------------------------------
+# NOGSE signal models
+# ---------------------------------------------------------------------------
 
 def M_nogse_free(TE, G, N, x, M0, D0):
-
-    g = 267.52218744 # ms**-1 mT**-1
-    #[D0] = m2/ms
-
-    x = np.array(x)
+    x  = np.array(x)
     TE = np.array(TE)
-    N = np.array(N)
-    G = np.array(G) 
+    N  = np.array(N)
+    G  = np.array(G)
 
+    y = TE - (N - 1) * x
 
-    y = TE - (N-1) * x
+    return M0 * np.exp(-1.0 / 12 * _GYRO**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
 
-    return M0*np.exp(-1.0/12 * g**2 * (G)**2 * D0 * ((N-1) * x**3 + y**3))
 
 def M_nogse_free_offset(TE, G, N, x, M0, D0, C):
+    return M_nogse_free(TE, G, N, x, M0, D0) + C
 
-    g = 267.52218744 # ms**-1 mT**-1
-    #[D0] = m2/ms
-
-    x = np.array(x)
-    TE = np.array(TE)
-    N = np.array(N)
-    G = np.array(G)
-
-
-    y = TE - (N-1) * x
-
-    return M0*np.exp(-1.0/12 * g**2 * G**2 * D0 * ((N-1) * x**3 + y**3)) + C
 
 def M_nogse_rest(TE, G, N, x, tc, M0, D0):
-
-    g = 267.52218744 # ms**-1 mT**-1
-    #[D0] = m2/ms
-
-    x = np.array(x)
+    x  = np.array(x)
     TE = np.array(TE)
-    N = np.array(N)
-    G = np.array(G)
+    N  = np.array(N)
+    G  = np.array(G)
 
-    y = TE - (N-1) * x
+    y   = TE - (N - 1) * x
+    bSE = _GYRO * G * np.sqrt(D0 * tc)
 
-    bSE=g*G*np.sqrt(D0*tc)
+    phi_SE, phi_N, phi_cross = _rest_log_attenuation(N, x, y, tc, bSE)
+    return M0 * np.exp(-phi_SE) * np.exp(-phi_N) * np.exp(phi_cross)
 
-    return M0 * np.exp(-bSE ** 2 * tc ** 2 * (4 * np.exp(-y / tc / 2) - np.exp(-y / tc) - 3 + y / tc)) * np.exp(-bSE ** 2 * tc ** 2 * ((N - 1) * x / tc + (-1) ** (N - 1) * np.exp(-(N - 1) * x / tc) + 1 - 2 * N - 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2 + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) * ((N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + N - 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2)) * np.exp(2 * tc ** 2 * ((np.exp((-y + 2 * x) / tc / 2) + np.exp((x - 2 * y) / tc / 2) - np.exp((x - y) / tc) / 2 - np.exp(-y / tc) / 2 + np.exp(x / tc / 2) + np.exp(-y / tc / 2) - np.exp(x / tc) / 2 - 0.1e1 / 0.2e1) * (-1) ** (2 * N) + 2 * (-1) ** (1 + N) * np.exp(-(2 * N * x - 3 * x + y) / tc / 2) + (np.exp(((3 - 2 * N) * x - 2 * y) / tc / 2) - np.exp((-N * x + 2 * x - y) / tc) / 2 + np.exp(-(2 * N * x - 4 * x + y) / tc / 2) + np.exp(-(2 * N * x - 2 * x + y) / tc / 2) - np.exp((-N * x + x - y) / tc) / 2 + np.exp(-x * (-3 + 2 * N) / tc / 2) - np.exp(-x * (N - 2) / tc) / 2 - np.exp(-(N - 1) * x / tc) / 2) * (-1) ** N + 2 * (-1) ** (1 + 2 * N) * np.exp((x - y) / tc / 2)) * bSE ** 2 / (np.exp(x / tc) + 1))
 
 def M_nogse_rest_offset(TE, G, N, x, tc, M0, D0, C):
+    return C + M_nogse_rest(TE, G, N, x, tc, M0, D0)
 
-    g = 267.52218744 # ms**-1 mT**-1
-    #[D0] = m2/ms
 
-    x = np.array(x)
-    TE = np.array(TE)
-    N = np.array(N)
-    G = np.array(G)
+def M_nogse_mixed(TE, G, N, x, tc, alpha, M0, D0):  # alpha is 1/alpha
+    return M0 * M_nogse_free(TE, G, N, x, 1, alpha * D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1 - alpha) * D0)
 
-    y = TE - (N-1) * x
 
-    bSE=g*G*np.sqrt(D0*tc)
-
-    return C + M0 * np.exp(-bSE ** 2 * tc ** 2 * (4 * np.exp(-y / tc / 2) - np.exp(-y / tc) - 3 + y / tc)) * np.exp(-bSE ** 2 * tc ** 2 * ((N - 1) * x / tc + (-1) ** (N - 1) * np.exp(-(N - 1) * x / tc) + 1 - 2 * N - 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2 + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) * ((N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + N - 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2)) * np.exp(2 * tc ** 2 * ((np.exp((-y + 2 * x) / tc / 2) + np.exp((x - 2 * y) / tc / 2) - np.exp((x - y) / tc) / 2 - np.exp(-y / tc) / 2 + np.exp(x / tc / 2) + np.exp(-y / tc / 2) - np.exp(x / tc) / 2 - 0.1e1 / 0.2e1) * (-1) ** (2 * N) + 2 * (-1) ** (1 + N) * np.exp(-(2 * N * x - 3 * x + y) / tc / 2) + (np.exp(((3 - 2 * N) * x - 2 * y) / tc / 2) - np.exp((-N * x + 2 * x - y) / tc) / 2 + np.exp(-(2 * N * x - 4 * x + y) / tc / 2) + np.exp(-(2 * N * x - 2 * x + y) / tc / 2) - np.exp((-N * x + x - y) / tc) / 2 + np.exp(-x * (-3 + 2 * N) / tc / 2) - np.exp(-x * (N - 2) / tc) / 2 - np.exp(-(N - 1) * x / tc) / 2) * (-1) ** N + 2 * (-1) ** (1 + 2 * N) * np.exp((x - y) / tc / 2)) * bSE ** 2 / (np.exp(x / tc) + 1))
-
-def M_nogse_mixed(TE, G, N, x, tc, alpha, M0, D0): # alpha is 1/alpha
-    return M0 * M_nogse_free(TE, G, N, x, 1, alpha*D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1-alpha)*D0)
-
-def M_nogse_mixto_offset(TE, G, N, x, tc, alpha, M0, D0, C): # alpha is 1/alpha
+def M_nogse_mixto_offset(TE, G, N, x, tc, alpha, M0, D0, C):  # alpha is 1/alpha
     return M0 * M_nogse_mixed(TE, G, N, x, tc, alpha, 1, D0) + C
 
-######################
+
+# ---------------------------------------------------------------------------
+# NOGSE contrast models
+# ---------------------------------------------------------------------------
 
 def NOGSE_contrast_vs_g_free(TE, G, N, M0, D0):
-    return M_nogse_free(TE, G, N, TE/N, M0, D0) - M_nogse_free(TE, G, N, 0, M0, D0)
+    return M_nogse_free(TE, G, N, TE / N, M0, D0) - M_nogse_free(TE, G, N, 0, M0, D0)
+
 
 def NOGSE_contrast_vs_g_free_grad_offset(TE, G, N, M0, D0, g0_mTm):
     G_eff = np.array(G) + float(g0_mTm)
     return NOGSE_contrast_vs_g_free(TE, G_eff, N, M0, D0)
 
-def NOGSE_contrast_vs_g_rest(TE, G, N, tc, M0, D0):
-    return M_nogse_rest(TE, G, N, TE/N, tc, M0, D0) - M_nogse_rest(TE, G, N, 0, tc, M0, D0)
 
-def NOGSE_contrast_vs_g_tort(TE, G, N, alpha, M0, D0): # alpha is 1/alpha
-    return M_nogse_free(TE, G, N, TE/N, M0, alpha*D0) - M_nogse_free(TE, G, N, 0, M0, alpha*D0)
+def NOGSE_contrast_vs_g_rest(TE, G, N, tc, M0, D0):
+    return M_nogse_rest(TE, G, N, TE / N, tc, M0, D0) - M_nogse_rest(TE, G, N, 0, tc, M0, D0)
+
+
+def NOGSE_contrast_vs_g_tort(TE, G, N, alpha, M0, D0):  # alpha is 1/alpha
+    return M_nogse_free(TE, G, N, TE / N, M0, alpha * D0) - M_nogse_free(TE, G, N, 0, M0, alpha * D0)
+
 
 def NOGSE_contrast_vs_g_mixed(TE, G, N, tc, alpha, M0, D0):
-    return M_nogse_mixed(TE, G, N, TE/N, tc, alpha, M0, D0) - M_nogse_mixed(TE, G, N, 0, tc, alpha, M0, D0)
+    return M_nogse_mixed(TE, G, N, TE / N, tc, alpha, M0, D0) - M_nogse_mixed(TE, G, N, 0, tc, alpha, M0, D0)
 
-def NOGSE_contrast_vs_ad(Lc, Ld, n, alpha, D0): # Lc and Ld are inverted, and alpha is 1/alpha
-    gamma = 267.52218744
-    return -np.exp(D0**3*((-0.08333333333333333*alpha*Lc**6)/D0**3 - ((1 - alpha)*Ld**4*(Lc**2/D0 + ((-3 - np.e**(-Lc**2/Ld**2) + 4/np.e**(Lc**2/(2.*Ld**2)))*Ld**2)/D0))/D0**2)) + np.exp(D0**3*((2*(-1)**n*(1 - alpha)*(-3.*(-1)**n - 1/(2.*np.e**(Lc**2/Ld**2)) - (0.5*(-1)**n)/np.e**(Lc**2/(Ld**2*n)) + (2.*(-1)**n)/np.e**(Lc**2/(2.*Ld**2*n)) + 2.*(-1)**n*np.e**(Lc**2/(2.*Ld**2*n)) - 0.5*(-1)**n*np.e**(Lc**2/(Ld**2*n)) + 2*np.e**((Lc**2*(3 - 2*n))/(2.*Ld**2*n)) - 1/(2.*np.e**((Lc**2*(-2 + n))/(Ld**2*n))) + 2*np.e**((D0*(Lc**2/D0 - (2*Lc**2*n)/D0))/(2.*Ld**2*n)) - 3*np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))*Ld**6)/(D0**3*(1 + np.e**(Lc**2/(Ld**2*n)))) - (0.08333333333333333*alpha*Lc**6)/(D0**3*n**2) - ((-1 + alpha)*Ld**4*(-((np.e**(Lc**2/(Ld**2*n))*Lc**2)/D0) + ((1 - 4*np.e**(Lc**2/(2.*Ld**2*n)) + 3*np.e**(Lc**2/(Ld**2*n)))*Ld**2*n)/D0))/(D0**2*np.e**(Lc**2/(Ld**2*n))*n) - ((1 - alpha)*Ld**6*(1 + (-1)**(1 + n)*np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)) - (4*(-(np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n)))**n)/(1 + (np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n)))**2 + (4*(np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(2.*(-1 + n))))/(1 + (np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n))) + (4*(np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(2 - 2*n))*(-(np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n)))**n)/(1 + (np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n))) + (Lc**2*(-1 + n))/(Ld**2*n) - 2*n + (4*(np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n))*(-2 + (np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n))*(-1 + n) + n))/(1 + (np.e**((D0*(Lc**2/D0 - (Lc**2*n)/D0))/(Ld**2*n)))**(1/(-1 + n)))**2))/D0**3))
 
-######################
+def NOGSE_contrast_vs_ad(Lc, Ld, n, alpha, D0):
+    # Lc and Ld are inverted, and alpha is 1/alpha.
+    # Mathematica-generated closed-form expression for the NOGSE contrast
+    # parametrized by compartment length scales instead of tc.
+
+    # Argument of the reference exponential (NOGSE x=0 limit):
+    exponent_ref = D0**3 * (
+        (-0.08333333333333333 * alpha * Lc**6) / D0**3
+        - (
+            (1 - alpha) * Ld**4
+            * (
+                Lc**2 / D0
+                + ((-3 - np.e**(-Lc**2 / Ld**2) + 4 / np.e**(Lc**2 / (2.0 * Ld**2))) * Ld**2) / D0
+            )
+        ) / D0**2
+    )
+
+    # Argument of the NOGSE exponential (NOGSE x=TE/N limit):
+    exponent_nogse = D0**3 * (
+        (
+            2 * (-1)**n * (1 - alpha) * (
+                -3.0 * (-1)**n
+                - 1 / (2.0 * np.e**(Lc**2 / Ld**2))
+                - (0.5 * (-1)**n) / np.e**(Lc**2 / (Ld**2 * n))
+                + (2.0 * (-1)**n) / np.e**(Lc**2 / (2.0 * Ld**2 * n))
+                + 2.0 * (-1)**n * np.e**(Lc**2 / (2.0 * Ld**2 * n))
+                - 0.5 * (-1)**n * np.e**(Lc**2 / (Ld**2 * n))
+                + 2 * np.e**((Lc**2 * (3 - 2 * n)) / (2.0 * Ld**2 * n))
+                - 1 / (2.0 * np.e**((Lc**2 * (-2 + n)) / (Ld**2 * n)))
+                + 2 * np.e**((D0 * (Lc**2 / D0 - (2 * Lc**2 * n) / D0)) / (2.0 * Ld**2 * n))
+                - 3 * np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n))
+            ) * Ld**6
+        ) / (D0**3 * (1 + np.e**(Lc**2 / (Ld**2 * n))))
+        - (0.08333333333333333 * alpha * Lc**6) / (D0**3 * n**2)
+        - (
+            (-1 + alpha) * Ld**4
+            * (
+                -((np.e**(Lc**2 / (Ld**2 * n)) * Lc**2) / D0)
+                + ((1 - 4 * np.e**(Lc**2 / (2.0 * Ld**2 * n)) + 3 * np.e**(Lc**2 / (Ld**2 * n))) * Ld**2 * n) / D0
+            )
+        ) / (D0**2 * np.e**(Lc**2 / (Ld**2 * n)) * n)
+        - (
+            (1 - alpha) * Ld**6
+            * (
+                1
+                + (-1)**(1 + n) * np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n))
+                - (
+                    4 * (-(np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)))**n
+                ) / (1 + (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)))**2
+                + (
+                    4 * (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (2.0 * (-1 + n)))
+                ) / (1 + (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)))
+                + (
+                    4
+                    * (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (2 - 2 * n))
+                    * (-(np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)))**n
+                ) / (1 + (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)))
+                + (Lc**2 * (-1 + n)) / (Ld**2 * n)
+                - 2 * n
+                + (
+                    4
+                    * (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n))
+                    * (
+                        -2
+                        + (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)) * (-1 + n)
+                        + n
+                    )
+                ) / (1 + (np.e**((D0 * (Lc**2 / D0 - (Lc**2 * n) / D0)) / (Ld**2 * n)))**(1 / (-1 + n)))**2
+            )
+        ) / D0**3
+    )
+
+    return -np.exp(exponent_ref) + np.exp(exponent_nogse)
+
+
+# ---------------------------------------------------------------------------
+# OGSE signal models
+# ---------------------------------------------------------------------------
 
 def M_ogse_free(TE, G, N, x, M0, D0):
-
-    g = 267.52218744 # ms**-1 mT**-1
-    #[D0] = m2/ms
-
-    x = np.array(x)
+    x  = np.array(x)
     TE = np.array(TE)
-    N = np.array(N)
-    G = np.array(G)
+    N  = np.array(N)
+    G  = np.array(G)
 
+    y = TE - (N - 1) * x
 
-    y = TE - (N-1) * x
+    return M0 * np.exp(-1.0 / 12 * _GYRO**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
 
-    return M0*np.exp(-1.0/12 * g**2 * G**2 * D0 * ((N-1) * x**3 + y**3))
 
 def M_ogse_rest(TE, G, N, x, tc, M0, D0):
-
-    g = 267.52218744 # ms**-1 mT**-1
-    #[D0] = m2/ms
-
-    x = np.array(x)
+    x  = np.array(x)
     TE = np.array(TE)
-    N = np.array(N)
-    G = np.array(G)
+    N  = np.array(N)
+    G  = np.array(G)
 
-    y = TE - (N-1) * x
+    y   = TE - (N - 1) * x
+    bSE = _GYRO * G * np.sqrt(D0 * tc)
 
-    bSE=g*G*np.sqrt(D0*tc)
+    phi_SE, phi_N, phi_cross = _rest_log_attenuation(N, x, y, tc, bSE)
+    return M0 * np.exp(-phi_SE) * np.exp(-phi_N) * np.exp(phi_cross)
 
-    return M0 * np.exp(-bSE ** 2 * tc ** 2 * (4 * np.exp(-y / tc / 2) - np.exp(-y / tc) - 3 + y / tc)) * np.exp(-bSE ** 2 * tc ** 2 * ((N - 1) * x / tc + (-1) ** (N - 1) * np.exp(-(N - 1) * x / tc) + 1 - 2 * N - 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1) / 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) + 4 * (-np.exp(-(N - 1) * x / tc) ** (1 / (N - 1))) ** (N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2 + 4 * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) * ((N - 1) * np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + N - 2) / (np.exp(-(N - 1) * x / tc) ** (1 / (N - 1)) + 1) ** 2)) * np.exp(2 * tc ** 2 * ((np.exp((-y + 2 * x) / tc / 2) + np.exp((x - 2 * y) / tc / 2) - np.exp((x - y) / tc) / 2 - np.exp(-y / tc) / 2 + np.exp(x / tc / 2) + np.exp(-y / tc / 2) - np.exp(x / tc) / 2 - 0.1e1 / 0.2e1) * (-1) ** (2 * N) + 2 * (-1) ** (1 + N) * np.exp(-(2 * N * x - 3 * x + y) / tc / 2) + (np.exp(((3 - 2 * N) * x - 2 * y) / tc / 2) - np.exp((-N * x + 2 * x - y) / tc) / 2 + np.exp(-(2 * N * x - 4 * x + y) / tc / 2) + np.exp(-(2 * N * x - 2 * x + y) / tc / 2) - np.exp((-N * x + x - y) / tc) / 2 + np.exp(-x * (-3 + 2 * N) / tc / 2) - np.exp(-x * (N - 2) / tc) / 2 - np.exp(-(N - 1) * x / tc) / 2) * (-1) ** N + 2 * (-1) ** (1 + 2 * N) * np.exp((x - y) / tc / 2)) * bSE ** 2 / (np.exp(x / tc) + 1))
-
-# def M_ogse_rest_offset(TE, G, N, x, tc, M0, D0, C):
-#     return M_ogse_rest(TE, G, N, x, tc, M0, D0) + C
 
 def M_ogse_rest_offset(TE, G, N, x, tc, M0, D0, C):
     clean_signal = M_ogse_rest(TE, G, N, x, tc, M0, D0)
-    return np.sqrt(clean_signal**2 + C**2)/np.sqrt(1+C**2)
+    return np.sqrt(clean_signal**2 + C**2) / np.sqrt(1 + C**2)
 
-def M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0): # alpha is 1/alpha
-    return M0 * M_nogse_free(TE, G, N, x, 1, alpha*D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1-alpha)*D0)
+
+def M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0):  # alpha is 1/alpha
+    return M0 * M_nogse_free(TE, G, N, x, 1, alpha * D0) * M_nogse_rest(TE, G, N, x, tc, 1, (1 - alpha) * D0)
+
 
 def M_ogse_mixed_offset(TE, G, N, x, tc, alpha, M0, D0, C, RN):
     clean_signal = M_ogse_mixed(TE, G, N, x, tc, alpha, M0, D0) + C
     return np.sqrt(clean_signal**2 + RN**2)
 
+
+# ---------------------------------------------------------------------------
+# OGSE contrast models
+# ---------------------------------------------------------------------------
+
 def OGSE_contrast_vs_g_free(TE, G1, G2, N1, N2, M0, D0):
-    return M_ogse_free(TE, G1, N1, TE/N1, M0, D0) - M_ogse_free(TE, G2, N2, TE/N2, M0, D0)
+    return M_ogse_free(TE, G1, N1, TE / N1, M0, D0) - M_ogse_free(TE, G2, N2, TE / N2, M0, D0)
+
 
 def OGSE_contrast_vs_g_rest(TE, G1, G2, N1, N2, tc, M0, D0):
-    return M_ogse_rest(TE, G1, N1, TE/N1, tc, M0, D0) - M_ogse_rest(TE, G2, N2, TE/N2, tc, M0, D0)
+    return M_ogse_rest(TE, G1, N1, TE / N1, tc, M0, D0) - M_ogse_rest(TE, G2, N2, TE / N2, tc, M0, D0)
+
 
 def OGSE_contrast_vs_g_rest_offset(TE, G1, G2, N1, N2, tc, M0, D0, C):
-    return M_ogse_rest_offset(TE, G1, N1, TE/N1, tc, M0, D0, C) - M_ogse_rest_offset(TE, G2, N2, TE/N2, tc, M0, D0, C)
+    return M_ogse_rest_offset(TE, G1, N1, TE / N1, tc, M0, D0, C) - M_ogse_rest_offset(TE, G2, N2, TE / N2, tc, M0, D0, C)
+
 
 def OGSE_contrast_vs_g_tort(TE, G1, G2, N1, N2, alpha, M0, D0):
-    return M_ogse_free(TE, G1, N1, TE/N1, M0, alpha*D0) - M_ogse_free(TE, G2, N2, TE/N2, M0, alpha*D0)
+    return M_ogse_free(TE, G1, N1, TE / N1, M0, alpha * D0) - M_ogse_free(TE, G2, N2, TE / N2, M0, alpha * D0)
+
 
 def OGSE_contrast_vs_g_mixed(TE, G1, G2, N1, N2, tc, alpha, M0, D0):
-    return M_ogse_mixed(TE, G1, N1, TE/N1, tc, alpha, M0, D0) - M_ogse_mixed(TE, G2, N2, TE/N2, tc, alpha, M0, D0)
+    return M_ogse_mixed(TE, G1, N1, TE / N1, tc, alpha, M0, D0) - M_ogse_mixed(TE, G2, N2, TE / N2, tc, alpha, M0, D0)
 
-######################
+
+# ---------------------------------------------------------------------------
+# PGSE (mono-exponential) model
+# ---------------------------------------------------------------------------
 
 def PGSE_vs_bvalue_exp(bvalue, M0, D0):
     return M0 * np.exp(-bvalue * D0)
 
 
-######################
-
-def delta_ogse_mixed_Deff(TE, G, tc, Deff, D0, N1, N2):
-    return M_nogse_mixed(TE, G, N1, TE/N1, tc, Deff/D0, 1, D0) - M_nogse_mixed(TE, G, N2, TE/N2, tc, Deff/D0, 1, D0)
-
-###################################
-
-def M_nogse_rest_free_offset(TE, G, N, x, tc, alpha, D0, A, B, C): # alpha is 1/alpha
-    return A * M_nogse_rest(TE, G, N, x, tc, 1, D0) + B * M_nogse_free(TE, G, N, x, 1, alpha*D0) + C
-
-def M_nogse_tort_rest_free(TE, G, N, x, tc, alpha, D0, A, B, C): # alpha is 1/alpha
-    return A * M_nogse_rest(TE, G, N, x, tc, 1, D0) + B * M_nogse_free(TE, G, N, x, 1, alpha*D0) + C * M_nogse_free(TE, G, N, x, 1, D0)
-
-def M_nogse_mixto_free_offset(TE, G, N, x, tc, alpha, D0, A, B, C): # alpha is 1/alpha
-    return A * M_nogse_mixto(TE, G, N, x, tc, alpha, 1, D0) + B * M_nogse_free(TE, G, N, x, 1, D0) + C
-
-def M_nogse_mixto_riciannoise(TE, G, N, x, tc, alpha, M0, D0, C): # alpha is 1/alpha
-    return np.sqrt( ( M_nogse_mixto(TE, G, N, x, tc, alpha, M0, D0) )**2  + (C/M0)**2) + (C/M0)
-
-def M_nogse_mixtooffset_riciannoise(TE, G, N, x, tc, alpha, M0, D0, C, B): # alpha is 1/alpha
-    return np.sqrt( ( M_nogse_mixto(TE, G, N, x, tc, alpha, M0, D0) + B )**2  + (C/M0)**2) + (C/M0)
-
-def M_nogse_mixto_offsetort(TE, G, N, x, tc, alpha, M0, D0, C): # alpha is 1/alpha
-    return M_nogse_mixto(TE, G, N, x, tc, alpha, M0, D0) + C*M_nogse_free(TE, G, N, x, 1, D0*alpha)
-
-def lognormal_mode(l_c, sigma, l_c_mode):
-    #l_c_mid = l_c_median*np.exp((sigma**2)/2)
-    l_c_mid = l_c_mode*np.exp(sigma**2)
-    return (1/(l_c*sigma*np.sqrt(2*np.pi))) * np.exp(-(np.log(l_c)- np.log(l_c_mid))**2 / (2*sigma**2))
-
-def lognormal_median(l_c, sigma, l_c_median):
-    l_c_mid = l_c_median*np.exp((sigma**2)/2)
-    # l_c_mid = l_c_mode*np.exp(sigma**2)
-    return (1/(l_c*sigma*np.sqrt(2*np.pi))) * np.exp(-(np.log(l_c)- np.log(l_c_mid))**2 / (2*sigma**2))
-
-def M_mixtoint_medio(TE, G, N, x, tc, alpha, D0):  # alpha is 1/alpha
-
-    # tc = np.linspace(0.5, 100, 1000)
-    # dM = fitcontrast_vs_g_rest(TE, G, N, tc, 1, D0)
-    # dM_final = dM[-1]
-
-    # # Identify the stabilization index
-    # idx_stabilize_array = np.where(np.abs(dM - dM_final)/dM_final >= 0.025)[0]
-    # if idx_stabilize_array.size > 0:
-    #     idx_stabilize = idx_stabilize_array[-1]
-    #     tc_interval = tc[:idx_stabilize + 1]
-    # else:
-    #     tc_interval = tc  # Use the full tc range if no stabilization point is found
-
-    #######################################################################################################
-
-    tc_interval = np.linspace(0.2, tc, 1000)
-
-    #######################################################################################################
-
-    # Compute the integral for each value in x
-    integrales = []
-    for xi in x:
-        M_rest = M_nogse_mixto(TE, G, N, xi, tc_interval, alpha, 1, D0)
-        dM_rest_medio = np.trapz(M_rest, tc_interval) / (tc_interval[-1])
-        integrales.append(dM_rest_medio)
-
-    return np.array(integrales)
-
-def M_nogse_mixtoint_free_offset_amp(TE, G, N, x, tc, alpha, D0, A, B, C, amp): # alpha is 1/alpha
-    return amp*(A * M_mixtoint_medio(TE, G, N, x, tc, alpha, D0) + B * M_nogse_free(TE, G, N, x, 1, D0) + C)
-
-
-#############################################################################
-# DATA FITTING
-#############################################################################
-
-def fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode, sigma, alpha, M0, D0):
-
-    n = 100 # Changing this does not alter the fit much; increasing n makes fitting much slower
-    lmax = 60 # um
-
-    lcs = np.linspace(0.6, lmax, n) # The minimum is sensitive to Tnogse and G. In general, below 0.5 makes the fit diverge
-    weights = lognormal_mode(lcs, sigma, lc_mode)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(x))
-
-    for lc, w in zip(lcs, weights):
-        E = E + M_nogse_mixto(TE, G, N, x, (lc**2)/(2*D0*1e12), alpha, M0, D0)*w
-
-    return E
-
-def M_nogse_mixtodist_riciannoise(TE, G, N, x, lc_mode, sigma, alpha, M0, D0, C): # alpha is 1/alpha
-    return np.sqrt( ( fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode, sigma, alpha, M0, D0) )**2  + (C/M0)**2) + (C/M0)
-
-def fit_nogse_vs_x_mixtodistmedian(TE, G, N, x, lc_median, sigma, alpha, M0, D0):
-
-    n = 1000 # Changing this does not alter the fit much; increasing n makes fitting much slower
-    lmax = 100 # um
-
-    lcs = np.linspace(1.0, lmax, n) # The minimum is sensitive to Tnogse and G. In general, below 0.5 makes the fit diverge
-    weights = lognormal_median(lcs, sigma, lc_median)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(x))
-
-    for lc, w in zip(lcs, weights):
-        E = E + M_nogse_mixto(TE, G, N, x, (lc**2)/(2*D0*1e12), alpha, M0, D0)*w
-
-    return E
-
-def fit_nogse_vs_x_mixtodistmode_offset(TE, G, N, x, lc_mode, sigma, alpha, M0, D0, C):
-
-    n = 100
-    lmax = 50 # um
-
-    lcs = np.linspace(0.6, lmax, n) # below 0.5 makes the fit diverge
-    weights = lognormal_mode(lcs, sigma, lc_mode)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(x))
-
-    for lc, w in zip(lcs, weights):
-        E = E + M_nogse_mixto(TE, G, N, x, (lc**2)/(2*D0*1e12), alpha, M0, D0)*w
-
-    return E + C
-
-def fit_nogse_vs_x_mixtodistmode_riciannoise(TE, G, N, x, lc_mode, sigma, alpha, M0, D0, C):
-
-    n = 1000
-    lmax = 40 # um
-
-    lcs = np.linspace(0.3, lmax, n) # below 0.5 makes the fit diverge
-    weights = lognormal_mode(lcs, sigma, lc_mode)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(x))
-    # Need an array of length x with the value of C
-    Carr = np.zeros(len(x))
-    Carr = Carr + C
-
-    for lc, w in zip(lcs, weights):
-        E = E + M_nogse_mixto(TE, G, N, x, (lc**2)/(2*D0*1e12), alpha, M0, D0)*w
-
-    return np.sqrt(E**2 + Carr**2)
-
-def fit_nogse_vs_x_restdistmode(TE, G, N, x, lc_mode, sigma, M0, D0):
-
-    if sigma<0:
-         return 1e20
-
-    n = 100
-    lmax = 40 # um
-
-    l_cs = np.linspace(0.5, lmax, n) # below 0.5 makes the fit diverge
-    weights = lognormal_mode(l_cs, sigma, lc_mode)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(x))
-
-    for l_c, w in zip(l_cs, weights):
-        E = E + M_nogse_rest(TE, G, N, x, (l_c**2)/(2*D0*1e12), M0, D0)*w
-
-    return E
-
-def fit_nogse_vs_x_restdistmode_restdistmode(TE, G, N, x, lc_mode_1, sigma_1, lc_mode_2, sigma_2, M0_1, M0_2, D0_1, D0_2):
-    #sigma = 0.06416131084794455
-    #l_cmid = 7.3*10**-6
-
-    if sigma_1<0 or sigma_2<0:
-        return 1e20
-
-    n = 100
-    lmax = 100 # um; this reaches a tau_c of 135 ms
-
-    l_cs = np.linspace(0.5, lmax, n) # below 0.5 makes the fit diverge
-    weights_1 = lognormal_mode(l_cs, sigma_1, lc_mode_1)
-    weights_1 = weights_1/np.sum(weights_1)
-
-    weights_2 = lognormal_mode(l_cs, sigma_2, lc_mode_2)
-    weights_2 = weights_2/np.sum(weights_2)
-
-    E = np.zeros(len(x))
-
-    for l_c, w1, w2 in zip(l_cs, weights_1, weights_2):
-        E = E + M_nogse_rest(TE, G, N, x, (l_c**2)/(2*D0_1*1e12), M0_1, D0_1)*w1 + M_nogse_rest(TE, G, N, x, (l_c**2)/(2*D0_2*1e12), M0_2, D0_2)*w2
-
-    return E
-
-def fit_nogse_vs_x_free_rest(TE, G, N, x, alpha_1, M0_1, D0_1, tc_2, M0_2, D0_2): # alpha is 1/alpha
-    return M_nogse_free(TE, G, N, x, M0_1, alpha_1*D0_1) + M_nogse_rest(TE, G, N, x, tc_2, M0_2, D0_2)
-
-def fit_nogse_vs_x_free_mixto(TE, G, N, x, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2): # alpha is 1/alpha
-    return M_nogse_free(TE, G, N, x, M0_1, alpha_1*D0_1) + M_nogse_mixto(TE, G, N, x, tc_2, alpha_2, M0_2, D0_2)
-
-def fit_nogse_vs_x_free_mixto_offset(TE, G, N, x, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2, C): # alpha is 1/alpha
-    return M_nogse_free(TE, G, N, x, M0_1, alpha_1*D0_1) + M_nogse_mixto(TE, G, N, x, tc_2, alpha_2, M0_2, D0_2) + C
-
-def fit_nogse_vs_x_mixto_mixto(TE, G, N, x, tc_1, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2): # alpha is 1/alpha
-    return M_nogse_mixto(TE, G, N, x, tc_1, alpha_1, M0_1, D0_1) + M_nogse_mixto(TE, G, N, x, tc_2, alpha_2, M0_2, D0_2)
-
-def fit_nogse_vs_x_mixto_mixto_offset(TE, G, N, x, tc_1, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2, C): # alpha is 1/alpha
-    return M_nogse_mixto(TE, G, N, x, tc_1, alpha_1, M0_1, D0_1) + M_nogse_mixto(TE, G, N, x, tc_2, alpha_2, M0_2, D0_2) + C
-
-def fit_nogse_vs_x_mixto_mixtodist(TE, G, N, x, tc_1, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2): # alpha is 1/alpha
-    return M_nogse_mixto(TE, G, N, x, tc_1, alpha_1, M0_1, D0_1) + fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2)
-
-def fit_nogse_vs_x_mixtodist_mixtodist(TE, G, N, x, lc_mode_1, sigma_1, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2): # alpha is 1/alpha
-    return fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode_1, sigma_1, alpha_1, M0_1, D0_1) + fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2)
-
-def fit_nogse_vs_x_free_mixtodist(TE, G, N, x, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2): # alpha is 1/alpha
-    return M_nogse_free(TE, G, N, x, M0_1, alpha_1*D0_1) + fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2)
-
-def fit_nogse_vs_x_free_mixtodist_offset(TE, G, N, x, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2, C): # alpha is 1/alpha
-    return M_nogse_free(TE, G, N, x, M0_1, alpha_1*D0_1) + fit_nogse_vs_x_mixtodistmode(TE, G, N, x, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2) + C
-
-def fit_contrast_vs_g_restdistmode(TE, G, N, l_c_mode, sigma, M0, D0):
-    n = 100
-    lmax = 10
-
-    l_cs = np.linspace(0.5, lmax, n) # below 0.5 makes the fit diverge
-    weights = lognormal_mode(l_cs, sigma, l_c_mode)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(G))
-
-    for l_c, w in zip(l_cs, weights):
-        E = E + fit_contrast_vs_g_rest(TE, G, N, (l_c**2)/(2*D0*1e12) , M0, D0)*w
-
-    return E
-
-def fit_contrast_vs_g_mixto_mixto(TE, G, N, tc_1, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2):
-    return fit_contrast_vs_g_mixto(TE, G, N, tc_1, alpha_1, M0_1, D0_1) + fit_contrast_vs_g_mixto(TE, G, N, tc_2, alpha_2, M0_2, D0_2)
-
-def fit_contrast_vs_g_free_mixto(TE, G, N, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2):
-    return fit_contrast_vs_g_free(TE, G, N, alpha_1, M0_1, D0_1) + fit_contrast_vs_g_mixto(TE, G, N, tc_2, alpha_2, M0_2, D0_2)
-
-def fit_contrast_vs_g_mixtodist(TE, G, N, lc_mode, sigma, alpha, M0, D0):
-
-    if sigma<0:
-        return 1e20
-
-    n = 1000
-    lmax = 120
-
-    l_cs = np.linspace(0.5, lmax, n) # below 0.5 makes the fit diverge
-    weights = lognormal_mode(l_cs, sigma, lc_mode)
-    weights = weights/np.sum(weights)
-
-    E = np.zeros(len(G))
-
-    for l_c, w in zip(l_cs, weights):
-        E = E + fit_contrast_vs_g_mixto(TE, G, N, (l_c**2)/(2*D0*1e12), alpha, M0, D0)*w
-
-    return E
-
-def fit_contrast_vs_g_mixto_mixtodist(TE, G, N, tc_1, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2):
-    return fit_contrast_vs_g_mixto(TE, G, N, tc_1, alpha_1, M0_1, D0_1) + fit_contrast_vs_g_mixtodist(TE, G, N, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2)
-
-def fit_contrast_vs_g_mixtodist_mixtodist(TE, G, N, lc_mode_1, sigma_1, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2):
-    return fit_contrast_vs_g_mixtodist(TE, G, N, lc_mode_1, sigma_1, alpha_1, M0_1, D0_1) + fit_contrast_vs_g_mixtodist(TE, G, N, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2)
-
-def fit_contrast_vs_g_free_mixtodist(TE, G, N, alpha_1, M0_1, D0_1, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2):
-    return fit_contrast_vs_g_free(TE, G, N, alpha_1, M0_1, D0_1) + fit_contrast_vs_g_mixtodist(TE, G, N, lc_mode_2, sigma_2, alpha_2, M0_2, D0_2)
-
-def fit_contrast_vs_g_mixto_mixto_free(TE, G, N, tc_1, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2, alpha_3, M0_3, D0_3):
-    return contrast_vs_g_mixto(TE, G, N, tc_1, alpha_1, M0_1, D0_1) + contrast_vs_g_mixto(TE, G, N, tc_2, alpha_2, M0_2, D0_2) + contrast_vs_g_free(TE, G, N, alpha_3, M0_3, D0_3)
-
-def fit_contrast_vs_g_mixto_mixto_mixto(TE, G, N, tc_1, alpha_1, M0_1, D0_1, tc_2, alpha_2, M0_2, D0_2, tc_3, alpha_3, M0_3, D0_3):
-    return fit_contrast_vs_g_mixto(TE, G, N, tc_1, alpha_1, M0_1, D0_1) + fit_contrast_vs_g_mixto(TE, G, N, tc_2, alpha_2, M0_2, D0_2) + fit_contrast_vs_g_mixto(TE, G, N, tc_3, alpha_3, M0_3, D0_3)

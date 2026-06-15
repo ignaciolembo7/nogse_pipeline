@@ -6,10 +6,17 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from fitting.b_from_g import gradient_base_for_axis
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 
 CONTRAST_KEY_COLUMNS = ("roi", "direction", "b_step")
+
+
+def gcols(gbase: str) -> tuple[str, str]:
+    """Return the two gradient column names for side 1 and side 2 of a contrast table."""
+    b = gradient_base_for_axis(gbase)
+    return f"{b}_1", f"{b}_2"
 
 
 def require_columns(df: pd.DataFrame, cols: Iterable[str], *, label: str) -> None:

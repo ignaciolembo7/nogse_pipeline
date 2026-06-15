@@ -4,9 +4,16 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from fitting.model_registry import contrast_model_names
+from ogse_fitting.contrast_model_registry import OGSE_CONTRAST_FIT_SPECS
 
 NOGSE_CONTRAST_MODELS = tuple(sorted({"free", "nogse_free_grad_offset", "rest", "tort", *contrast_model_names(family="nogse")}))
-OGSE_CONTRAST_MODELS = tuple(sorted({"free", "mixed", "mixed_global", "rest", "rest_offset", "rest_offset_globC", "tort", *contrast_model_names(family="ogse")}))
+# OGSE model names come directly from OGSE_CONTRAST_FIT_SPECS — adding a model
+# there automatically makes it available here without editing this file.
+OGSE_CONTRAST_MODELS = tuple(sorted({
+    "mixed_global",                          # alias kept for backward compat
+    *OGSE_CONTRAST_FIT_SPECS.keys(),         # all registered OGSE fit models
+    *contrast_model_names(family="ogse"),    # ogse_* prefixed names from the rich registry
+}))
 NOGSE_SIGNAL_MODELS = ("free_cpmg", "free_hahn", "mixed_global", "nogse_free")
 OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse", "rest", "rest_offset", "ogse_free", "ogse_rest", "ogse_rest_offset")
 

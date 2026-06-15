@@ -27,6 +27,7 @@ from models.model_fitting import M_ogse_free, M_ogse_rest, M_ogse_rest_offset
 from monoexp_fitting.fit_monoexp_signal_vs_bval import run_fit_from_parquet as run_fit_monoexp_from_parquet
 from ogse_plotting.plot_ogse_signal_vs_g import plot_ogse_signal_fit
 from tools.fit_params_schema import standardize_fit_params
+from tools.scalar import unique_float_strict as _unique_float_any, unique_str as _unique_str
 from tools.strict_columns import raise_on_unrecognized_column_names
 
 
@@ -62,28 +63,6 @@ VALID_OGSE_SIGNAL_MODELS = {
 def infer_exp_id(p: Path) -> str:
     return signal_table_analysis_id(p)
 
-
-def _unique_float_any(df: pd.DataFrame, cols: Sequence[str], *, required: bool, name: str) -> Optional[float]:
-    for c in cols:
-        if c in df.columns:
-            v = pd.to_numeric(df[c], errors="coerce").dropna().unique()
-            if len(v) == 0:
-                continue
-            if len(v) != 1:
-                raise ValueError(f"Expected one unique value in {c!r} for {name}, found: {v[:10]}")
-            return float(v[0])
-    if required:
-        raise ValueError(f"Could not infer {name}. Checked columns: {list(cols)}")
-    return None
-
-
-def _unique_str(df: pd.DataFrame, col: str) -> Optional[str]:
-    if col not in df.columns:
-        return None
-    u = pd.Series(df[col]).dropna().astype(str).unique()
-    if len(u) == 1:
-        return str(u[0])
-    return None
 
 
 def _require_supported_b_axis_for_fit(df: pd.DataFrame, *, g_type: str) -> None:

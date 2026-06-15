@@ -14,9 +14,12 @@ This is the current preferred OGSE workflow for brains and phantoms. From
 `master.long.parquet` stores signal-like data:
 
 - `row_kind='signal'`: processed signal rows from `Results/`
-- `row_kind='signal_rotated'`: tensor-rotated signal rows
-- `row_kind='dproj'`: projected diffusion rows from rotation
+- `row_kind='signal_rotated'`: tensor-rotated signal rows, including `D_proj`
 - `row_kind='contrast'`: contrast rows built by selecting two signal groups
+
+`row_kind='dproj'` is accepted for migrated legacy tables, but the current
+rotation step stores projected diffusion values in the `D_proj` column of
+`signal_rotated` rows instead of appending separate dproj rows.
 
 `master_fit_params.parquet` stores cumulative fit-like parameters:
 
@@ -27,43 +30,53 @@ This is the current preferred OGSE workflow for brains and phantoms. From
 
 ## One Step At A Time
 
-Use `bash_template_2` for new runs. It has one shared implementation of each
-step and only small dataset entrypoints for brains and phantoms.
+Use `bash_template` for new runs. It has one shared implementation of each
+step. Select the subject kind and sequence kind with `type_subj` and `type_seq`.
 
 Brains:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/run.sh ingest
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
 ```
 
 Phantoms:
 
 ```bash
-bash nogse_pipeline/bash_template_2/phantoms_ogse/run.sh ingest
+bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest
+```
+
+The explicit option form is equivalent:
+
+```bash
+bash nogse_pipeline/bash_template/run_dataset.sh \
+  --type-subj brain \
+  --type-seq ogse \
+  ingest
 ```
 
 Available steps:
 
 ```text
-migrate ingest rotate contrast plot_signal plot_contrast fit_signal fit_contrast fit_global_signal grad_correction plot_d0_delta plot_monoexp_d alpha tc
+migrate ingest rotate contrast plot_signal plot_contrast fit_signal fit_signal_monoexp fit_signal_gradcorr fit_contrast fit_contrast_free fit_contrast_mixed_global fit_global_signal grad_correction plot_d0_delta plot_monoexp_d alpha tc
 ```
 
 You can combine explicit steps:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/run.sh ingest rotate
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest rotate
 ```
 
 Or use `PIPELINE_STEPS`:
 
 ```bash
-PIPELINE_STEPS="ingest rotate contrast" bash nogse_pipeline/bash_template_2/brains_ogse/run.sh
+PIPELINE_STEPS="ingest rotate contrast" \
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse
 ```
 
 For long runs:
 
 ```bash
-nohup bash nogse_pipeline/bash_template_2/brains_ogse/run.sh rotate \
+nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse rotate \
   > nogse_pipeline/logs/brains_ogse/rotate.log 2>&1 &
 ```
 
@@ -112,7 +125,7 @@ point `RESULTS_ROOT` at that folder and run ingestion:
 
 ```bash
 RESULTS_ROOT=Data-signals/Results/20220622_BRAIN \
-  bash nogse_pipeline/bash_template_2/brains_ogse/01-ingest_results_to_master.sh
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
 ```
 
 That step uses `Data-signals/sequence_parameters_brains.xlsx` by default.
@@ -121,7 +134,7 @@ For phantoms:
 
 ```bash
 RESULTS_ROOT=Data-signals/Results/20260122-PHANTOM_FIBER \
-  bash nogse_pipeline/bash_template_2/phantoms_ogse/01-ingest_results_to_master.sh
+  bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest
 ```
 
 That step uses `Data-signals/sequence_parameters_phantoms.xlsx` by default.
@@ -131,7 +144,7 @@ If the sequence-parameter workbook lives somewhere else, override it:
 ```bash
 RESULTS_ROOT=Data-signals/Results/20220622_BRAIN \
 PARAMS_XLSX=/path/to/sequence_parameters_brains.xlsx \
-  bash nogse_pipeline/bash_template_2/brains_ogse/01-ingest_results_to_master.sh
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
 ```
 
 For a single Results file, call the ingestion script directly:
@@ -154,13 +167,13 @@ Contrasts are no longer filename pairs. They are declarative selectors.
 Brains:
 
 ```text
-nogse_pipeline/bash_template_2/manifests/brains_ogse/contrasts.csv
+nogse_pipeline/bash_template/manifests/brains_ogse/contrasts.csv
 ```
 
 Phantoms:
 
 ```text
-nogse_pipeline/bash_template_2/manifests/phantoms_ogse/contrasts.csv
+nogse_pipeline/bash_template/manifests/phantoms_ogse/contrasts.csv
 ```
 
 Format:
@@ -173,7 +186,7 @@ BRAIN,20220622_BRAIN,Left-Lateral-Ventricle,long,90,8,4,50,25
 Run:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/run.sh contrast
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
 ```
 
 ## Signal Fit Manifest
@@ -188,7 +201,7 @@ BRAIN,20220622_BRAIN,Left-Lateral-Ventricle,long,90,4,25,monoexp
 Run:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/run.sh fit_signal
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 ```
 
 ## Fitting Modes
@@ -250,13 +263,13 @@ src/fitting/cli_common.py
 Build `alpha_macro` from master `dproj` rows:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/run.sh alpha
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
 ```
 
 Fit tc-vs-td from `master_fit_params`:
 
 ```bash
-bash nogse_pipeline/bash_template_2/brains_ogse/run.sh tc
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse tc
 ```
 
 Direct command:
