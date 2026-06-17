@@ -32,7 +32,6 @@ from fitting.global_signal_inputs import (
     split_values,
 )
 from fitting.global_signal_outputs import build_contrast_fit_rows, write_per_analysis_outputs
-from fitting.gradient_correction import read_correction_table
 from fitting.model_registry import get_signal_model, signal_model_names
 from fitting.parameter_modes import (
     FitParameterConfig,
@@ -153,10 +152,6 @@ def build_parser() -> argparse.ArgumentParser:
     corr_group = ap.add_mutually_exclusive_group()
     corr_group.add_argument("--apply_grad_corr", action="store_true")
     corr_group.add_argument("--no_grad_corr", action="store_true")
-    ap.add_argument("--corr_xlsx", type=Path, default=None)
-    ap.add_argument("--corr_roi", default="Syringe")
-    ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
-    ap.add_argument("--corr_sheet", default=None)
     ap.add_argument(
         "--corr_missing",
         choices=["error", "identity", "skip"],
@@ -186,11 +181,6 @@ def main() -> None:
     signal_df = load_master_signal_input(args)
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
-    corr = None
-    if apply_corr:
-        if args.corr_xlsx is None:
-            raise ValueError("--apply_grad_corr requires --corr_xlsx.")
-        corr = read_correction_table(args.corr_xlsx)
 
     curves = prepare_signal_curves(
         signal_df,
@@ -201,10 +191,7 @@ def main() -> None:
         directions=split_values(args.directions),
         n_fit=args.n_fit,
         min_points=int(args.min_points),
-        corr=corr,
-        corr_roi=str(args.corr_roi),
-        corr_tol_ms=float(args.corr_tol_ms),
-        corr_sheet=args.corr_sheet,
+        apply_corr=apply_corr,
         corr_missing=str(args.corr_missing),
     )
 

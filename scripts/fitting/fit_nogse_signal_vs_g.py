@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from data_processing.io import fit_params_output_basename
 from fitting.b_from_g import VALID_AXIS_BASES
 from fitting.cli_common import (
     add_fit_master_output_args,
@@ -14,16 +15,11 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
+    signal_correction_factors_from_rows,
+    update_master_signal_correction_factors,
 )
 from fitting.experiments import experiment_models, split_all_or_values, validate_experiment_model
 from fitting.model_registry import canonical_signal_model_name, get_signal_model
-from fitting.gradient_correction import (
-    SignalCorrectionLookupSpec,
-    build_signal_direction_factors,
-    infer_td_ms,
-    read_correction_table,
-    unique_int,
-)
 from nogse_fitting.fit_nogse_signal_vs_g import (
     analysis_id_from_path,
     run_global_mixed_fit_from_parquets,
@@ -61,39 +57,14 @@ def _resolve_direction_factors(
     *,
     signal_parquet: Path,
     apply_grad_corr: bool,
-    corr_xlsx: Path | None,
-    corr_roi: str,
-    corr_td_ms: float | None,
-    corr_tol_ms: float,
-    corr_sheet: str | None,
     model: str,
 ) -> dict[str, float] | None:
     if not apply_grad_corr:
         return None
-    if corr_xlsx is None:
-        raise ValueError("--apply_grad_corr requires --corr_xlsx.")
 
     df = pd.read_parquet(signal_parquet)
-    analysis_id = analysis_id_from_path(signal_parquet)
-    td_ms = infer_td_ms(df, analysis_id=analysis_id, override=corr_td_ms)
-    if td_ms is None:
-        raise ValueError("Could not infer td_ms for correction lookup. Pass --corr_td_ms or add td_ms to the input table.")
-
-    signal_n = unique_int(df, "N_1", "N_2", "N")
-    preferred_side = _infer_preferred_side(df, model=model)
-    corr = read_correction_table(corr_xlsx)
-    return build_signal_direction_factors(
-        corr,
-        spec=SignalCorrectionLookupSpec(
-            roi_ref=str(corr_roi),
-            td_ms=float(td_ms),
-            signal_n=signal_n,
-            tol_ms=float(corr_tol_ms),
-            sheet=(corr_sheet or analysis_id),
-            signal_source_file=signal_parquet.name,
-            preferred_side=1 if int(preferred_side) == 1 else 2,
-        )
-    )
+    _infer_preferred_side(df, model=model)
+    return signal_correction_factors_from_rows(df)
 
 
 def main() -> None:
@@ -129,11 +100,6 @@ def main() -> None:
     corr_group = ap.add_mutually_exclusive_group()
     corr_group.add_argument("--apply_grad_corr", action="store_true")
     corr_group.add_argument("--no_grad_corr", action="store_true")
-    ap.add_argument("--corr_xlsx", type=Path, default=None)
-    ap.add_argument("--corr_roi", default="water")
-    ap.add_argument("--corr_td_ms", type=float, default=None)
-    ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
-    ap.add_argument("--corr_sheet", default=None)
     add_master_source_args(ap, default_row_kind="signal", include_stat=False)
     add_parameter_mode_args(ap)
     add_fit_master_output_args(ap)
@@ -204,11 +170,6 @@ def main() -> None:
     f_by_direction = _resolve_direction_factors(
         signal_parquet=signal_paths[0],
         apply_grad_corr=apply_corr,
-        corr_xlsx=args.corr_xlsx,
-        corr_roi=args.corr_roi,
-        corr_td_ms=args.corr_td_ms,
-        corr_tol_ms=args.corr_tol_ms,
-        corr_sheet=args.corr_sheet,
         model=backend_model,
     )
 
@@ -242,7 +203,9 @@ def main() -> None:
                 fit_kind="nogse_signal",
                 model=str(backend_model),
                 source=selected.source,
+                out_basename=fit_params_output_basename(model=str(backend_model), axis=str(args.xcol), ycol=str(args.ycol), directions=None),
             )
+            update_master_signal_correction_factors(args, f_by_direction)
             return
 
         outs, _fit_dir = run_fit_from_parquet(
@@ -268,7 +231,9 @@ def main() -> None:
             fit_kind="nogse_signal",
             model=str(backend_model),
             source=selected.source,
+            out_basename=fit_params_output_basename(model=str(backend_model), axis=str(args.xcol), ycol=str(args.ycol), directions=None),
         )
+        update_master_signal_correction_factors(args, f_by_direction)
     finally:
         selected.cleanup()
 

@@ -14,16 +14,10 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
+    contrast_correction_factors_from_rows,
 )
 from fitting.experiments import experiment_models, validate_experiment_model
 from fitting.model_registry import canonical_contrast_model_name, get_contrast_model
-from fitting.gradient_correction import (
-    CorrectionLookupSpec,
-    build_direction_factors,
-    infer_td_ms,
-    read_correction_table,
-    unique_int,
-)
 from nogse_fitting.fit_nogse_contrast_vs_g import fit_nogse_contrast_long, plot_nogse_contrast_fit_one_group
 from pipeline.recipe import selected_rows_or_legacy_table
 from data_processing.io import fit_params_output_basename, write_table_outputs
@@ -85,11 +79,7 @@ def main() -> None:
     grp.add_argument("--apply_grad_corr", action="store_true")
     grp.add_argument("--no_grad_corr", action="store_true")
 
-    ap.add_argument("--corr_xlsx", type=Path, default=None)
-    ap.add_argument("--corr_roi", default="Agua")
     ap.add_argument("--corr_td_ms", type=float, default=None)
-    ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
-    ap.add_argument("--corr_sheet", default=None, help="Optional sheet name to use inside the correction table. Defaults to the analysis_id prefix.")
 
     grp_m0 = ap.add_mutually_exclusive_group()
     grp_m0.add_argument("--fix_M0", type=float, default=None, help="Fix M0 to a specific value.")
@@ -205,8 +195,6 @@ def main() -> None:
         df["subj"] = [infer_subj_label(sheet, source_name=analysis_id) for sheet in df["sheet"]]
     df["subj"] = df["subj"].astype(str)
 
-    n1_hint = unique_int(df, "N_1")
-    n2_hint = unique_int(df, "N_2")
     outdir = Path(args.out_root) / analysis_id
     tables_dir = outdir
     plots_dir = outdir
@@ -215,26 +203,9 @@ def main() -> None:
     # Correction
     use_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
     f_by_direction = None
-    td_ms_hint = infer_td_ms(df, analysis_id=analysis_id, override=args.corr_td_ms)
 
     if use_corr:
-        if args.corr_xlsx is None:
-            raise ValueError("--apply_grad_corr requires --corr_xlsx.")
-        if td_ms_hint is None:
-            raise ValueError("Could not infer td_ms for correction lookup. Pass --corr_td_ms or make sure td_ms_1 exists.")
-        corr = read_correction_table(args.corr_xlsx)
-        f_by_direction = build_direction_factors(
-            corr,
-            spec=CorrectionLookupSpec(
-                roi_ref=str(args.corr_roi),
-                td_ms=float(td_ms_hint),
-                tol_ms=float(args.corr_tol_ms),
-                sheet=(args.corr_sheet or sheet_hint),
-                n1=n1_hint,
-                n2=n2_hint,
-            ),
-            factor_mode="per_side",
-        )
+        f_by_direction = contrast_correction_factors_from_rows(df)
 
     # M0 flags
     if args.fix_M0 is not None:
@@ -380,6 +351,7 @@ def main() -> None:
         fit_kind="nogse_contrast",
         model=str(backend_model),
         source=selected.source,
+        out_basename=fit_params_name,
     )
 
     print("Saved fit table:", out_parquet)

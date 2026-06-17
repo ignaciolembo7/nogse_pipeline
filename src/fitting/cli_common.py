@@ -8,8 +8,8 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from data_processing.master_table import load_master_table, select_signal, filter_master_rows
-from data_processing.io import write_table_outputs
+from data_processing.master_table import load_master_table, select_signal, filter_master_rows, write_master_table
+from data_processing.io import fit_params_output_basename, write_table_outputs
 from data_processing.master_table import append_master_rows
 from fitting.parameter_modes import (
     FitParameterConfig,
@@ -163,17 +163,6 @@ def add_parameter_mode_args(parser: argparse.ArgumentParser) -> None:
 
 def add_fit_master_output_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--master-fit-params",
-        type=Path,
-        default=None,
-        help="Append fit_params to this cumulative parquet. Defaults to master_fit_params.parquet next to --master-parquet.",
-    )
-    parser.add_argument(
-        "--no-master-fit-params",
-        action="store_true",
-        help="Do not append fit_params to a cumulative fit-params table when using --master-parquet.",
-    )
-    parser.add_argument(
         "--append-fit-params-to-master",
         action="store_true",
         help="Also append fit_params rows to --master-parquet with row_kind='fit_params'.",
@@ -272,14 +261,86 @@ def load_master_input(args: argparse.Namespace, *, default_row_kind: str, signal
     return out
 
 
-def resolve_master_fit_params_path(args: argparse.Namespace) -> Path | None:
-    explicit = getattr(args, "master_fit_params", None)
-    if explicit is not None:
-        return Path(explicit)
+def _selector_mask(df: pd.DataFrame, selectors: dict[str, object]) -> pd.Series:
+    mask = pd.Series(True, index=df.index)
+    for col, value in selectors.items():
+        values = split_cli_values(value if isinstance(value, list) else [str(value)])
+        if values is None or (len(values) == 1 and values[0].upper() == "ALL"):
+            continue
+        if len(values) == 1:
+            try:
+                numeric = float(values[0])
+            except ValueError:
+                numeric = None
+            if numeric is not None and np.isfinite(numeric):
+                mask &= np.isclose(pd.to_numeric(df[col], errors="coerce"), numeric, atol=1e-6)
+                continue
+        mask &= df[col].astype(str).isin({str(v) for v in values})
+    return mask
+
+
+def update_master_signal_correction_factors(args: argparse.Namespace, f_by_direction: dict[str, float] | None) -> None:
+    if not f_by_direction:
+        return
     master_path = getattr(args, "master_parquet", None)
-    if master_path is None or bool(getattr(args, "no_master_fit_params", False)):
-        return None
-    return Path(master_path).with_name("master_fit_params.parquet")
+    if master_path is None:
+        return
+
+    master_path = Path(master_path)
+    master = load_master_table(master_path)
+    selectors = master_selectors_from_args(args)
+    mask = _selector_mask(master, selectors)
+    if not mask.any():
+        raise ValueError(f"No master rows matched selectors for grad_correction_factor update: {selectors}")
+
+    direction = master.loc[mask, "direction"].astype(str)
+    master.loc[mask, "grad_correction_factor"] = direction.map(lambda d: float(f_by_direction.get(str(d), 1.0))).to_numpy()
+    write_master_table(master, master_path)
+    print("Updated master grad_correction_factor:", master_path)
+
+
+def signal_correction_factors_from_rows(df: pd.DataFrame) -> dict[str, float]:
+    if "grad_correction_factor" not in df.columns:
+        raise ValueError("Selected master rows do not contain grad_correction_factor. Run grad_correction first.")
+    rows = df[["direction", "grad_correction_factor"]].copy()
+    rows["grad_correction_factor"] = pd.to_numeric(rows["grad_correction_factor"], errors="coerce")
+    missing = rows.loc[~np.isfinite(rows["grad_correction_factor"]), "direction"].dropna().astype(str).unique().tolist()
+    if missing:
+        raise ValueError(f"Missing grad_correction_factor in master rows for directions: {sorted(missing)}")
+    grouped = rows.groupby("direction", as_index=False)["grad_correction_factor"].mean()
+    return {str(d): float(f) for d, f in zip(grouped["direction"], grouped["grad_correction_factor"])}
+
+
+def require_contrast_correction_factor_columns(df: pd.DataFrame) -> None:
+    missing_cols = {"grad_correction_factor_1", "grad_correction_factor_2"} - set(df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Selected contrast rows do not contain {sorted(missing_cols)}. Run grad_correction first."
+        )
+    missing = df[
+        ~np.isfinite(pd.to_numeric(df["grad_correction_factor_1"], errors="coerce"))
+        | ~np.isfinite(pd.to_numeric(df["grad_correction_factor_2"], errors="coerce"))
+    ]
+    if not missing.empty:
+        cols = [c for c in ["subj", "sheet", "direction", "td_ms", "N_1", "N_2"] if c in missing.columns]
+        preview = missing[cols].drop_duplicates().head(10).to_string(index=False)
+        raise ValueError(f"Missing contrast gradient correction factors in master rows:\n{preview}")
+
+
+def contrast_correction_factors_from_rows(df: pd.DataFrame, *, side: int | None = None) -> dict[str, float | tuple[float, float]]:
+    require_contrast_correction_factor_columns(df)
+    rows = df[["direction", "grad_correction_factor_1", "grad_correction_factor_2"]].copy()
+    rows["grad_correction_factor_1"] = pd.to_numeric(rows["grad_correction_factor_1"], errors="coerce")
+    rows["grad_correction_factor_2"] = pd.to_numeric(rows["grad_correction_factor_2"], errors="coerce")
+    grouped = rows.groupby("direction", as_index=False)[["grad_correction_factor_1", "grad_correction_factor_2"]].mean()
+    if side == 1:
+        return {str(d): float(f) for d, f in zip(grouped["direction"], grouped["grad_correction_factor_1"])}
+    if side == 2:
+        return {str(d): float(f) for d, f in zip(grouped["direction"], grouped["grad_correction_factor_2"])}
+    return {
+        str(row["direction"]): (float(row["grad_correction_factor_1"]), float(row["grad_correction_factor_2"]))
+        for _, row in grouped.iterrows()
+    }
 
 
 def append_fit_params_outputs(
@@ -289,6 +350,7 @@ def append_fit_params_outputs(
     fit_kind: str,
     model: str,
     source: str,
+    out_basename: str | None = None,
 ) -> None:
     if fit_params is None or fit_params.empty:
         return
@@ -320,15 +382,18 @@ def append_fit_params_outputs(
         if col not in rows.columns or rows[col].isna().all():
             rows[col] = value
 
-    fit_params_path = resolve_master_fit_params_path(args)
-    if fit_params_path is not None:
-        if fit_params_path.exists():
-            existing = pd.read_parquet(fit_params_path)
+    out_root = getattr(args, "out_root", None)
+    if out_root is not None:
+        if out_basename is None:
+            out_basename = f"fit_params.{model}"
+        out_path = Path(out_root) / f"{out_basename}.parquet"
+        if out_path.exists():
+            existing = pd.read_parquet(out_path)
             combined = pd.concat([existing, rows], ignore_index=True, sort=False).drop_duplicates().reset_index(drop=True)
         else:
             combined = rows.drop_duplicates().reset_index(drop=True)
-        write_table_outputs(combined, fit_params_path, xlsx_path=fit_params_path.with_suffix(".xlsx"))
-        print("Appended fit_params master:", fit_params_path)
+        write_table_outputs(combined, out_path, xlsx_path=out_path.with_suffix(".xlsx"))
+        print("Saved fit_params:", out_path)
 
     if bool(getattr(args, "append_fit_params_to_master", False)):
         master_path = getattr(args, "master_parquet", None)

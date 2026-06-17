@@ -7,10 +7,6 @@ import numpy as np
 import pandas as pd
 
 from data_processing.master_table import filter_master_rows, load_master_table, split_selector_values
-from fitting.gradient_correction import (
-    SignalCorrectionLookupSpec,
-    build_signal_direction_factors,
-)
 from tools.scalar import unique_float, unique_float_any, unique_text
 from tools.strict_columns import raise_on_unrecognized_column_names
 
@@ -85,15 +81,6 @@ def load_master_signal_input(args: Any) -> pd.DataFrame:
 
 
 
-def preferred_correction_side(group: pd.DataFrame) -> int | None:
-    signal_type = unique_text(group, "type").strip().upper()
-    if signal_type == "CPMG":
-        return 1
-    if signal_type == "HAHN":
-        return 2
-    return None
-
-
 def prepare_signal_curves(
     df: pd.DataFrame,
     *,
@@ -104,10 +91,7 @@ def prepare_signal_curves(
     directions: list[str] | None,
     n_fit: int | None,
     min_points: int,
-    corr: pd.DataFrame | None,
-    corr_roi: str,
-    corr_tol_ms: float,
-    corr_sheet: str | None,
+    apply_corr: bool = False,
     corr_missing: str,
 ) -> list[CurveData]:
     """Build the physical curves that enter the global least-squares problem."""
@@ -181,34 +165,21 @@ def prepare_signal_curves(
 
         f_corr = 1.0
         corr_status = "not_requested"
-        if corr is not None:
-            try:
-                factors = build_signal_direction_factors(
-                    corr,
-                    spec=SignalCorrectionLookupSpec(
-                        roi_ref=str(corr_roi),
-                        td_ms=float(td_value),
-                        signal_n=int(round(float(n_value))) if np.isfinite(n_value) else None,
-                        tol_ms=float(corr_tol_ms),
-                        sheet=corr_sheet or sheet or None,
-                        signal_source_file=source_file,
-                        preferred_side=preferred_correction_side(group),
-                    ),
-                )
-                if direction not in factors:
-                    raise ValueError(
-                        f"No correction factor for direction={direction!r}, "
-                        f"td_ms={td_value}, N={n_value}, source_file={source_file}."
-                    )
-                f_corr = float(factors[direction])
-                corr_status = "applied"
-            except Exception:
+        if apply_corr:
+            factors = pd.to_numeric(group.get("grad_correction_factor"), errors="coerce").dropna()
+            if factors.empty:
                 if corr_missing == "error":
-                    raise
+                    raise ValueError(
+                        f"Missing grad_correction_factor for subj={subj}, roi={roi}, "
+                        f"direction={direction}, td_ms={td_value}, N={n_value}."
+                    )
                 if corr_missing == "skip":
                     continue
                 f_corr = 1.0
                 corr_status = "missing_identity"
+            else:
+                f_corr = float(factors.mean())
+                corr_status = "applied"
 
         g = g_raw * float(f_corr)
         if g.size:

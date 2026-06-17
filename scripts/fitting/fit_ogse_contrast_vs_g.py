@@ -15,16 +15,10 @@ from fitting.cli_common import (
     add_parameter_mode_args,
     append_fit_params_outputs,
     build_common_parameter_plan,
+    contrast_correction_factors_from_rows,
 )
 from fitting.experiments import experiment_models, validate_experiment_model
 from fitting.model_registry import canonical_contrast_model_name, get_contrast_model
-from fitting.gradient_correction import (
-    CorrectionLookupSpec,
-    build_direction_factors,
-    infer_td_ms,
-    read_correction_table,
-    unique_int,
-)
 from ogse_fitting.fit_ogse_contrast_vs_g import (
     _load_ogse_contrast_tables,
     _read_table,
@@ -48,74 +42,6 @@ def _analysis_id_from_path(p: Path) -> str:
     if stem.endswith(".long"):
         stem = stem[: -len(".long")]
     return stem
-
-
-def _unique_text(df: pd.DataFrame, col: str) -> str | None:
-    if col not in df.columns:
-        return None
-    values = df[col].dropna().astype(str).unique().tolist()
-    if len(values) == 1:
-        return values[0]
-    return None
-
-
-def _attach_mixed_global_correction_factors(
-    df: pd.DataFrame,
-    corr: pd.DataFrame,
-    *,
-    corr_roi: str,
-    corr_td_ms: float | None,
-    corr_tol_ms: float,
-    corr_sheet: str | None,
-) -> pd.DataFrame:
-    out = df.copy()
-    out["grad_correction_factor_1"] = 1.0
-    out["grad_correction_factor_2"] = 1.0
-
-    group_cols = ["analysis_id", "source_file", "direction"]
-    missing = [col for col in group_cols if col not in out.columns]
-    if missing:
-        raise ValueError(f"mixed_global correction requires columns {missing}.")
-
-    cache: dict[tuple[str | None, int | None, int | None, float, str], dict[str, float | tuple[float, float]]] = {}
-    for _, group in out.groupby(group_cols, sort=False, dropna=False):
-        analysis_id = _unique_text(group, "analysis_id") or ""
-        direction = str(_unique_text(group, "direction") or "")
-        sheet = corr_sheet or _unique_text(group, "sheet") or canonical_sheet_name(analysis_id)
-        td_ms = infer_td_ms(group, analysis_id=analysis_id, override=corr_td_ms)
-        if td_ms is None:
-            raise ValueError(
-                f"Could not infer td_ms for mixed_global correction lookup "
-                f"(analysis_id={analysis_id}, direction={direction})."
-            )
-        n1 = unique_int(group, "N_1")
-        n2 = unique_int(group, "N_2")
-        cache_key = (sheet, n1, n2, round(float(td_ms), 6), str(corr_roi))
-        factors = cache.get(cache_key)
-        if factors is None:
-            factors = build_direction_factors(
-                corr,
-                spec=CorrectionLookupSpec(
-                    roi_ref=str(corr_roi),
-                    td_ms=float(td_ms),
-                    tol_ms=float(corr_tol_ms),
-                    sheet=sheet,
-                    n1=n1,
-                    n2=n2,
-                ),
-                factor_mode="per_side",
-            )
-            cache[cache_key] = factors
-        if direction not in factors:
-            raise ValueError(
-                f"No correction factor for direction={direction!r} "
-                f"(analysis_id={analysis_id}, sheet={sheet}, td_ms={float(td_ms):.3f}). "
-                f"Available directions: {sorted(factors)}"
-            )
-        f1, f2 = factors[direction] if isinstance(factors[direction], tuple) else (factors[direction], factors[direction])
-        out.loc[group.index, "grad_correction_factor_1"] = float(f1)
-        out.loc[group.index, "grad_correction_factor_2"] = float(f2)
-    return out
 
 
 def main() -> None:
@@ -149,11 +75,7 @@ def main() -> None:
     grp.add_argument("--apply_grad_corr", action="store_true")
     grp.add_argument("--no_grad_corr", action="store_true")
 
-    ap.add_argument("--corr_xlsx", type=Path, default=None)
-    ap.add_argument("--corr_roi", default="Agua")
     ap.add_argument("--corr_td_ms", type=float, default=None)
-    ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
-    ap.add_argument("--corr_sheet", default=None, help="Optional sheet name to use inside the correction table. Defaults to the analysis_id prefix.")
 
     grp_m0 = ap.add_mutually_exclusive_group()
     grp_m0.add_argument("--fix_M0", type=float, default=None, help="Fix M0 to a specific value.")
@@ -301,8 +223,6 @@ def main() -> None:
         df["subj"] = [infer_subj_label(sheet, source_name=analysis_id) for sheet in df["sheet"]]
     df["subj"] = df["subj"].astype(str)
 
-    n1_hint = unique_int(df, "N_1")
-    n2_hint = unique_int(df, "N_2")
     outdir = Path(args.out_root) / analysis_id
     tables_dir = outdir
     plots_dir = outdir
@@ -311,26 +231,9 @@ def main() -> None:
     # Correction
     use_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
     f_by_direction = None
-    td_ms_hint = infer_td_ms(df, analysis_id=analysis_id, override=args.corr_td_ms)
 
     if use_corr and backend_model != "mixed_global":
-        if args.corr_xlsx is None:
-            raise ValueError("--apply_grad_corr requires --corr_xlsx.")
-        if td_ms_hint is None:
-            raise ValueError("Could not infer td_ms for correction lookup. Pass --corr_td_ms or make sure td_ms_1 exists.")
-        corr = read_correction_table(args.corr_xlsx)
-        f_by_direction = build_direction_factors(
-            corr,
-            spec=CorrectionLookupSpec(
-                roi_ref=str(args.corr_roi),
-                td_ms=float(td_ms_hint),
-                tol_ms=float(args.corr_tol_ms),
-                sheet=(args.corr_sheet or sheet_hint),
-                n1=n1_hint,
-                n2=n2_hint,
-            ),
-            factor_mode="per_side",
-        )
+        f_by_direction = contrast_correction_factors_from_rows(df)
 
     # M0 flags
     if args.fix_M0 is not None:
@@ -428,17 +331,7 @@ def main() -> None:
                 selected.cleanup()
                 return
         if use_corr:
-            if args.corr_xlsx is None:
-                raise ValueError("--apply_grad_corr requires --corr_xlsx.")
-            corr = read_correction_table(args.corr_xlsx)
-            combined = _attach_mixed_global_correction_factors(
-                combined,
-                corr,
-                corr_roi=str(args.corr_roi),
-                corr_td_ms=args.corr_td_ms,
-                corr_tol_ms=float(args.corr_tol_ms),
-                corr_sheet=args.corr_sheet,
-            )
+            contrast_correction_factors_from_rows(combined)
         alpha_df = _read_table(args.alpha_table) if args.alpha_table is not None else None
         outdir = Path(args.out_root) / "mixed_global"
         tables_dir = outdir
@@ -488,6 +381,7 @@ def main() -> None:
             fit_kind="ogse_contrast",
             model=str(backend_model),
             source=selected.source,
+            out_basename=fit_params_name,
         )
         print("Saved fit table:", out_parquet)
         if not args.no_plots:
@@ -504,17 +398,7 @@ def main() -> None:
                 selected.cleanup()
                 return
         if use_corr:
-            if args.corr_xlsx is None:
-                raise ValueError("--apply_grad_corr requires --corr_xlsx.")
-            corr = read_correction_table(args.corr_xlsx)
-            combined = _attach_mixed_global_correction_factors(
-                combined,
-                corr,
-                corr_roi=str(args.corr_roi),
-                corr_td_ms=args.corr_td_ms,
-                corr_tol_ms=float(args.corr_tol_ms),
-                corr_sheet=args.corr_sheet,
-            )
+            contrast_correction_factors_from_rows(combined)
         global_token = "-".join(str(v).replace(",", "-") for v in args.global_params if str(v).strip()) or "global"
         outdir = Path(args.out_root) / f"{args.model}_global_{global_token}"
         tables_dir = outdir
@@ -572,6 +456,7 @@ def main() -> None:
             fit_kind="ogse_contrast",
             model=f"{backend_model}_global",
             source=selected.source,
+            out_basename=fit_params_name,
         )
         print("Saved fit table:", out_parquet)
         if not args.no_plots:
@@ -633,6 +518,7 @@ def main() -> None:
         fit_kind="ogse_contrast",
         model=str(backend_model),
         source=selected.source,
+        out_basename=fit_params_name,
     )
 
     print("Saved fit table:", out_parquet)

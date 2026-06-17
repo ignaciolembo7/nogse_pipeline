@@ -11,17 +11,13 @@ from fitting.cli_common import (
     add_fit_master_output_args,
     add_master_source_args,
     add_parameter_mode_args,
-    append_fit_params_outputs,
     build_common_parameter_plan,
+    signal_correction_factors_from_rows,
+    update_master_signal_correction_factors,
 )
 from fitting.experiments import experiment_models, fit_output_name, split_all_or_values, validate_experiment_model
 from fitting.model_registry import canonical_signal_model_name, get_signal_model
-from fitting.gradient_correction import (
-    SignalCorrectionLookupSpec,
-    build_signal_direction_factors,
-    infer_td_ms,
-    read_correction_table,
-)
+from fitting.gradient_correction import infer_td_ms
 from ogse_fitting.fit_ogse_signal_vs_g import run_fit_ogse_signal_vs_g_from_parquet
 from pipeline.recipe import selected_rows_or_legacy_table
 from tools.strict_columns import raise_on_unrecognized_column_names
@@ -93,40 +89,12 @@ def _resolve_requested_directions(requested: list[str] | None, available: list[s
 
 def _resolve_direction_factors(
     *,
-    parquet: Path,
     df: pd.DataFrame,
     apply_grad_corr: bool,
-    corr_xlsx: Path | None,
-    corr_roi: str,
-    corr_td_ms: float | None,
-    corr_tol_ms: float,
-    corr_sheet: str | None,
 ) -> dict[str, float] | None:
     if not apply_grad_corr:
         return None
-    if corr_xlsx is None:
-        raise ValueError("--apply_grad_corr requires --corr_xlsx.")
-
-    analysis_id = parquet.stem.replace(".long", "")
-    td_ms = infer_td_ms(df, analysis_id=analysis_id, override=corr_td_ms)
-    if td_ms is None:
-        raise ValueError("Could not infer td_ms for correction lookup. Pass --corr_td_ms or include td_ms columns in the input.")
-
-    n_hint = pd.to_numeric(df.get("N"), errors="coerce").dropna().unique() if "N" in df.columns else []
-    signal_n = int(round(float(n_hint[0]))) if len(n_hint) == 1 else None
-    corr = read_correction_table(corr_xlsx)
-    return build_signal_direction_factors(
-        corr,
-        spec=SignalCorrectionLookupSpec(
-            roi_ref=str(corr_roi),
-            td_ms=float(td_ms),
-            signal_n=signal_n,
-            tol_ms=float(corr_tol_ms),
-            sheet=(corr_sheet or analysis_id),
-            signal_source_file=parquet.name,
-            preferred_side=None,
-        )
-    )
+    return signal_correction_factors_from_rows(df)
 
 
 def main() -> None:
@@ -170,11 +138,6 @@ def main() -> None:
     corr_group = ap.add_mutually_exclusive_group()
     corr_group.add_argument("--apply_grad_corr", action="store_true")
     corr_group.add_argument("--no_grad_corr", action="store_true")
-    ap.add_argument("--corr_xlsx", type=Path, default=None)
-    ap.add_argument("--corr_roi", default="water")
-    ap.add_argument("--corr_td_ms", type=float, default=None)
-    ap.add_argument("--corr_tol_ms", type=float, default=1e-3)
-    ap.add_argument("--corr_sheet", default=None)
     add_master_source_args(ap, default_row_kind="signal_rotated", include_stat=False, include_td_ms=False, include_N=False)
     add_parameter_mode_args(ap)
     add_fit_master_output_args(ap)
@@ -252,14 +215,8 @@ def main() -> None:
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
     f_by_direction = _resolve_direction_factors(
-        parquet=parquet_for_backend,
         df=df,
         apply_grad_corr=apply_corr,
-        corr_xlsx=args.corr_xlsx,
-        corr_roi=args.corr_roi,
-        corr_td_ms=args.corr_td_ms,
-        corr_tol_ms=args.corr_tol_ms,
-        corr_sheet=args.corr_sheet,
     )
 
     corrected = apply_corr
@@ -295,13 +252,7 @@ def main() -> None:
             f_by_direction=f_by_direction,
             plot_xcol=args.plot_xcol,
         )
-        append_fit_params_outputs(
-            outs.fit_params,
-            args,
-            fit_kind="ogse_signal",
-            model=str(backend_model),
-            source=selected.source,
-        )
+        update_master_signal_correction_factors(args, f_by_direction)
     finally:
         selected.cleanup()
 
