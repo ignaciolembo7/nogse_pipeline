@@ -81,6 +81,39 @@ def _drop_existing_rotation_rows(master: pd.DataFrame, rotated: pd.DataFrame) ->
     return out.loc[~remove].reset_index(drop=True)
 
 
+def _normalize_key_value(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if abs(num - round(num)) < 1e-9:
+        return str(int(round(num)))
+    return f"{num:.12g}"
+
+
+def _row_keys(df: pd.DataFrame, cols: list[str]) -> pd.Series:
+    normalized = df[cols].apply(lambda col: col.map(_normalize_key_value))
+    return normalized.agg("\x1f".join, axis=1)
+
+
+def _replace_signal_rows(master: pd.DataFrame | None, signal_rows: pd.DataFrame) -> pd.DataFrame | None:
+    if master is None:
+        return None
+    key_cols = [
+        c
+        for c in ["subj", "sheet", "td_ms", "N", "Hz", "stat", "roi", "direction", "b_step"]
+        if c in master.columns and c in signal_rows.columns
+    ]
+    if not key_cols:
+        return master
+    signal_keys = set(_row_keys(signal_rows, key_cols))
+    master_keys = _row_keys(master, key_cols)
+    remove = master["row_kind"].astype(str).eq("signal") & master_keys.isin(signal_keys)
+    return master.loc[~remove].reset_index(drop=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("long_parquet", type=Path, nargs="?", help="Legacy input clean signal .long.parquet.")
@@ -128,7 +161,16 @@ def main() -> None:
     if args.master_parquet is not None:
         master = load_master_table(args.master_parquet) if args.master_parquet.exists() else None
         if master is not None:
+            master = _replace_signal_rows(master, res.signal_long_with_dproj)
             master = _drop_existing_rotation_rows(master, res.rotated_signal_long)
+        signal_analysis_id = _analysis_id_from_columns(res.signal_long_with_dproj, row_kind="signal")
+        master = append_master_rows(
+            master,
+            res.signal_long_with_dproj,
+            row_kind="signal",
+            analysis_id=signal_analysis_id,
+        )
+        print("Updated original signal D_proj in master:", args.master_parquet)
         rotated_analysis_id = _analysis_id_from_columns(res.rotated_signal_long, row_kind="signal_rotated")
         append_master_rows(
             master,

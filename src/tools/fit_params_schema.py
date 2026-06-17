@@ -14,6 +14,7 @@ _M2_MS_TO_MM2_S = 1e9
 
 MONOEXP_COLS = [
     'source_file',
+    'sheet',
     'subj',
     'roi',
     'direction',

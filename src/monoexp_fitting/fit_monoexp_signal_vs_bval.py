@@ -584,6 +584,7 @@ def fit_signal_vs_bval_long(
     f_by_direction: Mapping[str, float] | None = None,
     b_corr_power: float = 2.0,
     outdir_plots: Optional[Path] = None,
+    plot_prefix: str = "",
     title_prefix: str = "",
     stat_keep: str = "avg",
 ) -> FitOutputs:
@@ -737,7 +738,7 @@ def fit_signal_vs_bval_long(
             )
 
         if outdir_plots is not None:
-            out_png = outdir_plots / f"{roi_val}.monoexp.{g_type}.{ycol}.direction_{dir_val}.png"
+            out_png = outdir_plots / f"{plot_prefix}{roi_val}.monoexp.{g_type}.{ycol}.direction_{dir_val}.png"
             plot_fit_one_group_monoexp(
                 d,
                 results[-1],
@@ -748,6 +749,18 @@ def fit_signal_vs_bval_long(
             )
 
     return FitOutputs(fit_params=pd.DataFrame(results), fit_table=pd.DataFrame(points))
+
+
+def _fmt_tag(v: object) -> str:
+    if v is None:
+        return "unk"
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "unk"
+    if not np.isfinite(f):
+        return "unk"
+    return str(int(round(f))) if f == int(round(f)) else str(f)
 
 
 def run_fit_from_parquet(
@@ -785,15 +798,16 @@ def run_fit_from_parquet(
     df = _ensure_keys_types(df)
     _require_supported_b_axis_for_fit(df, g_type=g_type)
 
-    exp_id = infer_exp_id(p)
-    sheet = _unique_str(df, "sheet") or exp_id.split("_")[0]
+    exp_id = _unique_str(df, "sheet") or infer_exp_id(p)
+    sheet = exp_id
 
-    exp_dir = Path(out_root) / sheet / exp_id
-    tables_dir = exp_dir
-    plots_dir = exp_dir
+    # Unique per-call filename prefix encoding experiment + N + td
+    n_val = N if N is not None else _unique_float_any(df, ["N"], required=False, name="N")
+    td_val = td_ms if td_ms is not None else _unique_float_any(df, ["td_ms"], required=False, name="td_ms")
+    plot_prefix = f"{exp_id}.N{_fmt_tag(n_val)}.td{_fmt_tag(td_val)}."
 
-    tables_dir.mkdir(parents=True, exist_ok=True)
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(out_root)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     outs = fit_signal_vs_bval_long(
         df,
@@ -818,32 +832,58 @@ def run_fit_from_parquet(
         fix_M0=fix_M0,
         f_by_direction=f_by_direction,
         b_corr_power=b_corr_power,
-        outdir_plots=plots_dir,
+        outdir_plots=out_dir,
+        plot_prefix=plot_prefix,
         title_prefix=f"{exp_id} | ",
         stat_keep=stat_keep,
     )
 
     fp = outs.fit_params.copy()
     if not fp.empty:
+        fp["sheet"] = sheet
         fp["subj"] = _unique_str(df, "subj") if "subj" in df.columns else np.nan
         fp["max_dur_ms"] = _unique_float_any(df, ["max_dur_ms"], required=False, name="max_dur_ms")
         fp["tm_ms"] = _unique_float_any(df, ["tm_ms"], required=False, name="tm_ms")
         fp["td_ms"] = td_ms if td_ms is not None else _unique_float_any(df, ["td_ms"], required=False, name="td_ms")
         fp = standardize_fit_params(fp, fit_kind="monoexp", source_file=p.name)
 
-    fit_params_name = fit_params_output_basename(
+    # Accumulate fit_params into a single table, replacing rows with same key
+    _params_basename = fit_params_output_basename(
         model="monoexp",
         axis=str(g_type),
         ycol=str(ycol),
         directions=None if dirs is None else [str(v) for v in dirs],
     )
-    out_params_parquet = tables_dir / f"{fit_params_name}.parquet"
-    out_params_xlsx = tables_dir / f"{fit_params_name}.xlsx"
-    out_points_parquet = tables_dir / "fit_points.parquet"
-    out_points_xlsx = tables_dir / "fit_points.xlsx"
+    out_params_parquet = out_dir / f"{_params_basename}.parquet"
+    out_params_xlsx = out_dir / f"{_params_basename}.xlsx"
+    if not fp.empty:
+        if out_params_parquet.exists():
+            existing = pd.read_parquet(out_params_parquet)
+            key_cols = [c for c in ["sheet", "N", "td_ms", "roi", "direction"] if c in existing.columns and c in fp.columns]
+            if key_cols:
+                new_keys = fp[key_cols].drop_duplicates()
+                keep_mask = ~pd.merge(
+                    existing[key_cols].reset_index(),
+                    new_keys,
+                    on=key_cols,
+                    how="left",
+                    indicator=True,
+                )["_merge"].eq("both").values
+                existing = existing[keep_mask]
+            combined = pd.concat([existing, fp], ignore_index=True)
+        else:
+            combined = fp.copy()
+        write_table_outputs(combined, out_params_parquet, xlsx_path=out_params_xlsx)
 
-    write_table_outputs(fp, out_params_parquet, xlsx_path=out_params_xlsx)
-    write_table_outputs(outs.fit_table, out_points_parquet, xlsx_path=out_points_xlsx)
+    # Per-plot fit_points files (one per roi×direction, named to match the figure)
+    if not outs.fit_table.empty:
+        for (roi_val, dir_val), grp in outs.fit_table.groupby(["roi", "direction"]):
+            stem = f"{plot_prefix}{roi_val}.monoexp.{g_type}.{ycol}.direction_{dir_val}"
+            write_table_outputs(
+                grp.reset_index(drop=True),
+                out_dir / f"fit_points.{stem}.parquet",
+                xlsx_path=out_dir / f"fit_points.{stem}.xlsx",
+            )
 
     if out_dproj_root is not None and not fp.empty:
         dproj_dir = Path(out_dproj_root) / sheet
@@ -854,7 +894,7 @@ def run_fit_from_parquet(
             out_dproj_xlsx = dproj_dir / f"{exp_id}.monoexp.Dproj.long.xlsx"
             write_table_outputs(dproj, out_dproj_parquet, xlsx_path=out_dproj_xlsx)
 
-    return outs, exp_dir
+    return outs, out_dir
 
 
 fit_monoexp_signal_vs_bval_long = fit_signal_vs_bval_long

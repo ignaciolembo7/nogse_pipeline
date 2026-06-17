@@ -6,7 +6,17 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from plottings.core import compact_float, render_xy_plot
+from plottings.core import (
+    XYSeries,
+    compact_float,
+    ensure_dir,
+    render_multi_series_plot,
+    render_xy_plot,
+    sanitize_token,
+)
+
+
+SIGNAL_KEYS = ["subj", "roi", "N", "td_ms", "direction", "b_step"]
 
 
 def analysis_id_from_path(path: Path) -> str:
@@ -64,6 +74,119 @@ def prepare_signal_series(
                 sigma = None
 
     return data[xcol].to_numpy(dtype=float), data[ycol].to_numpy(dtype=float), sigma
+
+
+def _prepare_avg_std(df: pd.DataFrame, *, xcol: str, ycol: str, stat: str) -> pd.DataFrame:
+    avg = df[df["stat"].astype(str) == str(stat)].copy()
+    std = df[df["stat"].astype(str) == "std"].copy()
+
+    if avg.empty:
+        raise ValueError(f"No rows found for stat={stat!r}.")
+
+    avg_cols = SIGNAL_KEYS + [xcol, ycol]
+    if ycol == "value_norm" and "S0" in avg.columns:
+        avg_cols.append("S0")
+    avg = avg[avg_cols].rename(columns={xcol: "x_raw", ycol: "y_mean"})
+
+    if std.empty:
+        avg["y_std"] = np.nan
+        merged = avg
+    else:
+        std = std[SIGNAL_KEYS + ["value"]].rename(columns={"value": "y_std"})
+        merged = avg.merge(std, on=SIGNAL_KEYS, how="left")
+
+    merged["y_mean"] = pd.to_numeric(merged["y_mean"], errors="coerce")
+    merged["y_std"] = pd.to_numeric(merged["y_std"], errors="coerce")
+    if ycol == "value_norm" and "S0" in merged.columns:
+        s0 = pd.to_numeric(merged["S0"], errors="coerce")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            merged["y_std"] = merged["y_std"] / s0
+    return merged.sort_values(["subj", "roi", "N", "direction", "td_ms", "b_step"], kind="stable")
+
+
+def _finite_sigma_or_none(values: pd.Series) -> np.ndarray | None:
+    sigma = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    return sigma if np.isfinite(sigma).any() else None
+
+
+def _format_value(value: object, *, digits: int = 3) -> str:
+    try:
+        return compact_float(float(value), digits=digits)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _sort_key(value: object) -> tuple[int, float | str]:
+    try:
+        return (0, float(value))
+    except (TypeError, ValueError):
+        return (1, str(value))
+
+
+def _plot_token(parts: dict[str, object]) -> str:
+    return "_".join(f"{sanitize_token(key)}-{sanitize_token(_format_value(value))}" for key, value in parts.items())
+
+
+def _plot_title(parts: dict[str, object], *, stat: str) -> str:
+    title_parts = [f"{key}={_format_value(value)}" for key, value in parts.items()]
+    title_parts.append(f"stat={stat}")
+    return " | ".join(title_parts)
+
+
+def _series_label(column: str, value: object) -> str:
+    digits = 0 if column == "N" else 3
+    return f"{column}={_format_value(value, digits=digits)}"
+
+
+def _make_series(group: pd.DataFrame, *, label: str) -> XYSeries | None:
+    curve = group.dropna(subset=["x", "y_mean"]).sort_values(["x", "b_step"], kind="stable")
+    if curve.empty:
+        return None
+    return XYSeries(
+        x=curve["x"].to_numpy(float),
+        y=curve["y_mean"].to_numpy(float),
+        sigma=_finite_sigma_or_none(curve["y_std"]),
+        label=label,
+    )
+
+
+def _plot_series_by(
+    *,
+    merged: pd.DataFrame,
+    out_dir: Path,
+    group_cols: list[str],
+    series_col: str,
+    file_prefix: str,
+    xlabel: str,
+    ylabel: str,
+    stat: str,
+) -> list[Path]:
+    out_paths: list[Path] = []
+    for keys, group in merged.groupby(group_cols, sort=False):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values = dict(zip(group_cols, key_tuple))
+        series: list[XYSeries] = []
+
+        for value in sorted(group[series_col].drop_duplicates().tolist(), key=_sort_key):
+            curve = _make_series(group[group[series_col].eq(value)], label=_series_label(series_col, value))
+            if curve is not None:
+                series.append(curve)
+
+        if not series:
+            continue
+
+        out_png = out_dir / f"{file_prefix}_{_plot_token(group_values)}.png"
+        render_multi_series_plot(
+            series=series,
+            out_png=out_png,
+            title=_plot_title(group_values, stat=stat),
+            xlabel=xlabel,
+            ylabel=ylabel,
+            legend_title=series_col,
+        )
+        out_paths.append(out_png)
+
+    return out_paths
 
 
 def fit_parameter_fragments(fit_row: dict[str, object]) -> list[str]:
@@ -197,48 +320,42 @@ def plot_nogse_signal_table(
     rois: list[str] | None,
     directions: list[str] | None,
 ) -> list[Path]:
-    avg_df = df[df["stat"].astype(str) == str(stat)].copy()
-    if avg_df.empty:
-        raise ValueError(f"No rows found for stat={stat!r}.")
-
-    std_df = df[df["stat"].astype(str) == "std"].copy()
-
+    work = df.copy()
     if rois is not None:
-        avg_df = avg_df[avg_df["roi"].astype(str).isin(rois)].copy()
-        std_df = std_df[std_df["roi"].astype(str).isin(rois)].copy()
+        work = work[work["roi"].astype(str).isin(rois)].copy()
     if directions is not None:
-        avg_df = avg_df[avg_df["direction"].astype(str).isin(directions)].copy()
-        std_df = std_df[std_df["direction"].astype(str).isin(directions)].copy()
-
-    if avg_df.empty:
-        raise ValueError("No data remains after ROI/direction filtering.")
+        work = work[work["direction"].astype(str).isin(directions)].copy()
 
     out_dir = out_root / analysis_id
-    out_paths: list[Path] = []
+    ensure_dir(out_dir)
 
-    for (roi, direction), group in avg_df.groupby(["roi", "direction"], sort=False):
-        std_group = None
-        if not std_df.empty:
-            std_group = std_df[
-                (std_df["roi"].astype(str) == str(roi))
-                & (std_df["direction"].astype(str) == str(direction))
-            ].copy()
+    merged = _prepare_avg_std(work, xcol=xcol, ycol=ycol, stat=stat)
+    merged["x"] = pd.to_numeric(merged["x_raw"], errors="coerce")
 
-        signal_type = unique_scalar(group, "type")
-        out_png = out_dir / f"{analysis_id}.roi-{roi}.dir-{direction}.{ycol}_vs_{xcol}.png"
-        plot_nogse_signal_group(
-            avg_df=group,
-            std_df=std_group,
-            xcol=xcol,
-            ycol=ycol,
-            out_png=out_png,
-            analysis_id=analysis_id,
-            roi=str(roi),
-            direction=str(direction),
-            signal_type=None if signal_type is None else str(signal_type),
-            connect_data=True,
+    xlabel = f"Modulation gradient strength G [mT/m] ({xcol})"
+    ylabel = f"NOGSE signal ({ycol})"
+
+    out_paths = _plot_series_by(
+        merged=merged,
+        out_dir=out_dir,
+        group_cols=["subj", "roi", "N", "direction"],
+        series_col="td_ms",
+        file_prefix="NOGSE_vs_G_by-td",
+        xlabel=xlabel,
+        ylabel=ylabel,
+        stat=stat,
+    )
+    out_paths.extend(
+        _plot_series_by(
+            merged=merged,
+            out_dir=out_dir,
+            group_cols=["subj", "roi", "N", "td_ms"],
+            series_col="direction",
+            file_prefix="NOGSE_vs_G_by-direction",
+            xlabel=xlabel,
+            ylabel=ylabel,
+            stat=stat,
         )
-        if out_png.exists():
-            out_paths.append(out_png)
+    )
 
     return out_paths

@@ -167,8 +167,20 @@ def D_proj(D: np.ndarray, n: np.ndarray) -> float:
     return float(n.T @ D @ n)
 
 
+def _sort_original_directions(df: pd.DataFrame, extra_cols: list[str] | None = None) -> pd.DataFrame:
+    out = df.copy()
+    direction_num = pd.to_numeric(out["direction"], errors="coerce")
+    if direction_num.notna().all():
+        out["_direction_num"] = direction_num
+        sort_cols = ["_direction_num"] + list(extra_cols or [])
+        return out.sort_values(sort_cols, kind="stable").drop(columns=["_direction_num"])
+    sort_cols = ["direction"] + list(extra_cols or [])
+    return out.sort_values(sort_cols, kind="stable")
+
+
 @dataclass(frozen=True)
 class RotResult:
+    signal_long_with_dproj: pd.DataFrame
     rotated_signal_long: pd.DataFrame
     dproj_long: pd.DataFrame
 
@@ -225,9 +237,10 @@ def rotate_signals_tensor(
 
     rotated_rows: list[dict] = []
     dproj_rows: list[dict] = []
+    original_dproj: dict[tuple[str, str, str, int], float] = {}
 
     for roi, d_roi in dfa.groupby("roi", sort=False):
-        d_roi = d_roi.sort_values(["direction", "b_step"], kind="stable")
+        d_roi = _sort_original_directions(d_roi, extra_cols=["b_step"])
         d_b0 = d_roi[pd.to_numeric(d_roi["b_step"], errors="coerce") == 0].copy()
         if d_b0.empty:
             raise ValueError(f"ROI={roi}: b_step==0 (S0) was not found.")
@@ -276,7 +289,7 @@ def rotate_signals_tensor(
             )
 
         for b_step, d_bs in d_roi[pd.to_numeric(d_roi["b_step"], errors="coerce") > 0].groupby("b_step", sort=False):
-            d_bs = d_bs.sort_values("direction", kind="stable")
+            d_bs = _sort_original_directions(d_bs)
             if len(d_bs) != ndirs:
                 raise ValueError(f"ROI={roi}, b_step={b_step}: expected {ndirs} dirs, got {len(d_bs)}.")
 
@@ -422,7 +435,9 @@ def rotate_signals_tensor(
                 )
             )
 
-            for k in range(ndirs):
+            original_direction_labels = d_bs["direction"].astype(str).tolist()
+            for k, direction_label in enumerate(original_direction_labels):
+                original_dproj[(str(stat_avg), str(roi), str(direction_label), int(b_step))] = D_proj(D, n_dirs[k])
                 dproj_rows.append(
                     _build_dproj_row(
                         template,
@@ -468,4 +483,16 @@ def rotate_signals_tensor(
     df_dproj = pd.DataFrame(dproj_rows).sort_values(["roi", "direction", "b_step"], kind="stable").reset_index(drop=True)
     df_dproj = finalize_clean_dproj_long(df_dproj)
 
-    return RotResult(rotated_signal_long=df_rot, dproj_long=df_dproj)
+    df_signal = clean.copy()
+    for idx, row in df_signal.iterrows():
+        key = (
+            str(row.get("stat")),
+            str(row.get("roi")),
+            str(row.get("direction")),
+            int(pd.to_numeric(pd.Series([row.get("b_step")]), errors="coerce").iloc[0]),
+        )
+        if key in original_dproj:
+            df_signal.loc[idx, "D_proj"] = original_dproj[key]
+    df_signal = finalize_clean_signal_long(df_signal)
+
+    return RotResult(signal_long_with_dproj=df_signal, rotated_signal_long=df_rot, dproj_long=df_dproj)

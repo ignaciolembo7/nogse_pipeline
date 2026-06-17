@@ -5,7 +5,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from plottings.core import XYSeries, compact_float, ensure_dir, render_multi_series_plot, render_xy_plot
+from plottings.core import (
+    XYSeries,
+    compact_float,
+    ensure_dir,
+    render_multi_series_plot,
+    render_xy_plot,
+    sanitize_token,
+)
+
+
+SIGNAL_KEYS = ["subj", "roi", "N", "td_ms", "direction", "b_step"]
 
 
 def load_long_parquet(path: str | Path) -> pd.DataFrame:
@@ -18,48 +28,113 @@ def compute_gradient_axis(values: pd.Series, *, xcol: str) -> np.ndarray:
 
 
 def _prepare_avg_std(df: pd.DataFrame, *, xcol: str, ycol: str, stat: str) -> pd.DataFrame:
-    keys = ["direction", "b_step", "roi"]
-
     avg = df[df["stat"].astype(str) == str(stat)].copy()
     std = df[df["stat"].astype(str) == "std"].copy()
 
     if avg.empty:
         raise ValueError(f"No rows with stat={stat!r} were found in the input table.")
+
+    avg = avg[SIGNAL_KEYS + [xcol, ycol]].rename(columns={ycol: "y_mean", xcol: "x_raw"})
     if std.empty:
-        raise ValueError("No rows with stat='std' were found in the input table.")
+        avg["y_std"] = np.nan
+        merged = avg
+    else:
+        std = std[SIGNAL_KEYS + ["value"]].rename(columns={"value": "y_std"})
+        merged = avg.merge(std, on=SIGNAL_KEYS, how="left")
 
-    required_avg = set(keys + [xcol, ycol])
-    missing_avg = required_avg - set(avg.columns)
-    if missing_avg:
-        raise ValueError(f"Missing required columns in avg rows: {sorted(missing_avg)}")
-
-    required_std = set(keys + ["value"])
-    missing_std = required_std - set(std.columns)
-    if missing_std:
-        raise ValueError(f"Missing required columns in std rows: {sorted(missing_std)}")
-
-    avg = avg[keys + [xcol, ycol]].rename(columns={ycol: "y_mean", xcol: "x_raw"})
-    std = std[keys + ["value"]].rename(columns={"value": "y_std"})
-
-    merged = avg.merge(std, on=keys, how="left")
     merged["y_mean"] = pd.to_numeric(merged["y_mean"], errors="coerce")
     merged["y_std"] = pd.to_numeric(merged["y_std"], errors="coerce")
-    merged = merged.sort_values(["direction", "roi", "b_step"], kind="stable")
-    return merged
+    return merged.sort_values(["subj", "roi", "N", "direction", "td_ms", "b_step"], kind="stable")
 
 
-def _build_group_title(*, roi: str, direction: str, stat: str, model: str | None = None, fit_row: dict | None = None) -> str:
-    parts = [f"ROI={roi}", f"direction={direction}", f"stat={stat}"]
-    if model:
-        parts.append(f"model={model}")
-    if fit_row and bool(fit_row.get("ok", True)):
-        if "M0" in fit_row:
-            parts.append(f"M0={compact_float(fit_row.get('M0'))}")
-        if "D0_mm2_s" in fit_row:
-            parts.append(f"D0={compact_float(fit_row.get('D0_mm2_s'))} mm2/s")
-        elif "D0_m2_ms" in fit_row:
-            parts.append(f"D0={compact_float(fit_row.get('D0_m2_ms'))} m2/ms")
-    return " | ".join(parts)
+def _finite_sigma_or_none(values: pd.Series) -> np.ndarray | None:
+    sigma = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    return sigma if np.isfinite(sigma).any() else None
+
+
+def _format_group_value(value: object, *, digits: int = 3) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return compact_float(numeric, digits=digits)
+
+
+def _series_sort_key(value: object) -> tuple[int, float | str]:
+    try:
+        return (0, float(value))
+    except (TypeError, ValueError):
+        return (1, str(value))
+
+
+def _plot_token(parts: dict[str, object]) -> str:
+    return "_".join(f"{sanitize_token(key)}-{sanitize_token(_format_group_value(value))}" for key, value in parts.items())
+
+
+def _plot_title(parts: dict[str, object], *, stat: str) -> str:
+    title_parts = [f"{key}={_format_group_value(value)}" for key, value in parts.items()]
+    title_parts.append(f"stat={stat}")
+    return " | ".join(title_parts)
+
+
+def _series_label(column: str, value: object) -> str:
+    digits = 0 if column == "N" else 3
+    return f"{column}={_format_group_value(value, digits=digits)}"
+
+
+def _make_series(group: pd.DataFrame, *, label: str) -> XYSeries | None:
+    curve = group.dropna(subset=["x", "y_mean"]).sort_values(["x", "b_step"], kind="stable")
+    if curve.empty:
+        return None
+    return XYSeries(
+        x=curve["x"].to_numpy(dtype=float),
+        y=curve["y_mean"].to_numpy(dtype=float),
+        sigma=_finite_sigma_or_none(curve["y_std"]),
+        label=label,
+    )
+
+
+def _plot_series_by(
+    *,
+    merged: pd.DataFrame,
+    out_dir: Path,
+    group_cols: list[str],
+    series_col: str,
+    file_prefix: str,
+    xlabel: str,
+    ylabel: str,
+    stat: str,
+    ylim: tuple[float, float] | None,
+) -> list[Path]:
+    out_paths: list[Path] = []
+    for keys, group in merged.groupby(group_cols, sort=False):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values = dict(zip(group_cols, key_tuple))
+        series: list[XYSeries] = []
+
+        values = sorted(group[series_col].drop_duplicates().tolist(), key=_series_sort_key)
+        for value in values:
+            sub = group[group[series_col].eq(value)].copy()
+            curve = _make_series(sub, label=_series_label(series_col, value))
+            if curve is not None:
+                series.append(curve)
+
+        if not series:
+            continue
+
+        out_png = out_dir / f"{file_prefix}_{_plot_token(group_values)}.png"
+        render_multi_series_plot(
+            series=series,
+            out_png=out_png,
+            title=_plot_title(group_values, stat=stat),
+            xlabel=xlabel,
+            ylabel=ylabel,
+            legend_title=series_col,
+            ylim=ylim,
+        )
+        out_paths.append(out_png)
+
+    return out_paths
 
 
 def plot_ogse_signal_summary(
@@ -77,96 +152,41 @@ def plot_ogse_signal_summary(
     merged = _prepare_avg_std(df, xcol=xcol, ycol=ycol, stat=stat)
     merged["x"] = compute_gradient_axis(merged["x_raw"], xcol=xcol)
 
-    directions = sorted(merged["direction"].dropna().astype(str).unique().tolist())
-    rois = sorted(merged["roi"].dropna().astype(str).unique().tolist())
     out_paths: list[Path] = []
 
     y_limits = None if ycol == "value" else ylim
-    xlabel = "Modulation gradient strength G [mT/m]"
+    xlabel = f"Modulation gradient strength G [mT/m] ({xcol})"
     ylabel = f"OGSE signal ({ycol})"
 
-    # A) One plot per (direction, roi)
-    for direction in directions:
-        for roi in rois:
-            group = merged[(merged["direction"].astype(str) == direction) & (merged["roi"].astype(str) == roi)].copy()
-            group = group.dropna(subset=["x", "y_mean"]).sort_values("x")
-            if group.empty:
-                continue
-
-            out_png = out_dir / f"OGSE_vs_G_roi={roi}_dir={direction}.png"
-            render_xy_plot(
-                x=group["x"].to_numpy(dtype=float),
-                y=group["y_mean"].to_numpy(dtype=float),
-                sigma=group["y_std"].to_numpy(dtype=float),
-                out_png=out_png,
-                title=_build_group_title(roi=roi, direction=direction, stat=stat),
-                xlabel=xlabel,
-                ylabel=ylabel,
-                ylim=y_limits,
-                data_label="signal",
-                connect_data=True,
-            )
-            out_paths.append(out_png)
-
-    # B) One plot per ROI with all directions
-    for roi in rois:
-        series: list[XYSeries] = []
-        for direction in directions:
-            group = merged[(merged["roi"].astype(str) == roi) & (merged["direction"].astype(str) == direction)].copy()
-            group = group.dropna(subset=["x", "y_mean"]).sort_values("x")
-            if group.empty:
-                continue
-            series.append(
-                XYSeries(
-                    x=group["x"].to_numpy(dtype=float),
-                    y=group["y_mean"].to_numpy(dtype=float),
-                    sigma=group["y_std"].to_numpy(dtype=float),
-                    label=direction,
-                )
-            )
-        if not series:
-            continue
-        out_png = out_dir / f"OGSE_vs_G_roi={roi}_all_dirs.png"
-        render_multi_series_plot(
-            series=series,
-            out_png=out_png,
-            title=f"ROI={roi} | stat={stat}",
+    # A) For fixed subject, ROI, N and direction: one curve per td_ms.
+    out_paths.extend(
+        _plot_series_by(
+            merged=merged,
+            out_dir=out_dir,
+            group_cols=["subj", "roi", "N", "direction"],
+            series_col="td_ms",
+            file_prefix="OGSE_vs_G_by-td",
             xlabel=xlabel,
             ylabel=ylabel,
-            legend_title="direction",
+            stat=stat,
             ylim=y_limits,
         )
-        out_paths.append(out_png)
+    )
 
-    # C) One plot per direction with all ROIs
-    for direction in directions:
-        series = []
-        for roi in rois:
-            group = merged[(merged["direction"].astype(str) == direction) & (merged["roi"].astype(str) == roi)].copy()
-            group = group.dropna(subset=["x", "y_mean"]).sort_values("x")
-            if group.empty:
-                continue
-            series.append(
-                XYSeries(
-                    x=group["x"].to_numpy(dtype=float),
-                    y=group["y_mean"].to_numpy(dtype=float),
-                    sigma=group["y_std"].to_numpy(dtype=float),
-                    label=roi,
-                )
-            )
-        if not series:
-            continue
-        out_png = out_dir / f"OGSE_vs_G_dir={direction}_all_rois.png"
-        render_multi_series_plot(
-            series=series,
-            out_png=out_png,
-            title=f"direction={direction} | stat={stat}",
+    # B) For fixed subject, ROI, N and td_ms: one curve per direction.
+    out_paths.extend(
+        _plot_series_by(
+            merged=merged,
+            out_dir=out_dir,
+            group_cols=["subj", "roi", "N", "td_ms"],
+            series_col="direction",
+            file_prefix="OGSE_vs_G_by-direction",
             xlabel=xlabel,
             ylabel=ylabel,
-            legend_title="ROI",
+            stat=stat,
             ylim=y_limits,
         )
-        out_paths.append(out_png)
+    )
 
     return out_paths
 
