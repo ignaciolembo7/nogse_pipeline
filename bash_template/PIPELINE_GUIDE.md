@@ -20,6 +20,10 @@ a pulse sequence (`ogse` or `nogse`).
 6. [Step reference](#step-reference)
 7. [Environment variable reference](#environment-variable-reference)
 8. [Manifests](#manifests)
+   - [contrasts.csv](#contrastscsv)
+   - [signal\_fits.csv](#signal_fitscsv)
+   - [grad\_correction.csv](#grad_correctioncsv)
+   - [Manifest locations](#manifest-locations)
 9. [Inspecting the master table](#inspecting-the-master-table)
 
 ---
@@ -149,6 +153,12 @@ and `type_seq` arguments select the correct defaults, scripts, and manifests.
 # 1. Import Results into master table
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest
 
+# 1b. (Optional) Keep only first N b-steps per td_ms before analysis
+# MASTER_FIRST_POINTS_BY_TD="120=8,210=6" \
+#   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse filter_master_points
+# Then pass the filtered table to subsequent steps:
+# export MASTER_PARQUET=analysis/brains/ogse_experiments/master.first_points.long.parquet
+
 # 2. Rotate diffusion tensor directions (adds D_proj to each row)
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse rotate
 
@@ -160,12 +170,15 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_signal
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_contrast
 
 # 5. Fit monoexponential signal model (extracts D0 per ROI/direction/Td)
-bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_monoexp
+#    Set model=monoexp in signal_fits.csv manifest, then:
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
 # 6. Compute alpha_macro from D0 vs Delta (requires fit_signal first)
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
 
-# 7. (Optional) Build gradient-correction table from the Syringe reference
+# 7. (Optional) Embed gradient-correction factors from the Syringe reference.
+#    Reads grad_correction.csv manifest + master parquet directly — no prior
+#    fit_signal or contrast step required.
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
 
 # 8. (Optional) Refit signals with gradient correction applied
@@ -176,7 +189,8 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
 # or use the mixed_global model:
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_mixed_global
 
-# 10. Fit tc vs Td (the key biophysical summary: tc(Td) = c + alpha·delta·...)
+# 10. Fit tc vs Td (requires setting TC_FIT_PARAMS to the contrast fit-params parquet)
+TC_FIT_PARAMS=analysis/brains/ogse_experiments/fits/master/ogse_value_norm_vs_glinmax_ogse_free/fit_params.ogse_free.glinmax.value_norm.direction_ALL.parquet \
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse tc
 
 # 11. Diagnostic plots
@@ -189,25 +203,31 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_monoexp_d
 ```
 analysis/brains/ogse_experiments/
   master.long.parquet                  master table (all row kinds)
-  master_fit_params.parquet            cumulative fit parameters
   data/tables/                         per-file ingested tables
   data-rotated/tables/                 per-file rotated tables
   contrast-data-master/                per-contrast data tables
   plots-master/signal/                 signal plots
   plots-master/contrast/               contrast plots
   plots-master/monoexp_D_vs_time/      D vs td diagnostic plots
-  fits/ogse_signal_master/             monoexp signal fit results
-  fits/ogse_contrast_master/           contrast fit results
-  fits/grad_correction_master/         gradient correction table
+  fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>/
+                                       fit results (signal and contrast)
+    fit_params.<model>.<gtype>.<ycol>.direction_ALL.parquet
+                                       accumulated fit-params for this type
+    <exp>.N<n>.td<td>.<roi>.<model>.<gtype>.<ycol>.direction_<dir>.png
+                                       per-fit plots (signal)
+    <analysis_id>/                     per-experiment subdirs (contrast)
+  fits/grad_correction/                gradient correction audit outputs
   fits/tc_vs_td_master/                tc-vs-td fit results
   alpha_macro/master/                  alpha_macro summaries
 ```
+
+> **Note on `<master_name>`**: derived from the `MASTER_PARQUET` filename — `master.long.parquet` → `master`, `master.first_points.long.parquet` → `master.first_points`.
 
 **Key models for ogse\_brain:**
 
 | Step | Default model | Notes |
 |------|--------------|-------|
-| `fit_signal_monoexp` | `monoexp` | Extracts D0 per ROI |
+| `fit_signal` | set in manifest | Extracts D0 per ROI (use model=monoexp in manifest) |
 | `fit_contrast_free` | `ogse_free` | Free fit: tc, D0 |
 | `fit_contrast_mixed_global` | `mixed_global` | Global tc across Td |
 | `fit_global_signal` | `ogse_mixed_offset` | Global fit on raw signals |
@@ -219,10 +239,12 @@ analysis/brains/ogse_experiments/
 
 Same step sequence as ogse\_brain. Key differences:
 
-- Gradient-correction ROI is `water` (not `Syringe`):
+- Gradient-correction reference ROI is `water` (not `Syringe`). Populate
+  `manifests/phantoms_ogse/grad_correction.csv` with the water curves before
+  running:
 
   ```bash
-  CORR_ROI=water bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse grad_correction
+  bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse grad_correction
   ```
 
 - No FreeSurfer atlas: ROIs are phantom regions (e.g., `Bundle`, `water`)
@@ -245,7 +267,7 @@ bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse rotate
 bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse contrast
 bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse plot_signal
 bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse plot_contrast
-bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse fit_signal_monoexp
+bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse fit_signal
 bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse alpha
 bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse grad_correction
 bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse fit_signal_gradcorr
@@ -373,39 +395,42 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest --help
 | `contrast` | `03_make_contrasts.sh` | Subtract two signal groups → row\_kind=contrast |
 | `plot_signal` | `04_plot_signals.sh` | Plot S vs g curves from master |
 | `plot_contrast` | `05_plot_contrasts.sh` | Plot contrast vs g curves from master |
-| `fit_signal` | `06_fit_signals.sh` | Fit signal model per manifest row |
-| `fit_signal_monoexp` | `06_fit_signals.sh` | Like fit\_signal but forces monoexp/bvalue\_thorsten defaults |
+| `filter_master_points` | `00_filter_master_points.sh` | Write filtered master keeping first N b-steps per td\_ms |
+| `fit_signal` | `06_fit_signals.sh` | Fit signal model per manifest row (model set in manifest) |
 | `fit_signal_gradcorr` | `06_fit_signals.sh` | Like fit\_signal but applies gradient correction |
 | `fit_contrast` | `07_fit_contrasts.sh` | Fit all contrast rows in master |
 | `fit_contrast_free` | `07_fit_contrasts.sh` | Like fit\_contrast but forces the "free" model |
 | `fit_contrast_mixed_global` | `07_fit_contrasts.sh` | Like fit\_contrast but forces mixed\_global model |
+| `fit_global_signal` | `13_fit_global_signals.sh` | Fit global/mixed signal model on raw signals |
 | `alpha` | `08_alpha_macro.sh` | Compute α\_macro from D\_proj; writes `summary_alpha_values.xlsx` |
-| `tc` | `09_tc_vs_td.sh` | Fit tc(Td) model; reads `master_fit_params.parquet` |
-| `grad_correction` | `10_make_grad_correction_table.sh` | Build gradient correction table from Syringe/water fits |
+| `tc` | `09_tc_vs_td.sh` | Fit tc(Td) from contrast fit-params (`TC_FIT_PARAMS` required) |
+| `grad_correction` | `10_make_grad_correction_table.sh` | Fit each syringe/water curve with NOGSE free + monoexp, compute correction\_factor = √(D0\_nogse/D0\_mono), embed in master for all ROIs |
 | `plot_d0_delta` | `11_plot_D0_vs_Delta_alpha.sh` | Plot D₀/D\_proj vs Δ\_app |
 | `plot_monoexp_d` | `12_plot_monoexp_D_vs_time.sh` | Plot monoexp D vs td |
-| `fit_global_signal` | `13_fit_global_signals.sh` | Fit global/mixed signal model on raw signals |
+| `export_master_xlsx` | `99_export_master_xlsx.sh` | Export master parquet to Excel for inspection |
 
 ### Step dependencies
 
 ```
+[optional] filter_master_points  ← run before rotate/contrast/fit if using first-points filter
+
 ingest
   └── rotate
+        ├── plot_signal
+        ├── grad_correction ─────────────── (reads grad_correction.csv manifest directly,
+        │     └── fit_signal_gradcorr         no contrast or prior signal-fit required)
+        ├── fit_signal ──────────────────── alpha
+        ├── plot_d0_delta
+        ├── plot_monoexp_d
         └── contrast
               ├── plot_contrast
-              └── fit_contrast ─────────────┐
-        ├── plot_signal                     │
-        └── fit_signal                      │
-              ├── alpha                     │
-              │     └── tc (with fixed α)  ←┘
-              ├── grad_correction
-              │     └── fit_signal_gradcorr
-              ├── plot_d0_delta
-              └── plot_monoexp_d
+              └── fit_contrast ──────────── tc  (set TC_FIT_PARAMS to the fit_params parquet
+                                                  produced by fit_contrast)
 ```
 
-`tc` reads `master_fit_params.parquet` which is written by both `fit_signal`
-and `fit_contrast`. Run at least one of them first.
+`tc` requires `TC_FIT_PARAMS` to be set to the accumulated fit-params parquet produced by
+`fit_contrast` (e.g. `fits/master/ogse_value_norm_vs_glinmax_ogse_free/fit_params.ogse_free.glinmax.value_norm.direction_ALL.parquet`).
+It reads contrast fit results only — `fit_signal` does not contribute to this file.
 
 ---
 
@@ -428,22 +453,30 @@ VAR=value bash nogse_pipeline/bash_template/run_dataset.sh brain ogse <step>
 | `PARAMS_XLSX` | `Data-signals/sequence_parameters_<type_subj>.xlsx` | Sequence parameter workbook |
 | `ANALYSIS_ROOT` | `analysis/<type_subj>s/<type_seq>_experiments` | Analysis output root |
 | `MASTER_PARQUET` | `$ANALYSIS_ROOT/master.long.parquet` | Master table |
-| `MASTER_FIT_PARAMS` | `$ANALYSIS_ROOT/master_fit_params.parquet` | Cumulative fit params |
+| `TC_FIT_PARAMS` | — | Contrast fit-params parquet for the `tc` step (required, set explicitly) |
 | `MANIFEST_DIR` | `manifests/<type_subj>s_<type_seq>/` | CSV manifests directory |
 
 ### Step-specific variables (most common)
 
 | Variable | Step | Description |
 |----------|------|-------------|
-| `SIGNAL_FIT_MODEL` | fit\_signal | Model name, e.g. `monoexp`, `nogse_free` |
+| `MASTER_FIRST_POINTS_BY_TD` | filter\_master\_points | Filter rules, e.g. `"120=8,210=6"` |
+| `FILTERED_MASTER_PARQUET` | filter\_master\_points | Output path (alias: `MASTER_FIRST_POINTS_PARQUET`) |
+| `SIGNAL_FIT_MODEL` | fit\_signal | Fallback model when manifest column is empty, e.g. `monoexp`, `nogse_free` |
 | `SIGNAL_FIT_G_TYPE` | fit\_signal | Gradient column, e.g. `bvalue_thorsten`, `g` |
+| `SIGNAL_FIT_OUT_ROOT` | fit\_signal | Output root (derived dynamically; set to override) |
 | `SIGNAL_FIT_EXTRA_ARGS` | fit\_signal | Extra Python flags |
 | `FIT_MODEL` | fit\_contrast | Model name, e.g. `ogse_free`, `nogse_free`, `mixed_global` |
 | `FIT_GBASE` | fit\_contrast | Gradient axis, e.g. `g_lin_max`, `g_thorsten_1` |
+| `FIT_OUT_ROOT` | fit\_contrast | Output root (derived dynamically; set to override) |
 | `FIT_EXTRA_ARGS` | fit\_contrast | Extra Python flags |
-| `CORR_ROI` | grad\_correction, fit\_signal\_gradcorr | Reference ROI (`Syringe` or `water`) |
-| `CORR_XLSX` | fit\_signal\_gradcorr | Path to the correction table |
+| `GRAD_CORR_MANIFEST` | grad\_correction | Path to the grad-correction manifest CSV (default: `$MANIFEST_DIR/grad_correction.csv`) |
+| `GRAD_CORR_OUT_DIR` | grad\_correction | Audit output directory for the xlsx/csv inspection table (D0\_nogse, D0\_monoexp, factor per curve). Primary output is MASTER\_PARQUET. Default: `$ANALYSIS_ROOT/fits/grad_correction` |
+| `GRAD_CORR_EXTRA_ARGS` | grad\_correction | Advanced Python flags, e.g. `--gbase g_thorsten`, `--bbase bvalue_g_lin_max`, `--D0-init 2.3e-12`, `--free-M0` |
+| `SIGNAL_FITS_ROOT` | plot\_monoexp\_d | Signal fit root (default: `$ANALYSIS_ROOT/fits`; set to specific subfolder) |
 | `ALPHA_N` | alpha | N value used for D₀ extraction (default: 1) |
+| `ALPHA_EXTRA_ARGS` | alpha | Use `--bvalmax N` and `--roi-bvalmax ROI=N` for per-ROI bvalue selection |
+| `TC_FIT_PARAMS` | tc | **Required.** Contrast fit-params parquet (from fit\_contrast output) |
 | `TC_METHOD` | tc | Fitting model: `pseudohuber_fixed_macro`, `pseudohuber_free`, `linear` |
 | `TC_Y_COL` | tc | Y column: `tc_peak_ms` (default) |
 | `PLOT_ROI` | plot\_signal, plot\_contrast | Filter by ROI |
@@ -458,42 +491,243 @@ Run any step with `--help` to see all variables for that step.
 ## Manifests
 
 Manifests are CSV files that tell the runner which ROI/direction/Td combinations
-to process. Edit them to match your dataset.
+to process. They live in `manifests/<type_subj>s_<type_seq>/` and are read by
+the corresponding pipeline step. Lines starting with `#` and the header line are
+skipped. Edit them to match your dataset before running the pipeline.
 
 ### contrasts.csv
 
-Specifies which pairs of signals to subtract to form a contrast.
+Specifies which pairs of signals to subtract to form an OGSE/NOGSE contrast.
+
+**Format:**
+```
+subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+```
+
+**What each row does:**
+
+Each row selects two groups of `signal_rotated` rows from the master table —
+side 1 identified by `(N_1, Hz_1)` and side 2 by `(N_2, Hz_2)` — and computes
+the point-wise difference:
+
+```
+contrast(g) = S(g; N_1, Hz_1) − S(g; N_2, Hz_2)   at the given td_ms
+```
+
+The result is appended to the master table as a new `row_kind=contrast` group.
+One row in the manifest → one contrast entry per matching (roi, direction) pair.
+
+**Column reference:**
+
+| Column | Required | Description |
+|--------|----------|-------------|
+| `subj` | yes | Subject label (e.g. `BRAIN`, `LUDG`, `MBBL`, `PHANTOM`). Use `ALL` to match every subject in master. |
+| `sheet` | yes | Session name exactly as stored in master (e.g. `20220622_BRAIN`, `20220610-PHANTOM3`). Use `ALL` to match every session. |
+| `roi` | yes | Region of interest (e.g. `AntCC`, `Left-Lateral-Ventricle`, `fiber1`). Use `ALL` to process every ROI found for that (subj, sheet, td_ms, N, Hz). |
+| `direction` | yes | Gradient direction label (e.g. `long`, `tra`, `1`, `2`, `3`). Use `ALL` to include all directions. |
+| `td_ms` | yes | Diffusion time in ms. Selects only rows where `td_ms` matches this value exactly. Must be a number (not `ALL`). |
+| `N_1` | yes | Number of OGSE oscillations for **side 1** (typically the higher-N signal, e.g. `8`). Matches the `N` column in master. |
+| `N_2` | yes | Number of OGSE oscillations for **side 2** (typically the lower-N reference, e.g. `4`). |
+| `Hz_1` | yes | Oscillation frequency in Hz for side 1 (e.g. `50`). Matches the `Hz` column in master. |
+| `Hz_2` | yes | Oscillation frequency in Hz for side 2 (e.g. `25`). |
+
+> **`ALL` vs specific value:** When a column is set to `ALL`, the corresponding
+> `--flag` is *not* passed to the Python script, so the selection is unconstrained
+> for that dimension. A specific value adds an equality filter. `td_ms`, `N_1`,
+> `N_2`, `Hz_1`, `Hz_2` do not support `ALL` — leave the cell empty to skip that
+> filter (the script will not pass the flag).
+
+**Multiple td_ms per session:**
+
+Each `td_ms` value requires its own row. A session with two diffusion times needs
+two rows:
 
 ```
 subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
-BRAIN,20220622_BRAIN,Left-Lateral-Ventricle,long,90,8,4,50,25
+BRAIN,20230619_BRAIN-3,ALL,ALL,120,8,4,40,20
+BRAIN,20230619_BRAIN-3,ALL,ALL,143.4,8,4,30,15
 ```
 
-Each row creates one `row_kind=contrast` group in master:
-`S(N_1, Hz_1) - S(N_2, Hz_2)` at the given `td_ms`.
+**Full example — all brain OGSE sessions:**
+
+```
+subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+# BRAIN (20220622) — td=90ms
+BRAIN,20220622_BRAIN,ALL,ALL,90,8,4,50,25
+# BRAIN-3 (20230619) — two diffusion times
+BRAIN,20230619_BRAIN-3,ALL,ALL,120,8,4,40,20
+BRAIN,20230619_BRAIN-3,ALL,ALL,143.4,8,4,30,15
+# BRAIN-4 (20230623)
+BRAIN,20230623_BRAIN-4,ALL,ALL,76,8,4,65,35
+BRAIN,20230623_BRAIN-4,ALL,ALL,210,8,4,20,10
+# LUDG-2 (20230623)
+LUDG,20230623_LUDG-2,ALL,ALL,120,8,4,40,20
+LUDG,20230623_LUDG-2,ALL,ALL,143.4,8,4,30,15
+```
+
+**Full example — PHANTOM3 OGSE:**
+
+```
+subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+PHANTOM,20220610-PHANTOM3,ALL,ALL,75.1,8,4,65,35
+PHANTOM,20220610-PHANTOM3,ALL,ALL,97.1,8,4,50,25
+PHANTOM,20220610-PHANTOM3,ALL,ALL,119.1,8,4,40,20
+PHANTOM,20220610-PHANTOM3,ALL,ALL,142.5,8,4,30,15
+PHANTOM,20220610-PHANTOM3,ALL,ALL,209.1,8,4,20,10
+```
+
+**Restricting to specific ROIs or directions:**
+
+If you only want one direction:
+```
+BRAIN,20220622_BRAIN,ALL,long,90,8,4,50,25
+```
+
+If you only want one ROI:
+```
+BRAIN,20220622_BRAIN,AntCC,ALL,90,8,4,50,25
+```
+
+**Advanced: fitted-resampled contrasts**
+
+By default the contrast is computed as a direct point-wise subtraction. To
+instead fit each signal curve with a monoexponential model and subtract the
+fitted curves on a common gradient grid, pass extra flags via the environment
+variable `MAKE_CONTRAST_EXTRA_ARGS`:
+
+```bash
+MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled --g_type g_lin_max" \
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
+```
+
+Key options for `MAKE_CONTRAST_EXTRA_ARGS`:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--contrast-source` | `direct` | `direct` (point subtraction) or `fitted_resampled` (fit then subtract) |
+| `--signal-model` | `monoexp` | Signal model for `fitted_resampled` (e.g. `monoexp`) |
+| `--g_type` | `g` | Gradient axis for fitting and the common resampling grid |
+| `--fit_points N` | `6` | Number of leading gradient points used per fit |
+| `--auto_fit_points` | off | Automatically choose the number of fit points |
+| `--no-master-rotated` | off | Use `signal` rows instead of `signal_rotated` |
+
+---
 
 ### signal\_fits.csv
 
-Specifies which signal groups to fit individually.
+Specifies which signal groups to fit individually (one fit per row).
 
+**Format:**
 ```
 subj,sheet,roi,direction,td_ms,N,Hz,model
-BRAIN,20220622_BRAIN,Left-Lateral-Ventricle,long,90,4,25,monoexp
 ```
 
-Use `ALL` in any column to match all values for that dimension.
+**Column reference:**
+
+| Column | Required | Description |
+|--------|----------|-------------|
+| `subj` | yes | Subject label. `ALL` = all subjects. |
+| `sheet` | yes | Session name. `ALL` = all sessions. |
+| `roi` | yes | Region of interest. `ALL` = all ROIs. |
+| `direction` | yes | Gradient direction. `ALL` = all directions. |
+| `td_ms` | yes | Diffusion time in ms. |
+| `N` | yes | Number of OGSE oscillations (e.g. `4`, `8`). |
+| `Hz` | yes | Oscillation frequency in Hz. |
+| `model` | yes | Fitting model name (e.g. `monoexp`, `nogse_free`). |
+
+**Example:**
+```
+subj,sheet,roi,direction,td_ms,N,Hz,model
+BRAIN,20220622_BRAIN,ALL,ALL,90,1,0,monoexp
+BRAIN,20220622_BRAIN,ALL,ALL,90,4,25,monoexp
+BRAIN,20220622_BRAIN,ALL,ALL,90,8,50,monoexp
+```
+
+Each row fits the signal curve `S(g)` at the specified `(td_ms, N, Hz)` with the
+given model, for every matching (roi, direction) combination. `N=1, Hz=0` selects
+the b=0 / no-oscillation reference sequence.
+
+---
+
+### grad\_correction.csv
+
+Specifies which Syringe (brain) or water (phantom) signal curves to use for
+computing the gradient correction factor. One row per individual curve to fit.
+
+**Format:**
+```
+subj,sheet,roi,direction,td_ms,N,Hz,model
+```
+
+The `Hz` and `model` columns are read but currently ignored by the script —
+the model is always NOGSE free + monoexp.
+
+**What the step does:**
+
+For each row the script:
+
+1. Loads the matching `signal_rotated` rows from `master.long.parquet`.
+2. Fits the signal curve `S(g)` with the **NOGSE free model** (`M_nogse_free`,
+   using the `g_lin_max` gradient column) → `D0_nogse`.
+3. Fits the same curve with a **monoexp model** (`exp(-b·D0)`, using the
+   `bvalue_thorsten` b-value column) → `D0_monoexp`.
+4. Computes `correction_factor = √(D0_nogse / D0_monoexp)`.
+5. Writes the factor to `master.long.parquet` for **every ROI** in the master
+   that shares the same `(subj, sheet, direction, td_ms, N)` parameters.
+
+**Why this works without a prior contrast or signal-fit step:** the raw
+`signal_rotated` rows are already present in the master after `rotate`. The
+fitting is done on-the-fly by the grad\_correction script itself.
+
+**Column reference:**
+
+| Column | Description |
+|--------|-------------|
+| `subj` | Subject label (e.g. `BRAIN`, `LUDG`). |
+| `sheet` | Session name exactly as in master (e.g. `20230619_BRAIN-3`). |
+| `roi` | Reference ROI to fit (e.g. `Syringe`, `water`). |
+| `direction` | Gradient direction (e.g. `long`, `tra`). |
+| `td_ms` | Diffusion time in ms. |
+| `N` | Number of OGSE oscillations for this acquisition. |
+| `Hz` | Oscillation frequency (informational). |
+| `model` | Informational only (always `monoexp`). |
+
+**Example (brains\_ogse):**
+```
+subj,sheet,roi,direction,td_ms,N,Hz,model
+BRAIN,20230619_BRAIN-3,Syringe,long,120,1,0,monoexp
+BRAIN,20230619_BRAIN-3,Syringe,long,120,4,20,monoexp
+BRAIN,20230619_BRAIN-3,Syringe,long,120,8,40,monoexp
+BRAIN,20230619_BRAIN-3,Syringe,long,120,12,55,monoexp
+BRAIN,20230619_BRAIN-3,Syringe,tra,120,1,0,monoexp
+...
+```
+
+Each `(td_ms, N, direction)` combination should have its own row. One manifest
+entry produces one fitted correction factor that propagates to all ROIs.
+
+---
 
 ### Manifest locations
 
 ```
-manifests/brains_ogse/contrasts.csv      # OGSE brain — ready to fill
-manifests/brains_ogse/signal_fits.csv
-manifests/phantoms_ogse/contrasts.csv    # OGSE phantom — ready to fill
-manifests/phantoms_ogse/signal_fits.csv
-manifests/brains_nogse/contrasts.csv     # NOGSE brain — empty template
-manifests/brains_nogse/signal_fits.csv
-manifests/phantoms_nogse/contrasts.csv   # NOGSE phantom — empty template
-manifests/phantoms_nogse/signal_fits.csv
+manifests/brains_ogse/contrasts.csv          # OGSE brain  — filled
+manifests/brains_ogse/signal_fits.csv        # OGSE brain  — fill before fit_signal
+manifests/brains_ogse/grad_correction.csv    # OGSE brain  — filled (Syringe curves)
+manifests/phantoms_ogse/contrasts.csv        # OGSE phantom — filled
+manifests/phantoms_ogse/signal_fits.csv      # OGSE phantom — fill before fit_signal
+manifests/phantoms_ogse/grad_correction.csv  # OGSE phantom — fill with water curves
+manifests/brains_nogse/contrasts.csv         # NOGSE brain  — empty template
+manifests/brains_nogse/signal_fits.csv       # NOGSE brain  — empty template
+manifests/phantoms_nogse/contrasts.csv       # NOGSE phantom — empty template
+manifests/phantoms_nogse/signal_fits.csv     # NOGSE phantom — empty template
+```
+
+To use a different manifest file without editing it in place:
+
+```bash
+CONTRAST_MANIFEST=my_custom_contrasts.csv \
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
 ```
 
 ---

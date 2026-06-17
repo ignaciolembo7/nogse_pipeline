@@ -11,7 +11,8 @@ Choose the subject kind with `type_subj` and the sequence kind with `type_seq`.
 
 **For a complete end-to-end walkthrough of all four pipeline cases
 (ogse\_brain, ogse\_phantom, nogse\_brain, nogse\_phantom) see
-[PIPELINE_GUIDE.md](PIPELINE_GUIDE.md).**
+[PIPELINE_GUIDE.md](PIPELINE_GUIDE.md). For a detailed argument-by-argument
+command reference, see [CLI_REFERENCE.md](CLI_REFERENCE.md).**
 
 ## Basic Usage
 
@@ -54,7 +55,6 @@ contrast
 plot_signal
 plot_contrast
 fit_signal
-fit_signal_monoexp
 fit_signal_gradcorr
 fit_contrast
 fit_contrast_free
@@ -103,7 +103,7 @@ The runner derives defaults from `type_subj` and `type_seq`:
 
 ```text
 analysis/<type_subj>s/<type_seq>_experiments/master.long.parquet
-analysis/<type_subj>s/<type_seq>_experiments/master_fit_params.parquet
+analysis/<type_subj>s/<type_seq>_experiments/fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>/
 nogse_pipeline/bash_template/manifests/<type_subj>s_<type_seq>/
 ```
 
@@ -172,7 +172,7 @@ Only shared shell code that is still called by current entry points remains in
 - `PARAMS_XLSX`: sequence-parameter workbook.
 - `ANALYSIS_ROOT`: output root.
 - `MASTER_PARQUET`: master table path.
-- `MASTER_FIT_PARAMS`: cumulative fit-params table.
+- `TC_FIT_PARAMS`: contrast fit-params parquet for the `tc` step (required, set explicitly).
 - `MANIFEST_DIR`: directory containing `contrasts.csv` and `signal_fits.csv`.
 
 The runner also accepts repeated `--results-root` options:
@@ -216,10 +216,10 @@ PIPELINE_STEPS="ingest rotate contrast fit_signal fit_contrast alpha tc" \
 
 ## Replacements For Numbered Analysis Wrappers
 
-Monoexponential brain OGSE signal fit:
+Monoexponential brain OGSE signal fit (set `model=monoexp` in `signal_fits.csv` manifest):
 
 ```bash
-bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_monoexp
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 ```
 
 Gradient-corrected phantom OGSE signal fit:
@@ -268,19 +268,12 @@ PLOT_ROI=Left-Lateral-Ventricle PLOT_DIRECTION=long \
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_signal
 ```
 
-Build and apply gradient correction:
+Build and apply embedded gradient correction (reads `manifests/brains_ogse/grad_correction.csv`
+directly from the master — no prior fit\_signal or contrast step required):
 
 ```bash
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_gradcorr
-```
-
-Use a custom correction ROI/table:
-
-```bash
-CORR_ROI=Syringe \
-CORR_XLSX=analysis/brains/ogse_experiments/fits/grad_correction_master/Syringe.grad_correction.xlsx \
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_gradcorr
 ```
 
 Run a global signal model from master:

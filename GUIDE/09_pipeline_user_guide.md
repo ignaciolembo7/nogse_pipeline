@@ -31,7 +31,7 @@ extraction writes `Results/*_results.xlsx`, use `run_dataset.sh`.
 5. Rotate signals when tensor directions are available.
 6. Build contrasts from manifest selectors.
 7. Fit signals and contrasts.
-8. Build gradient-correction tables and corrected fits when needed.
+8. Embed gradient-correction factors in the master table and run corrected fits when needed.
 9. Generate summaries and plots.
 
 ## Common Environment
@@ -668,12 +668,10 @@ Controls:
 - `SIGNAL_FIT_XCOL`
 - `SIGNAL_FIT_YCOL`
 - `SIGNAL_FIT_EXTRA_ARGS`
-- `CORR_ROI`
-- `CORR_XLSX`
 - `MASTER_FIT_PARAMS`
 
 `fit_signal_monoexp` sets OGSE monoexponential defaults. `fit_signal_gradcorr`
-adds `--apply_grad_corr --corr_xlsx ... --corr_roi ...`.
+adds `--apply_grad_corr` and reads embedded `grad_correction_factor` values from `MASTER_PARQUET`.
 
 ### `fit_contrast`, `fit_contrast_free`, `fit_contrast_mixed_global`
 
@@ -744,8 +742,6 @@ Controls:
 - `GLOBAL_SIGNAL_ROIS`
 - `GLOBAL_SIGNAL_SUBJS`
 - `GLOBAL_SIGNAL_APPLY_GRAD_CORR`
-- `GLOBAL_SIGNAL_CORR_XLSX`
-- `GLOBAL_SIGNAL_CORR_ROI`
 - `GLOBAL_SIGNAL_EXTRA_ARGS`
 
 Parameter modes are `fixed`, `free`, `global_td`, and `global_contrast`.
@@ -760,23 +756,19 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
 
 Inputs:
 
-- signal fit root
-- contrast fit root
-- contrast data root
+- `MASTER_PARQUET` with `signal_rotated` rows
+- `GRAD_CORR_MANIFEST` (`$MANIFEST_DIR/grad_correction.csv` by default)
 
 Outputs:
 
-- `ANALYSIS_ROOT/fits/grad_correction_master/<roi>.grad_correction.xlsx`
-- `ANALYSIS_ROOT/fits/grad_correction_master/<roi>.grad_correction.csv`
+- embedded `grad_correction_factor*` columns in `MASTER_PARQUET`
+- audit copies under `ANALYSIS_ROOT/fits/grad_correction/`
 
 Controls:
 
 - `GRAD_CORR_SCRIPT`
-- `SIGNAL_FITS_ROOT`
-- `CONTRAST_FITS_ROOT`
-- `CONTRAST_DATA_ROOT`
+- `GRAD_CORR_MANIFEST`
 - `GRAD_CORR_OUT_DIR`
-- `GRAD_CORR_ROI`
 - `GRAD_CORR_EXTRA_ARGS`
 
 ### `plot_d0_delta`

@@ -1,0 +1,4 @@
+subj,sheet,roi,direction,td_ms,N,Hz,model
+# Add one row per (subj,sheet,td_ms,N,direction) water/reference measurement.
+# Example:
+# PHANTOM,20260122-PHANTOM,water,tra,90,4,25,monoexp

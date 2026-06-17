@@ -1,3 +1,5 @@
 subj,sheet,roi,direction,td_ms,N,Hz,model
+# Add one row per signal group to fit.
+# Use ALL in subj/sheet/roi/direction to leave that selector unconstrained.
 # Example:
-# BRAIN,20220622_BRAIN,Left-Lateral-Ventricle,long,90,4,25,monoexp
+# BRAIN,20220622_BRAIN,ALL,ALL,90,4,25,monoexp
