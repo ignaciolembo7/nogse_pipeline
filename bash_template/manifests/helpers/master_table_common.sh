@@ -2,7 +2,11 @@
 
 pipeline_setup_common() {
     MASTER_HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    TEMPLATE_ROOT="$(cd "$MASTER_HELPER_DIR/.." && pwd)"
+    if [[ "$(basename "$(dirname "$MASTER_HELPER_DIR")")" == "manifests" ]]; then
+        TEMPLATE_ROOT="$(cd "$MASTER_HELPER_DIR/../.." && pwd)"
+    else
+        TEMPLATE_ROOT="$(cd "$MASTER_HELPER_DIR/.." && pwd)"
+    fi
     REPO_ROOT="$(cd "$TEMPLATE_ROOT/.." && pwd)"
     PROJECT_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 
@@ -66,7 +70,6 @@ pipeline_set_dataset_defaults() {
     esac
 
     MASTER_PARQUET="${MASTER_PARQUET:-$ANALYSIS_ROOT/master.long.parquet}"
-    MASTER_FIT_PARAMS="${MASTER_FIT_PARAMS:-$ANALYSIS_ROOT/master_fit_params.parquet}"
     MANIFEST_DIR="${MANIFEST_DIR:-$TEMPLATE_ROOT/manifests/${dataset}_${type_seq}}"
 
     export DATASET TYPE_SUBJ TYPE_SEQ EXPERIMENT_ROOT_NAME
@@ -99,16 +102,14 @@ pipeline_apply_master_first_points_by_td() {
     mkdir -p "$out_dir"
 
     MASTER_PARQUET_ORIGINAL="${MASTER_PARQUET_ORIGINAL:-$MASTER_PARQUET}"
-    MASTER_FIT_PARAMS_ORIGINAL="${MASTER_FIT_PARAMS_ORIGINAL:-$MASTER_FIT_PARAMS}"
     MASTER_PARQUET="${MASTER_FIRST_POINTS_PARQUET:-$out_dir/master.first_points.long.parquet}"
-    MASTER_FIT_PARAMS="${MASTER_FIRST_POINTS_FIT_PARAMS:-$out_dir/master.first_points_fit_params.parquet}"
 
     "$PY" "$filter_script" "$MASTER_PARQUET_ORIGINAL" \
         --out-parquet "$MASTER_PARQUET" \
         --first-points-by-td "$spec"
 
     MASTER_FIRST_POINTS_APPLIED=1
-    export MASTER_PARQUET MASTER_FIT_PARAMS MASTER_PARQUET_ORIGINAL MASTER_FIT_PARAMS_ORIGINAL MASTER_FIRST_POINTS_APPLIED
+    export MASTER_PARQUET MASTER_PARQUET_ORIGINAL MASTER_FIRST_POINTS_APPLIED
     echo "Using filtered master table: $MASTER_PARQUET"
     echo "First points by td_ms: $spec"
 }
@@ -117,6 +118,9 @@ pipeline_usage() {
     cat <<'EOF'
 Usage:
   bash nogse_pipeline/bash_template/run_dataset.sh <type_subj> <type_seq> <step...>
+
+Run from:
+  /mnt/storage/tier2/MUMI-EXT-001/mumi-data/Project-Balseiro-Microstructure
 
 Subject and sequence:
   <type_subj>  brain | phantom
@@ -156,6 +160,8 @@ Available steps:
                      Write an intermediate master table with first points by td_ms.
     rotate           Rotate signal tensor directions.
     contrast         Build contrast rows using manifests/*/contrasts.csv.
+    export_master_xlsx
+                     Export the selected master parquet to an Excel workbook.
 
   Plots:
     plot_signal      Plot signal curves from master.long.parquet.
@@ -165,7 +171,6 @@ Available steps:
 
   Fits:
     fit_signal                 Fit signal curves using signal_fits.csv.
-    fit_signal_monoexp         fit_signal with OGSE monoexp defaults.
     fit_signal_gradcorr        fit_signal with gradient correction enabled.
     fit_contrast               Fit contrast rows.
     fit_contrast_free          fit_contrast with free-model defaults.
@@ -173,7 +178,7 @@ Available steps:
     fit_global_signal          Fit mixed/global signal models directly.
 
   Summaries:
-    grad_correction  Build gradient-correction table.
+    grad_correction  Build and embed gradient-correction factors.
     alpha            Build alpha_macro summaries.
     tc               Fit tc-vs-td summaries.
 
@@ -188,8 +193,7 @@ Common environment variables:
   PARAMS_XLSX        Sequence-parameter workbook.
   ANALYSIS_ROOT      Output analysis root.
   MASTER_PARQUET     Master table path.
-  MASTER_FIT_PARAMS  Cumulative fit-params table.
-  MANIFEST_DIR       Directory with contrasts.csv and signal_fits.csv.
+  MANIFEST_DIR       Directory with contrasts.csv, signal_fits.csv, and grad_correction.csv.
   MASTER_FIRST_POINTS_BY_TD
                     Optional TD=POINTS rules applied before post-ingest steps.
                     Example: MASTER_FIRST_POINTS_BY_TD="120=8,210=6"
@@ -197,6 +201,9 @@ Common environment variables:
   MASTER_FIRST_POINTS_PARQUET
                     Optional filtered master output path. Default:
                     $ANALYSIS_ROOT/master.first_points.long.parquet.
+  TC_FIT_PARAMS     Fit-params parquet used by the tc step. Must point to
+                    the accumulated contrast fit-params file produced by
+                    fit_contrast (e.g. fits/master/ogse_.../fit_params.*.parquet).
 
 Master table format:
   master.long.parquet is the canonical master table and the pipeline only
@@ -285,9 +292,15 @@ Variables for this step:
   MASTER_PARQUET              Input master table.
   MASTER_FIRST_POINTS_BY_TD   TD=POINTS rules. Example: "120=8,210=6,90=ALL".
                               Unlisted td_ms values keep all points.
-  FILTERED_MASTER_PARQUET     Output intermediate master table. Default:
-                              $ANALYSIS_ROOT/master.first_points.long.parquet
+  FILTERED_MASTER_PARQUET     Output filtered master table path.
+                              Also accepted as MASTER_FIRST_POINTS_PARQUET.
+                              Default: $ANALYSIS_ROOT/master.first_points.long.parquet
+  MASTER_FIRST_POINTS_DIR     Output directory override. Default: $ANALYSIS_ROOT
   FILTER_MASTER_SCRIPT        Python script override.
+
+Note:
+  After running filter_master_points, pass the output path as MASTER_PARQUET
+  to subsequent steps:
 
 Examples:
   MASTER_FIRST_POINTS_BY_TD="120=8,210=6,90=ALL" \
@@ -295,6 +308,30 @@ Examples:
 
   MASTER_PARQUET=analysis/brains/ogse_experiments/master.first_points.long.parquet \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse rotate contrast fit_signal
+EOF
+            ;;
+        export_master_xlsx)
+            cat <<'EOF'
+Usage:
+  bash run_dataset.sh <type_subj> <type_seq> export_master_xlsx
+
+What it does:
+  Exports MASTER_PARQUET to an inspection .xlsx workbook. It does not modify the
+  parquet master table.
+
+Variables for this step:
+  MASTER_PARQUET           Input master table.
+  MASTER_XLSX              Output Excel path. Default: MASTER_PARQUET with .xlsx suffix.
+  EXPORT_MASTER_ROW_KIND   Optional row_kind filter. Space- or comma-separated.
+  EXPORT_MASTER_HEAD       Optional number of first rows to export.
+  EXPORT_MASTER_SCRIPT     Python script override.
+
+Examples:
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse export_master_xlsx
+
+  MASTER_PARQUET=analysis/brains/ogse_experiments/master.first_points.long.parquet \
+  MASTER_XLSX=analysis/brains/ogse_experiments/master.first_points.xlsx \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse export_master_xlsx
 EOF
             ;;
         rotate)
@@ -378,17 +415,19 @@ Variables for this step:
   MASTER_PARQUET          Input master table.
   PLOT_SIGNAL_SCRIPT      Python script override.
   PLOT_OUT_ROOT           Output root. Default: $ANALYSIS_ROOT/plots-master/signal
-  PLOT_ROW_KIND           Rows to plot. Default: signal_rotated
+  PLOT_ROW_KIND           signal_rotated|signal. Default: signal_rotated
   PLOT_SUBJ               Optional subj selector.
   PLOT_SHEET              Optional sheet selector.
   PLOT_ROI                Optional ROI selector.
-  PLOT_DIRECTION          Optional direction selector, e.g. long, tra, x, y, z.
+  PLOT_DIRECTION          Optional direction selector, e.g. long|tra|x|y|z.
   PLOT_TD_MS              Optional td_ms selector.
   PLOT_N                  Optional N selector.
-  PLOT_SIGNAL_YCOL        Y column. Default: value_norm
-  PLOT_SIGNAL_XCOL        X column. Default: g_thorsten for OGSE, g for NOGSE
+  PLOT_SIGNAL_YCOL        value|value_norm. Default: value_norm
+  PLOT_SIGNAL_XCOL        Gradient column (x axis).
+                          OGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g_thorsten
+                          NOGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g
   PLOT_SIGNAL_G_TYPE      Backward-compatible alias for PLOT_SIGNAL_XCOL.
-  PLOT_STAT               Statistic selector. Default: avg
+  PLOT_STAT               avg|std. Default: avg
   PLOT_SIGNAL_EXTRA_ARGS  Extra plot_<type_seq>_signal_vs_g.py options.
 
 Examples:
@@ -416,13 +455,14 @@ Variables for this step:
   PLOT_SUBJ                 Optional subj selector.
   PLOT_SHEET                Optional sheet selector.
   PLOT_ROI                  Optional ROI selector.
-  PLOT_DIRECTION            Optional direction selector.
+  PLOT_DIRECTION            Optional direction selector, e.g. long|tra|x|y|z.
   PLOT_TD_MS                Optional td_ms selector.
-  PLOT_N1                  Optional N_1 selector.
-  PLOT_N2                  Optional N_2 selector.
-  PLOT_CONTRAST_YCOL        Y column. Default: value_norm
-  PLOT_CONTRAST_XCOL        X column. Default: g_thorsten_1
-  PLOT_STAT                 Statistic selector. Default: avg
+  PLOT_N1                   Optional N_1 selector.
+  PLOT_N2                   Optional N_2 selector.
+  PLOT_CONTRAST_YCOL        value|value_norm. Default: value_norm
+  PLOT_CONTRAST_XCOL        Gradient column for side 1 (x axis).
+                            g_1|g_max_1|g_lin_max_1|g_thorsten_1|bvalue_1|bvalue_thorsten_1. Default: g_thorsten_1
+  PLOT_STAT                 avg|std. Default: avg
   PLOT_CONTRAST_EXTRA_ARGS  Extra plot_<type_seq>_contrast_vs_g.py options.
 
 Examples:
@@ -432,49 +472,50 @@ Examples:
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_contrast
 EOF
             ;;
-        fit_signal|fit_signal_monoexp|fit_signal_gradcorr)
+        fit_signal|fit_signal_gradcorr)
             cat <<'EOF'
 Usage:
   bash run_dataset.sh <type_subj> <type_seq> fit_signal
-  bash run_dataset.sh <type_subj> <type_seq> fit_signal_monoexp
   bash run_dataset.sh <type_subj> <type_seq> fit_signal_gradcorr
 
 What it does:
   Fits signal curves selected from master according to manifests/<type_subj>_<type_seq>/signal_fits.csv.
+  The model to use per row is set in the manifest's "model" column.
+  fit_signal_gradcorr adds --apply_grad_corr to every fit.
 
 Variables for this step:
   MASTER_PARQUET          Input master table.
-  MASTER_FIT_PARAMS       Cumulative fit-params table.
   FIT_SIGNAL_SCRIPT       Python script override.
   SIGNAL_FIT_MANIFEST     CSV signal-fit manifest.
-  SIGNAL_FIT_OUT_ROOT     Output root. Default: $ANALYSIS_ROOT/fits/<type_seq>_signal_master
-  SIGNAL_FIT_MODEL        Default: monoexp for OGSE, nogse_free for NOGSE.
-  SIGNAL_FIT_G_TYPE       Default: bvalue_thorsten for OGSE, g for NOGSE.
+  SIGNAL_FIT_OUT_ROOT     Output root. Default: $ANALYSIS_ROOT/fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>
+  SIGNAL_FIT_MODEL        Fallback model when the manifest "model" column is empty.
+                          OGSE: monoexp|ogse_free|ogse_rest|ogse_rest_offset. Default: monoexp
+                          NOGSE: free_cpmg|nogse_free|mixed_global. Default: nogse_free
+  SIGNAL_FIT_G_TYPE       Gradient column.
+                          OGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: bvalue_thorsten
+                          NOGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g
   SIGNAL_FIT_XCOL         NOGSE x-axis override. Defaults to SIGNAL_FIT_G_TYPE.
-  SIGNAL_FIT_YCOL         Y column. Default: value_norm
+                          Has no effect for OGSE (OGSE uses --g_type / SIGNAL_FIT_G_TYPE directly).
+  SIGNAL_FIT_YCOL         value|value_norm. Default: value_norm
   SIGNAL_FIT_EXTRA_ARGS   Extra fit_<type_seq>_signal_vs_g.py options.
-  CORR_ROI                ROI used by fit_signal_gradcorr. Default: Syringe for brains, water for phantoms.
-  CORR_XLSX               Correction table used by fit_signal_gradcorr.
 
 Manifest columns:
   subj,sheet,roi,direction,td_ms,N,Hz,model
 
 Useful SIGNAL_FIT_EXTRA_ARGS:
-  OGSE examples: --fix_M0 1.0 --auto_fit_tol 0.05 --auto_fit_min_points 3 --auto_fit_max_points 9
-  NOGSE examples depend on scripts/fitting/fit_nogse_signal_vs_g.py --help.
+  OGSE monoexp:  --fix_M0 1.0 --auto_fit_tol 0.05 --auto_fit_min_points 3 --auto_fit_max_points 9
+  NOGSE/OGSE free: see scripts/fitting/fit_{nogse,ogse}_signal_vs_g.py --help
 
 Examples:
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_monoexp
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
   SIGNAL_FIT_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/signal_fits.csv \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
-  SIGNAL_FIT_MODEL=monoexp SIGNAL_FIT_G_TYPE=bvalue_thorsten \
   SIGNAL_FIT_EXTRA_ARGS="--fix_M0 1.0 --auto_fit_tol 0.05" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
-  CORR_ROI=Syringe \
-    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_gradcorr
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_gradcorr
 EOF
             ;;
         fit_contrast|fit_contrast_free|fit_contrast_mixed_global)
@@ -485,20 +526,24 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> fit_contrast_mixed_global
 
 What it does:
-  Fits contrast rows from master.long.parquet and appends useful params to master_fit_params.parquet.
+  Fits contrast rows from master.long.parquet. Saves per-experiment tables to subdirs and
+  accumulates all results in a descriptively named fit_params parquet in FIT_OUT_ROOT.
 
 Variables for this step:
   MASTER_PARQUET        Input master table.
-  MASTER_FIT_PARAMS     Cumulative fit-params table.
   FIT_CONTRAST_SCRIPT   Python script override.
-  FIT_OUT_ROOT          Output root. Default: $ANALYSIS_ROOT/fits/<type_seq>_contrast_master
-  FIT_MODEL             Default: ogse_free for OGSE, nogse_free for NOGSE.
-  FIT_GBASE             Gradient axis. Default: g_lin_max
-  FIT_YCOL              Y column. Default: value_norm
-  FIT_STAT              Statistic selector. Default: avg
+  FIT_OUT_ROOT          Output root. Default: $ANALYSIS_ROOT/fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>
+  FIT_MODEL             OGSE: ogse_free|ogse_tort|ogse_rest|ogse_rest_offset|ogse_mixed. Default: ogse_free
+                        NOGSE: nogse_free|nogse_free_grad_offset|nogse_tort|nogse_rest. Default: nogse_free
+                        fit_contrast_free  → presets ogse_free (OGSE) / nogse_free (NOGSE).
+                        fit_contrast_mixed_global → presets mixed_global.
+  FIT_GBASE             g|g_lin_max|g_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g_lin_max
+  FIT_YCOL              value|value_norm. Default: value_norm
+  FIT_STAT              avg|std. Default: avg
   FIT_EXTRA_ARGS        Extra fit_<type_seq>_contrast_vs_g.py options.
 
 Useful FIT_EXTRA_ARGS:
+  --apply_grad_corr         Apply embedded gradient correction when fitting.
   Use the Python script help for model-specific flags:
     python scripts/fitting/fit_ogse_contrast_vs_g.py --help
     python scripts/fitting/fit_nogse_contrast_vs_g.py --help
@@ -506,10 +551,10 @@ Useful FIT_EXTRA_ARGS:
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
 
-  FIT_MODEL=mixed_global FIT_GBASE=g_thorsten_1 FIT_YCOL=value_norm \
+  FIT_MODEL=ogse_mixed FIT_GBASE=g_lin_max FIT_YCOL=value_norm \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
 
-  FIT_EXTRA_ARGS="--apply_grad_corr --corr_roi Syringe --corr_xlsx analysis/brains/ogse_experiments/fits/grad_correction_master/Syringe.grad_correction.xlsx" \
+  FIT_EXTRA_ARGS="--apply_grad_corr" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
 EOF
             ;;
@@ -519,40 +564,87 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> fit_global_signal
 
 What it does:
-  Fits mixed/global signal models directly from master.long.parquet.
+  Fits a global/mixed signal model pooling all subjects from master.long.parquet.
+  Parameters that are "global_td" are shared across subjects at the same td_ms;
+  "global_contrast" parameters are shared across subjects at the same (td_ms, roi, direction).
+
+Available models (set via GLOBAL_SIGNAL_MODEL):
+  OGSE: ogse_free | ogse_rest | ogse_rest_offset | ogse_mixed | ogse_mixed_offset
+  NOGSE: nogse_free | nogse_free_offset | nogse_rest | nogse_rest_offset | nogse_mixed | nogse_mixed_offset
+  Parameter coverage per model:
+    ogse_free / nogse_free*          →  M0, D0
+    ogse_rest / nogse_rest           →  tc, M0, D0
+    ogse_rest_offset                 →  tc, M0, D0, C
+    ogse_mixed / nogse_mixed         →  tc, alpha, M0, D0
+    ogse_mixed_offset / nogse_mixed_offset → tc, alpha, RN, M0, D0, C
+  Mode variables for parameters not in the chosen model are silently ignored.
 
 Variables for this step:
   MASTER_PARQUET                 Input master table.
   FIT_GLOBAL_SIGNAL_SCRIPT       Python script override.
-  GLOBAL_SIGNAL_OUT_ROOT         Output root. Default: $ANALYSIS_ROOT/fits/<type_seq>_signal_mixed_global_master
-  GLOBAL_SIGNAL_ROW_KIND         Row kind to fit. Default: signal_rotated
-  GLOBAL_SIGNAL_MODEL            Default: ogse_mixed_offset for OGSE, nogse_mixed_offset for NOGSE.
-  GLOBAL_SIGNAL_YCOL             Y column. Default: value
-  GLOBAL_SIGNAL_G_TYPE           Gradient column. Default depends on type_subj/type_seq.
-  GLOBAL_SIGNAL_STAT             Statistic selector. Default: avg
-  GLOBAL_SIGNAL_MIN_POINTS       Minimum points per group. Default: 4
+  GLOBAL_SIGNAL_OUT_ROOT         Output root.
+                                 Default: $ANALYSIS_ROOT/fits/<type_seq>_signal_<model>
+                                 Override explicitly when running multiple models or correction modes
+                                 so outputs don't overwrite each other.
+  GLOBAL_SIGNAL_ROW_KIND         signal_rotated|signal. Default: signal_rotated
+  GLOBAL_SIGNAL_MODEL            See model list above.
+                                 Default: ogse_mixed_offset (OGSE) | nogse_mixed_offset (NOGSE)
+  GLOBAL_SIGNAL_YCOL             value|value_norm. Default: value
+  GLOBAL_SIGNAL_G_TYPE           Gradient column.
+                                 OGSE brain: g_thorsten (default) | g_lin_max | bvalue_thorsten | ...
+                                 OGSE phantom / NOGSE: g (default) | g_lin_max | g_thorsten | ...
+  GLOBAL_SIGNAL_STAT             avg|std. Default: avg
+  GLOBAL_SIGNAL_MIN_POINTS       Minimum points per group to attempt a fit. Default: 4
+  Parameter modes and fixed values
+  ---------------------------------
+  Each parameter has a _MODE variable and a _FIXED variable. They work as a pair:
+    _MODE controls how the parameter is treated across subjects and td_ms values.
+    _FIXED sets the numeric value when _MODE=fixed.
+  Mode and fixed vars for parameters not present in the chosen model are silently ignored.
+
   GLOBAL_SIGNAL_TC_MODE          fixed|free|global_td|global_contrast. Default: global_td
+  GLOBAL_SIGNAL_TC_FIXED         Fixed tc value [ms]. Required when TC_MODE=fixed.
+                                 (tc: rest, rest_offset, mixed, mixed_offset only)
   GLOBAL_SIGNAL_ALPHA_MODE       fixed|free|global_td|global_contrast. Default: global_td
+  GLOBAL_SIGNAL_ALPHA_FIXED      Fixed alpha value [0–1]. Required when ALPHA_MODE=fixed.
+                                 (alpha: mixed, mixed_offset only)
   GLOBAL_SIGNAL_RN_MODE          fixed|free|global_td|global_contrast. Default: global_td
+  GLOBAL_SIGNAL_RN_FIXED         Fixed RN value. Required when RN_MODE=fixed.
+                                 (RN: mixed_offset, nogse_mixed_offset only)
   GLOBAL_SIGNAL_M0_MODE          fixed|free|global_td|global_contrast. Default: global_contrast
+  GLOBAL_SIGNAL_M0_FIXED         Fixed M0 value. Required when M0_MODE=fixed.
   GLOBAL_SIGNAL_C_MODE           fixed|free|global_td|global_contrast. Default: global_contrast
+  GLOBAL_SIGNAL_C_FIXED          Fixed C value. Required when C_MODE=fixed.
+                                 (C: rest_offset, mixed_offset only)
   GLOBAL_SIGNAL_D0_MODE          fixed|free|global_td|global_contrast. Default: fixed
-  GLOBAL_SIGNAL_D0_FIXED         Fixed D0 value. Default: brain 3.2e-12, phantom 2.3e-12
+  GLOBAL_SIGNAL_D0_FIXED         Fixed D0 in m²/s. Default: 3.2e-12 (brain) | 2.3e-12 (phantom)
   GLOBAL_SIGNAL_DIRECTIONS       Space- or comma-separated directions, or ALL.
-  GLOBAL_SIGNAL_ROIS             Space- or comma-separated ROIs, or ALL.
-  GLOBAL_SIGNAL_SUBJS            Space- or comma-separated subjects, or ALL.
-  GLOBAL_SIGNAL_APPLY_GRAD_CORR  true|false. Default: false
-  GLOBAL_SIGNAL_CORR_XLSX        Correction table path.
-  GLOBAL_SIGNAL_CORR_ROI         Correction ROI. Default: Syringe for brains, water for phantoms.
-  GLOBAL_SIGNAL_EXTRA_ARGS       Extra fit_global_signal.py options.
+                                 Default: long tra (OGSE brain) | ALL (others)
+  GLOBAL_SIGNAL_ROIS             Space- or comma-separated ROIs, or ALL. Default: ALL
+  GLOBAL_SIGNAL_SUBJS            Space- or comma-separated subjects, or ALL. Default: ALL
+  GLOBAL_SIGNAL_APPLY_GRAD_CORR  true|false. Default: true
+  GLOBAL_SIGNAL_EXTRA_ARGS       Extra fit_global_signal.py options (e.g. --tc_init 5.0).
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
 
-  GLOBAL_SIGNAL_DIRECTIONS="long tra" GLOBAL_SIGNAL_ROIS=Left-Lateral-Ventricle \
+  # ogse_mixed_offset with RN fixed at 10 (grad correction on by default):
+  GLOBAL_SIGNAL_RN_MODE=fixed \
+  GLOBAL_SIGNAL_RN_FIXED=10 \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
 
-  GLOBAL_SIGNAL_APPLY_GRAD_CORR=true GLOBAL_SIGNAL_CORR_ROI=Syringe \
+  # ogse_rest (no alpha, no RN, no C): only TC and M0 modes apply
+  GLOBAL_SIGNAL_MODEL=ogse_rest \
+  GLOBAL_SIGNAL_TC_MODE=global_td \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
+
+  # run without grad correction
+  GLOBAL_SIGNAL_APPLY_GRAD_CORR=false \
+  GLOBAL_SIGNAL_OUT_ROOT="analysis/brains/ogse_experiments/fits/ogse_signal_ogse_mixed_offset_raw" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
+
+  # restrict to specific ROIs/directions
+  GLOBAL_SIGNAL_DIRECTIONS="long tra" GLOBAL_SIGNAL_ROIS="Left-Lateral-Ventricle AntCC" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
 EOF
             ;;
@@ -562,21 +654,35 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> grad_correction
 
 What it does:
-  Builds the gradient-correction table used by corrected signal/contrast fits.
+  Computes gradient-correction factors from the curves listed in grad_correction.csv
+  and embeds them in MASTER_PARQUET. For each manifest row, the Python script fits
+  the same reference curve with NOGSE free and monoexp models, computes
+  correction_factor = sqrt(D0_nogse / D0_monoexp), and writes the factor back to
+  all master rows that share the same subj, sheet, direction, td_ms, and N.
 
 Variables for this step:
   GRAD_CORR_SCRIPT      Python script override.
-  GRAD_CORR_ROI         Default: Syringe for brains, water for phantoms.
-  SIGNAL_FITS_ROOT      Signal fit root. Default: $ANALYSIS_ROOT/fits/<type_seq>_signal_master
-  CONTRAST_FITS_ROOT    Contrast fit root. Default: $ANALYSIS_ROOT/fits/<type_seq>_contrast_master
-  CONTRAST_DATA_ROOT    Contrast data root. Default: $ANALYSIS_ROOT/contrast-data-master
-  GRAD_CORR_OUT_DIR     Output directory. Default: $ANALYSIS_ROOT/fits/grad_correction_master
+  GRAD_CORR_MANIFEST    CSV manifest. Default: $MANIFEST_DIR/grad_correction.csv
+                        Columns: subj,sheet,roi,direction,td_ms,N,Hz,model
+  MASTER_PARQUET        Input/output master table. Must contain signal_rotated rows.
+  GRAD_CORR_OUT_DIR     Audit output directory. Default: $ANALYSIS_ROOT/fits/grad_correction
   GRAD_CORR_EXTRA_ARGS  Extra make_grad_correction_table.py options.
+
+Useful GRAD_CORR_EXTRA_ARGS:
+  --stat avg               Statistic row to fit. Default: avg
+  --row-kind signal_rotated Input row kind. Default: signal_rotated
+  --gbase g_lin_max        Gradient column for the NOGSE free fit.
+  --bbase bvalue_thorsten  B-value column for the monoexp fit.
+  --D0-init 2.3e-12        NOGSE free D0 seed in m2/ms.
+  --tol-ms 1e-3            Matching tolerance for td_ms.
+  --fix-M0 1.0             Fix M0 in both fits.
+  --free-M0 1.0            Fit M0 in both fits with optional seed.
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
 
-  GRAD_CORR_ROI=Syringe \
+  GRAD_CORR_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/grad_correction.csv \
+  GRAD_CORR_EXTRA_ARGS="--bbase bvalue_thorsten --fix-M0 1.0" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
 EOF
             ;;
@@ -616,14 +722,15 @@ What it does:
 
 Variables for this step:
   PLOT_MONOEXP_D_SCRIPT     Python script override.
-  SIGNAL_FITS_ROOT          Signal fit root. Default: $ANALYSIS_ROOT/fits/<type_seq>_signal_master
+  SIGNAL_FITS_ROOT          Root scanned for signal fit parquets.
+                            Default: $ANALYSIS_ROOT/fits (scans all subdirs).
+                            Set explicitly to the specific fit folder, e.g.:
+                            $ANALYSIS_ROOT/fits/master/ogse_value_norm_vs_bvaluethorsten_monoexp
   MONOEXP_D_OUT_DIR         Output plot/table directory. Default: $ANALYSIS_ROOT/plots-master/monoexp_D_vs_time
   PLOT_MONOEXP_D_EXTRA_ARGS Extra plot_monoexp_D_vs_time.py options.
 
 Examples:
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_monoexp_d
-
-  SIGNAL_FITS_ROOT=analysis/brains/ogse_experiments/fits/ogse_signal_master \
+  SIGNAL_FITS_ROOT=analysis/brains/ogse_experiments/fits/master/ogse_value_norm_vs_bvaluethorsten_monoexp \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_monoexp_d
 EOF
             ;;
@@ -637,20 +744,33 @@ What it does:
 
 Variables for this step:
   MASTER_PARQUET       Input master table. Must contain signal_rotated rows with D_proj.
-  MASTER_FIT_PARAMS    Cumulative fit-params table.
   ALPHA_MACRO_SCRIPT   Python script override.
   ALPHA_N              N selector. Default: 1
   ALPHA_OUT_DIR        Output directory. Default: $ANALYSIS_ROOT/alpha_macro/master
   ALPHA_EXTRA_ARGS     Extra make_alpha_macro_summary.py options.
 
+Note:
+  This step always passes --no-master-fit-params, so alpha_macro results are NOT
+  appended to any cumulative fit-params table. The outputs are the xlsx files below.
+
+Useful ALPHA_EXTRA_ARGS:
+  --bvalmax N              Use the N-th bvalue (1-based ascending) for all ROIs.
+                           Default: highest bvalue.
+  --roi-bvalmax ROI=N      Per-ROI bvalue override. Repeatable.
+                           Example: --roi-bvalmax AntCC=7 --roi-bvalmax CSF=3
+  --dirs long tra          Restrict to specific directions.
+  --rois ROI1 ROI2         Restrict to specific ROIs.
+
 Outputs:
   $ALPHA_OUT_DIR/summary_alpha_values.xlsx
   $ALPHA_OUT_DIR/D_vs_delta_app.combined.xlsx
+  $ALPHA_OUT_DIR/alpha_macro_vs_roi.png
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
 
-  ALPHA_N=1 ALPHA_OUT_DIR=analysis/brains/ogse_experiments/alpha_macro/master \
+  ALPHA_N=1 \
+  ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax AntCC=7 --roi-bvalmax CSF=3" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
 EOF
             ;;
@@ -660,20 +780,35 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> tc
 
 What it does:
-  Fits tc-vs-td summaries from master_fit_params.parquet.
+  Fits tc-vs-td summaries from a contrast fit-params parquet.
 
 Variables for this step:
-  MASTER_FIT_PARAMS  Input cumulative fit-params table.
+  TC_FIT_PARAMS      Required. Path to the accumulated contrast fit-params parquet
+                     produced by fit_contrast (e.g. fits/master/ogse_.../fit_params.*.parquet).
   TC_VS_TD_SCRIPT    Python script override.
   TC_OUT_DIR         Output root. Default: $ANALYSIS_ROOT/fits/tc_vs_td_master
-  TC_METHOD          Method. Default: pseudohuber_fixed_macro
-  TC_Y_COL           Y column. Default: tc_peak_ms
+                     Each method writes to its own subdirectory: $TC_OUT_DIR/$TC_METHOD
+  TC_METHOD          pseudohuber_free|pseudohuber_fixed_macro|linear. Default: pseudohuber_fixed_macro
+                     pseudohuber_free: fits c, delta, alpha_macro freely.
+                     pseudohuber_fixed_macro: fits c and delta; alpha_macro fixed from summary.
+                       Requires: TC_EXTRA_ARGS="--summary-alpha path/to/summary_alpha_values.xlsx"
+                     linear: fits tc(Td) = c + slope * Td. Useful for the large-Td regime.
+  TC_Y_COL           tc_peak_ms|tc_peak_resampled_ms. Default: tc_peak_ms
+                     Override TC_OUT_DIR when changing TC_Y_COL to avoid output conflicts.
   TC_EXTRA_ARGS      Extra run_tc_vs_td.py options.
 
 Examples:
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse tc
+  # pseudohuber with fixed alpha_macro from summary
+  TC_FIT_PARAMS="fits/master/ogse_.../fit_params.*.parquet" \
+  TC_METHOD=pseudohuber_fixed_macro \
+  TC_EXTRA_ARGS="--summary-alpha analysis/brains/ogse_experiments/alpha_macro/master/summary_alpha_values.xlsx" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse tc
 
-  TC_METHOD=pseudohuber_fixed_macro TC_Y_COL=tc_peak_ms \
+  # linear fit on resampled tc_peak
+  TC_FIT_PARAMS="fits/master/ogse_.../fit_params.*.parquet" \
+  TC_METHOD=linear \
+  TC_Y_COL=tc_peak_resampled_ms \
+  TC_OUT_DIR="analysis/brains/ogse_experiments/fits/tc_vs_td_resampled_master" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse tc
 EOF
             ;;
@@ -697,11 +832,12 @@ pipeline_step_script() {
     case "$1" in
         ingest) echo "$TEMPLATE_ROOT/steps/01_ingest_results.sh" ;;
         filter_master_points) echo "$TEMPLATE_ROOT/steps/00_filter_master_points.sh" ;;
+        export_master_xlsx) echo "$TEMPLATE_ROOT/steps/99_export_master_xlsx.sh" ;;
         rotate) echo "$TEMPLATE_ROOT/steps/02_rotate_signals.sh" ;;
         contrast) echo "$TEMPLATE_ROOT/steps/03_make_contrasts.sh" ;;
         plot_signal) echo "$TEMPLATE_ROOT/steps/04_plot_signals.sh" ;;
         plot_contrast) echo "$TEMPLATE_ROOT/steps/05_plot_contrasts.sh" ;;
-        fit_signal|fit_signal_monoexp|fit_signal_gradcorr) echo "$TEMPLATE_ROOT/steps/06_fit_signals.sh" ;;
+        fit_signal|fit_signal_gradcorr) echo "$TEMPLATE_ROOT/steps/06_fit_signals.sh" ;;
         fit_contrast|fit_contrast_free|fit_contrast_mixed_global) echo "$TEMPLATE_ROOT/steps/07_fit_contrasts.sh" ;;
         fit_global_signal) echo "$TEMPLATE_ROOT/steps/13_fit_global_signals.sh" ;;
         alpha) echo "$TEMPLATE_ROOT/steps/08_alpha_macro.sh" ;;
@@ -715,11 +851,6 @@ pipeline_step_script() {
 
 pipeline_prepare_step_env() {
     case "$1" in
-        fit_signal_monoexp)
-            SIGNAL_FIT_MODEL="${SIGNAL_FIT_MODEL:-monoexp}"
-            SIGNAL_FIT_G_TYPE="${SIGNAL_FIT_G_TYPE:-bvalue_thorsten}"
-            export SIGNAL_FIT_MODEL SIGNAL_FIT_G_TYPE
-            ;;
         fit_signal_gradcorr)
             if [[ "$TYPE_SEQ" == "nogse" ]]; then
                 SIGNAL_FIT_MODEL="${SIGNAL_FIT_MODEL:-nogse_free}"
@@ -728,14 +859,8 @@ pipeline_prepare_step_env() {
                 SIGNAL_FIT_MODEL="${SIGNAL_FIT_MODEL:-monoexp}"
                 SIGNAL_FIT_G_TYPE="${SIGNAL_FIT_G_TYPE:-bvalue_thorsten}"
             fi
-            if [[ "$DATASET" == "brains" ]]; then
-                CORR_ROI="${CORR_ROI:-Syringe}"
-            else
-                CORR_ROI="${CORR_ROI:-water}"
-            fi
-            CORR_XLSX="${CORR_XLSX:-$ANALYSIS_ROOT/fits/grad_correction_master/${CORR_ROI}.grad_correction.xlsx}"
-            SIGNAL_FIT_EXTRA_ARGS="${SIGNAL_FIT_EXTRA_ARGS:-} --apply_grad_corr --corr_xlsx $CORR_XLSX --corr_roi $CORR_ROI"
-            export SIGNAL_FIT_MODEL SIGNAL_FIT_G_TYPE CORR_ROI CORR_XLSX SIGNAL_FIT_EXTRA_ARGS
+            SIGNAL_FIT_EXTRA_ARGS="${SIGNAL_FIT_EXTRA_ARGS:-} --apply_grad_corr"
+            export SIGNAL_FIT_MODEL SIGNAL_FIT_G_TYPE SIGNAL_FIT_EXTRA_ARGS
             ;;
         fit_contrast_free)
             if [[ "$TYPE_SEQ" == "nogse" ]]; then
@@ -775,7 +900,7 @@ pipeline_run_steps() {
             pipeline_usage >&2
             exit 2
         }
-        if [[ "$step" != "ingest" && "$step" != "filter_master_points" ]]; then
+        if [[ "$step" != "ingest" && "$step" != "filter_master_points" && "$step" != "export_master_xlsx" ]]; then
             pipeline_apply_master_first_points_by_td
         fi
         pipeline_prepare_step_env "$step"

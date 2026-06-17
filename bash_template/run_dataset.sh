@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/helpers/master_table_common.sh"
+source "$SCRIPT_DIR/manifests/helpers/master_table_common.sh"
 
 pipeline_setup_common
 
