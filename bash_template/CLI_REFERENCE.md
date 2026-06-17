@@ -394,6 +394,8 @@ What it does:
 
 Reads `CONTRAST_MANIFEST`, selects two signal groups from `signal_rotated` rows,
 subtracts them, writes contrast tables, and appends `row_kind=contrast` rows.
+By default this is a direct point-by-point subtraction. Fitted/resampled
+contrasts are also built here, not in `fit_contrast`.
 
 Variables:
 
@@ -440,6 +442,23 @@ Important Python arguments:
 | `--fit_points N` / `--auto_fit_points` | Fixed or automatic leading-point selection for fitted signals. |
 | `--auto_fit_tol`, `--auto_fit_err_floor`, `--auto_fit_min_points`, `--auto_fit_max_points` | Automatic point-selection controls. |
 | `--gamma`, `--td_ms`, `--delta_ms`, `--Delta_app_ms`, `--D0_init`, `--peak_D0_fix`, `--fix_M0`, `--free_M0` | Model and metadata controls for fitted/resampled mode. |
+
+Build fitted/resampled contrasts:
+
+```bash
+MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled --signal-model monoexp --g_type g_lin_max --auto_fit_points" \
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
+```
+
+Then fit those contrast rows normally:
+
+```bash
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
+```
+
+Because `contrast` appends `row_kind=contrast` rows to `MASTER_PARQUET`, the fit
+step does not need a special resampling flag. It fits the contrast rows already
+present in the master table.
 
 ### `plot_signal`
 
@@ -675,6 +694,22 @@ What it does:
 Fits all selected `row_kind=contrast` rows from master. `fit_contrast_free`
 sets the free-model defaults. `fit_contrast_mixed_global` sets
 `FIT_MODEL=mixed_global`.
+
+`fit_contrast_free` and `fit_contrast_mixed_global` are convenience presets over
+the same `fit_contrast` script:
+
+```bash
+bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
+FIT_MODEL=ogse_free bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
+```
+
+Those two commands are equivalent as long as `FIT_MODEL` resolves to the same
+model and all other variables (`FIT_GBASE`, `FIT_YCOL`, `FIT_STAT`,
+`FIT_EXTRA_ARGS`, `FIT_OUT_ROOT`) are also the same.
+
+Resampled contrasts are not selected here. Build them first with the `contrast`
+step using `MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled ..."`,
+then run any `fit_contrast*` command on the resulting master contrast rows.
 
 Variables:
 

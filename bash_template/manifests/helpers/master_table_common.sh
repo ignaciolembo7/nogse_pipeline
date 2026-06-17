@@ -386,6 +386,11 @@ What it does:
   Reads declarative contrast selectors from manifests/<type_subj>_<type_seq>/contrasts.csv,
   selects two signal_rotated groups from master, subtracts them, and appends row_kind='contrast'.
 
+  By default contrasts are direct point-by-point subtractions. To build fitted/resampled
+  contrasts instead, pass --contrast-source fitted_resampled through MAKE_CONTRAST_EXTRA_ARGS.
+  Fit steps do not resample contrasts themselves; they fit whatever contrast rows already
+  exist in MASTER_PARQUET.
+
 Variables for this step:
   CONTRAST_MANIFEST       CSV contrast manifest.
   MASTER_PARQUET          Input/output master table.
@@ -400,6 +405,9 @@ Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
 
   CONTRAST_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/contrasts.csv \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
+
+  MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled --signal-model monoexp --g_type g_lin_max --auto_fit_points" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
 EOF
             ;;
@@ -529,6 +537,20 @@ What it does:
   Fits contrast rows from master.long.parquet. Saves per-experiment tables to subdirs and
   accumulates all results in a descriptively named fit_params parquet in FIT_OUT_ROOT.
 
+  fit_contrast_free and fit_contrast_mixed_global are convenience presets. They call
+  the same step script as fit_contrast and only set FIT_MODEL when FIT_MODEL is not
+  already provided:
+    fit_contrast_free         -> ogse_free (OGSE) / nogse_free (NOGSE)
+    fit_contrast_mixed_global -> mixed_global
+
+  Therefore, these are equivalent:
+    bash run_dataset.sh brain ogse fit_contrast_free
+    FIT_MODEL=ogse_free bash run_dataset.sh brain ogse fit_contrast
+
+  Contrast resampling is controlled by the contrast step, not by fit_contrast. If you
+  need resampled contrasts, first run contrast with MAKE_CONTRAST_EXTRA_ARGS containing
+  --contrast-source fitted_resampled, then run the desired fit_contrast* step.
+
 Variables for this step:
   MASTER_PARQUET        Input master table.
   FIT_CONTRAST_SCRIPT   Python script override.
@@ -550,6 +572,9 @@ Useful FIT_EXTRA_ARGS:
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
+
+  FIT_MODEL=ogse_free \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
 
   FIT_MODEL=ogse_mixed FIT_GBASE=g_lin_max FIT_YCOL=value_norm \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
