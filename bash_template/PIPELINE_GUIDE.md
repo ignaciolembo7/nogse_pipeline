@@ -399,8 +399,8 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest --help
 | `fit_signal` | `06_fit_signals.sh` | Fit signal model per manifest row (model set in manifest) |
 | `fit_signal_gradcorr` | `06_fit_signals.sh` | Like fit\_signal but applies gradient correction |
 | `fit_contrast` | `07_fit_contrasts.sh` | Fit all contrast rows in master |
-| `fit_contrast_free` | `07_fit_contrasts.sh` | Like fit\_contrast but forces the "free" model |
-| `fit_contrast_mixed_global` | `07_fit_contrasts.sh` | Like fit\_contrast but forces mixed\_global model |
+| `fit_contrast_free` | `07_fit_contrasts.sh` | Like fit\_contrast but presets the free model when `FIT_MODEL` is unset |
+| `fit_contrast_mixed_global` | `07_fit_contrasts.sh` | Like fit\_contrast but presets `mixed_global` when `FIT_MODEL` is unset |
 | `fit_global_signal` | `13_fit_global_signals.sh` | Fit global/mixed signal model on raw signals |
 | `alpha` | `08_alpha_macro.sh` | Compute α\_macro from D\_proj; writes `summary_alpha_values.xlsx` |
 | `tc` | `09_tc_vs_td.sh` | Fit tc(Td) from contrast fit-params (`TC_FIT_PARAMS` required) |

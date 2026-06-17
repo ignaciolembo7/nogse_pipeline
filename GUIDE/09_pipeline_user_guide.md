@@ -702,8 +702,10 @@ Controls:
 - `FIT_STAT`
 - `FIT_EXTRA_ARGS`
 
-`fit_contrast_free` uses the free model for the selected `TYPE_SEQ`.
-`fit_contrast_mixed_global` sets `FIT_MODEL=mixed_global`.
+`fit_contrast_free` uses the free model for the selected `TYPE_SEQ` when
+`FIT_MODEL` is unset. `fit_contrast_mixed_global` uses `mixed_global` when
+`FIT_MODEL` is unset. Both call the same script as `fit_contrast`; they are
+convenience presets, not separate fitting implementations.
 
 ### `fit_global_signal`
 
