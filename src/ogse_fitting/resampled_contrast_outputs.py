@@ -1096,27 +1096,35 @@ def export_resampled_contrasts_from_fits(
         roi_tables: list[pd.DataFrame] = []
 
         for _, row in sub.sort_values("roi", kind="stable").iterrows():
-            contrast_path = _resolve_contrast_parquet(
-                analysis_id=str(row["analysis_id"]),
-                sheet=row.get("sheet", None),
-                contrast_root=contrast_root,
-            )
-            contrast_df = _load_contrast_table_cached(contrast_path, cache)
-            df_group = _subset_group(contrast_df, row)
-            experimental_points = _experimental_points_table(df_group, row)
-            _require_experimental_points(
-                experimental_points=experimental_points,
-                df_group=df_group,
-                row=row,
-                contrast_path=contrast_path,
-            )
+            # For rows produced by fit_global_signal (fit_kind="ogse_contrast_from_global_signal_fit"),
+            # the model parameters are already stored in the fit row and curves are reconstructed
+            # analytically by _resampled_curves_table — no contrast parquet lookup is needed.
+            if str(row.get("fit_kind", "")) == "ogse_contrast_from_global_signal_fit":
+                experimental_points = pd.DataFrame()
+                grid_max_mode_eff = "fixed"
+            else:
+                contrast_path = _resolve_contrast_parquet(
+                    analysis_id=str(row["analysis_id"]),
+                    sheet=row.get("sheet", None),
+                    contrast_root=contrast_root,
+                )
+                contrast_df = _load_contrast_table_cached(contrast_path, cache)
+                df_group = _subset_group(contrast_df, row)
+                experimental_points = _experimental_points_table(df_group, row)
+                _require_experimental_points(
+                    experimental_points=experimental_points,
+                    df_group=df_group,
+                    row=row,
+                    contrast_path=contrast_path,
+                )
+                grid_max_mode_eff = grid_max_mode
             g_common = _resampled_grid_for_row(
                 experimental_points,
                 row,
                 grid_min_mTm=grid_min_mTm,
                 grid_max_mTm=grid_max_mTm,
                 grid_n=grid_n,
-                grid_max_mode=grid_max_mode,
+                grid_max_mode=grid_max_mode_eff,
             )
             curves, signal_fit_params = _resampled_curves_table(
                 row,
@@ -1131,7 +1139,7 @@ def export_resampled_contrasts_from_fits(
                 peak_D0_fix=peak_D0_fix,
                 peak_gamma=peak_gamma,
                 contrast_mode=contrast_mode,
-                grid_max_mode=grid_max_mode,
+                grid_max_mode=grid_max_mode_eff,
             )
             roi_tables.append(table)
 
@@ -1163,7 +1171,7 @@ def export_resampled_contrasts_from_fits(
                 signal_fit_params=signal_fit_params,
                 g_common=g_common,
                 contrast_mode=contrast_mode,
-                grid_max_mode=grid_max_mode,
+                grid_max_mode=grid_max_mode_eff,
             )
             written.append(contrast_out)
             written.append(workbook)

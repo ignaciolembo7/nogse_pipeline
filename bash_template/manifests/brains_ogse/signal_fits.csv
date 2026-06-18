@@ -1,5 +1,16 @@
 subj,sheet,roi,direction,td_ms,N,Hz,model
-# Add one row per signal group to fit.
-# Use ALL in subj/sheet/roi/direction to leave that selector unconstrained.
-# Example:
-# BRAIN,20220622_BRAIN,ALL,ALL,90,4,25,monoexp
+# td=90ms — sessions: 20220622_BRAIN, 20230630_MBBL-3, 20230710_LUDG-3
+ALL,ALL,ALL,ALL,90,8,50,ogse_mixed_offset
+ALL,ALL,ALL,ALL,90,4,25,ogse_mixed_offset
+# td=76ms — session: 20230623_BRAIN-4
+ALL,ALL,ALL,ALL,76,8,65,ogse_mixed_offset
+ALL,ALL,ALL,ALL,76,4,35,ogse_mixed_offset
+# td=120ms — sessions: 20230619_BRAIN-3, 20230623_LUDG-2, 20230629_MBBL-2
+ALL,ALL,ALL,ALL,120,8,40,ogse_mixed_offset
+ALL,ALL,ALL,ALL,120,4,20,ogse_mixed_offset
+# td=143.4ms — sessions: 20230619_BRAIN-3, 20230623_LUDG-2, 20230629_MBBL-2
+ALL,ALL,ALL,ALL,143.4,8,30,ogse_mixed_offset
+ALL,ALL,ALL,ALL,143.4,4,15,ogse_mixed_offset
+# td=210ms — sessions: 20230623_BRAIN-4, 20230630_MBBL-3, 20230710_LUDG-3
+ALL,ALL,ALL,ALL,210,8,20,ogse_mixed_offset
+ALL,ALL,ALL,ALL,210,4,10,ogse_mixed_offset

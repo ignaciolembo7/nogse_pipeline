@@ -81,6 +81,102 @@ def load_master_signal_input(args: Any) -> pd.DataFrame:
 
 
 
+def _row_base_mask(df: pd.DataFrame, mf_row: "pd.Series", mf: "pd.DataFrame") -> "pd.Series":
+    """Build the subj/sheet/roi/direction/td_ms mask for one manifest row."""
+    mask = pd.Series(True, index=df.index)
+    for col in ("subj", "sheet", "roi", "direction"):
+        if col not in mf.columns:
+            continue
+        val = str(mf_row[col]).strip()
+        if val.upper() == "ALL":
+            continue
+        if col in df.columns:
+            mask &= df[col].astype(str).str.strip() == val
+    if "td_ms" in mf.columns and "td_ms" in df.columns:
+        td = float(mf_row["td_ms"])
+        mask &= np.isclose(pd.to_numeric(df["td_ms"], errors="coerce"), td, atol=1e-3)
+    return mask
+
+
+def apply_manifest_filter(df: pd.DataFrame, manifest_path: str | "Path") -> pd.DataFrame:
+    """Filter master-table rows to match entries in a manifest CSV.
+
+    Supports two manifest formats:
+    - Contrast manifest: columns include N_1 and N_2 (e.g. contrasts.csv).
+      Each row selects the two N values that form a contrast pair and tags the
+      selected rows with contrast_side (1 for N_1, 2 for N_2), contrast_N_1,
+      and contrast_N_2 so that build_contrast_fit_rows can pair them correctly.
+    - Signals manifest: column N (e.g. signal_fits.csv).
+      Each row selects a single N value. No contrast tagging is applied.
+
+    Any column value of 'ALL' (case-insensitive) is treated as a wildcard.
+    Lines starting with '#' are treated as comments and ignored.
+    """
+    from pathlib import Path as _Path
+
+    mf = pd.read_csv(_Path(manifest_path), comment="#")
+    mf.columns = [c.strip() for c in mf.columns]
+    if mf.empty:
+        raise ValueError(f"Manifest {manifest_path} is empty or has only comments.")
+
+    is_contrast = "N_1" in mf.columns and "N_2" in mf.columns
+
+    if is_contrast:
+        # For contrast manifests: tag each selected row with contrast_side (1 or 2),
+        # contrast_N_1, and contrast_N_2 so that build_contrast_fit_rows can pair them.
+        parts: list["pd.DataFrame"] = []
+        n_col = pd.to_numeric(df["N"], errors="coerce") if "N" in df.columns else pd.Series(np.nan, index=df.index)
+        for _, mf_row in mf.iterrows():
+            base = _row_base_mask(df, mf_row, mf)
+            n1 = float(mf_row["N_1"])
+            n2 = float(mf_row["N_2"])
+            for side, n_val in ((1, n1), (2, n2)):
+                side_mask = base & np.isclose(n_col, n_val, atol=0.5)
+                if not side_mask.any():
+                    continue
+                chunk = df[side_mask].copy()
+                chunk["contrast_side"] = side
+                chunk["contrast_N_1"] = n1
+                chunk["contrast_N_2"] = n2
+                parts.append(chunk)
+        if not parts:
+            return df.iloc[0:0].copy()
+        result = pd.concat(parts, ignore_index=True)
+        # Drop exact duplicates that can arise when a row matches multiple manifest entries.
+        result = result.drop_duplicates()
+        n_kept = len(result)
+        print(
+            f"  Manifest filter (contrast): {len(mf)} rows → "
+            f"{n_kept} master rows kept (with contrast_side tagging)"
+        )
+        return result
+
+    # Signals manifest: existing per-row mask logic, no contrast tagging.
+    masks: list["pd.Series"] = []
+    for _, mf_row in mf.iterrows():
+        row_mask = _row_base_mask(df, mf_row, mf)
+        if "N" in mf.columns and "N" in df.columns:
+            val = str(mf_row["N"]).strip()
+            if val.upper() != "ALL":
+                n = float(val)
+                row_mask &= np.isclose(pd.to_numeric(df["N"], errors="coerce"), n, atol=0.5)
+        masks.append(row_mask)
+
+    if not masks:
+        return df.iloc[0:0].copy()
+
+    combined = masks[0]
+    for m in masks[1:]:
+        combined = combined | m
+
+    result = df[combined].copy()
+    print(
+        f"  Manifest filter (signals): {len(mf)} rows → "
+        f"{combined.sum()}/{len(df)} master rows kept"
+    )
+    return result
+
+
 def prepare_signal_curves(
     df: pd.DataFrame,
     *,
