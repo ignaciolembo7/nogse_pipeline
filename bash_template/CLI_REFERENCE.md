@@ -433,32 +433,7 @@ Important Python arguments:
 | `--N_1`, `--Hz_1`, `--g_1` | Side-1 selectors. |
 | `--N_2`, `--Hz_2`, `--g_2` | Side-2 selectors. |
 | `--g_pair_col COL` | Column used by `--g_1` and `--g_2`. |
-| `--contrast-source direct|fitted_resampled` | Direct subtraction or fit both signals and subtract on a common grid. |
-| `--signal-model MODEL` | Signal model for `fitted_resampled`. |
-| `--ycol value|value_norm` | Signal column used for fitted/resampled contrast. |
-| `--g_type COL` | Gradient axis used for fitted/resampled contrast. |
-| `--resample_grid_n N` | Number of points in the common grid. |
-| `--resample_grid_min_mTm`, `--resample_grid_max_mTm` | Bounds for the common gradient grid. |
-| `--fit_points N` / `--auto_fit_points` | Fixed or automatic leading-point selection for fitted signals. |
-| `--auto_fit_tol`, `--auto_fit_err_floor`, `--auto_fit_min_points`, `--auto_fit_max_points` | Automatic point-selection controls. |
-| `--gamma`, `--td_ms`, `--delta_ms`, `--Delta_app_ms`, `--D0_init`, `--peak_D0_fix`, `--fix_M0`, `--free_M0` | Model and metadata controls for fitted/resampled mode. |
-
-Build fitted/resampled contrasts:
-
-```bash
-MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled --signal-model monoexp --g_type g_lin_max --auto_fit_points" \
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
-```
-
-Then fit those contrast rows normally:
-
-```bash
-bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
-```
-
-Because `contrast` appends `row_kind=contrast` rows to `MASTER_PARQUET`, the fit
-step does not need a special resampling flag. It fits the contrast rows already
-present in the master table.
+| `--td_ms VALUE` | Optional td_ms selector for master table rows. |
 
 ### `plot_signal`
 
@@ -707,9 +682,9 @@ Those two commands are equivalent as long as `FIT_MODEL` resolves to the same
 model and all other variables (`FIT_GBASE`, `FIT_YCOL`, `FIT_STAT`,
 `FIT_EXTRA_ARGS`, `FIT_OUT_ROOT`) are also the same.
 
-Resampled contrasts are not selected here. Build them first with the `contrast`
-step using `MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled ..."`,
-then run any `fit_contrast*` command on the resulting master contrast rows.
+Resampled contrasts are handled by step `contrast_resampled` (07b). Run that step
+first with signal fits from step `fit_signal` or `fit_global_signal`, then run
+any `fit_contrast*` command on the master contrast rows.
 
 Variables:
 

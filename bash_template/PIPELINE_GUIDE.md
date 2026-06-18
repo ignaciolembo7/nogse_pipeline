@@ -588,31 +588,6 @@ If you only want one ROI:
 BRAIN,20220622_BRAIN,AntCC,ALL,90,8,4,50,25
 ```
 
-**Advanced: fitted-resampled contrasts**
-
-By default the contrast is computed as a direct point-wise subtraction. To
-instead fit each signal curve with a monoexponential model and subtract the
-fitted curves on a common gradient grid, pass extra flags via the environment
-variable `MAKE_CONTRAST_EXTRA_ARGS`:
-
-```bash
-MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled --g_type g_lin_max" \
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
-```
-
-Key options for `MAKE_CONTRAST_EXTRA_ARGS`:
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--contrast-source` | `direct` | `direct` (point subtraction) or `fitted_resampled` (fit then subtract) |
-| `--signal-model` | `monoexp` | Signal model for `fitted_resampled` (e.g. `monoexp`) |
-| `--g_type` | `g` | Gradient axis for fitting and the common resampling grid |
-| `--fit_points N` | `6` | Number of leading gradient points used per fit |
-| `--auto_fit_points` | off | Automatically choose the number of fit points |
-| `--no-master-rotated` | off | Use `signal` rows instead of `signal_rotated` |
-
----
-
 ### signal\_fits.csv
 
 Specifies which signal groups to fit individually (one fit per row).

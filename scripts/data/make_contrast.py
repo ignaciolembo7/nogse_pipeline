@@ -7,18 +7,12 @@ from pathlib import Path
 import re
 import pandas as pd
 
-from data_processing.io import fit_params_output_basename, write_table_outputs
+from data_processing.io import write_table_outputs
 from data_processing.master_table import append_master_rows, build_analysis_id_from_columns, load_master_table, select_signal
 from fitting.b_from_g import VALID_G_TYPES as _GRADIENT_G_TYPES
 from fitting.cli_common import signal_correction_factors_from_rows
 from fitting.contrast import make_contrast
-from fitting.experiments import experiment_models, validate_experiment_model
-from ogse_fitting.contrast import build_fitted_resampled_ogse_contrast
-from ogse_plotting.plot_ogse_contrast_vs_g import plot_ogse_contrast_summary
-from plottings.core import render_xy_plot, sanitize_token
-from ogse_fitting.fit_ogse_signal_vs_g import VALID_G_TYPES
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
-from tools.fit_params_schema import standardize_fit_params
 from tools.strict_columns import find_unrecognized_column_names
 from tools.value_formatting import compact_unique_values, truthy_series
 
@@ -415,72 +409,6 @@ def _apply_grad_correction(df: pd.DataFrame, f_by_direction: dict[str, float]) -
     return out
 
 
-def _plot_fitted_resampled_signal_fits(
-    *,
-    points: pd.DataFrame,
-    curves: pd.DataFrame,
-    out_dir: Path,
-    xcol: str,
-    ycol: str,
-) -> list[Path]:
-    if points.empty or curves.empty:
-        return []
-    if xcol not in points.columns or xcol not in curves.columns:
-        return []
-
-    out_paths: list[Path] = []
-    group_cols = [c for c in ["stat", "roi", "direction", "side"] if c in points.columns and c in curves.columns]
-    if not group_cols:
-        return out_paths
-
-    for key, point_group in points.groupby(group_cols, sort=False, dropna=False):
-        if not isinstance(key, tuple):
-            key = (key,)
-        key_dict = dict(zip(group_cols, key))
-        curve_mask = pd.Series(True, index=curves.index)
-        for col, value in key_dict.items():
-            curve_mask &= curves[col].astype(str) == str(value)
-        curve_group = curves.loc[curve_mask].copy()
-        if curve_group.empty:
-            continue
-
-        d_points = point_group.dropna(subset=[xcol, "signal_observed"]).sort_values(xcol, kind="stable")
-        d_curve = curve_group.dropna(subset=[xcol, "signal_fit"]).sort_values(xcol, kind="stable")
-        if d_points.empty or d_curve.empty:
-            continue
-
-        used = d_points
-        if "fit_used" in d_points.columns:
-            used = d_points[d_points["fit_used"].astype(bool)]
-
-        roi = key_dict.get("roi", "roi")
-        direction = key_dict.get("direction", "direction")
-        side = key_dict.get("side", "side")
-        stat = key_dict.get("stat", "stat")
-        out_png = out_dir / (
-            f"roi-{sanitize_token(roi)}.dir-{sanitize_token(direction)}."
-            f"side-{sanitize_token(side)}.stat-{sanitize_token(stat)}.signal_fit.png"
-        )
-        render_xy_plot(
-            x=pd.to_numeric(d_points[xcol], errors="coerce").to_numpy(dtype=float),
-            y=pd.to_numeric(d_points["signal_observed"], errors="coerce").to_numpy(dtype=float),
-            out_png=out_png,
-            title=f"ROI={roi} | direction={direction} | side={side} | stat={stat}",
-            xlabel=xcol,
-            ylabel=ycol,
-            data_label="signal",
-            connect_data=False,
-            fit_x=pd.to_numeric(d_curve[xcol], errors="coerce").to_numpy(dtype=float),
-            fit_y=pd.to_numeric(d_curve["signal_fit"], errors="coerce").to_numpy(dtype=float),
-            fit_label="fit",
-            highlight_x=pd.to_numeric(used[xcol], errors="coerce").to_numpy(dtype=float),
-            highlight_y=pd.to_numeric(used["signal_observed"], errors="coerce").to_numpy(dtype=float),
-            highlight_label="fit points",
-        )
-        out_paths.append(out_png)
-
-    return out_paths
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -507,80 +435,19 @@ def main():
     ap.add_argument("--g_pair_col", default="g", choices=SIGNAL_G_COLUMNS, help="Column used by --g_1/--g_2 selectors.")
     ap.add_argument("--g_1", type=float, default=None, help="Optional master side-1 gradient selector using --g_pair_col.")
     ap.add_argument("--g_2", type=float, default=None, help="Optional master side-2 gradient selector using --g_pair_col.")
-    ap.add_argument(
-        "--contrast-source",
-        choices=["direct", "fitted_resampled"],
-        default="direct",
-        help="Build contrasts by direct point subtraction, or by fitting each signal curve and subtracting both fits on a common gradient grid.",
-    )
-    ap.add_argument(
-        "--signal-model",
-        default="monoexp",
-        choices=sorted(experiment_models("ogse_signal_vs_g")),
-        help="OGSE signal model used when --contrast-source=fitted_resampled.",
-    )
-    ap.add_argument(
-        "--ycol",
-        default="value_norm",
-        choices=["value", "value_norm"],
-        help="Signal column fitted when --contrast-source=fitted_resampled.",
-    )
-    ap.add_argument(
-        "--g_type",
-        default="g",
-        choices=sorted(VALID_G_TYPES),
-        help="Gradient axis used for signal fitting and the common resampling grid when --contrast-source=fitted_resampled.",
-    )
-    ap.add_argument("--resample_grid_n", type=int, default=None, help="Number of points in the fitted/resampled common gradient grid. Defaults to the smaller input curve length.")
-    ap.add_argument("--resample_grid_min_mTm", type=float, default=None, help="Minimum common gradient in mT/m for fitted/resampled signal contrasts.")
-    ap.add_argument("--resample_grid_max_mTm", type=float, default=None, help="Maximum common gradient in mT/m for fitted/resampled signal contrasts.")
-    fit_group = ap.add_mutually_exclusive_group()
-    fit_group.add_argument("--fit_points", type=int, default=6, help="Fixed number of leading points used for each fitted/resampled signal fit.")
-    fit_group.add_argument("--auto_fit_points", action="store_true", help="Automatically choose the number of leading points for each fitted/resampled signal fit.")
-    ap.add_argument("--auto_fit_tol", type=float, default=0.05, help="Relative tolerance for --auto_fit_points.")
-    ap.add_argument("--auto_fit_err_floor", type=float, default=0.005, help="Absolute rmse_log floor for --auto_fit_points.")
-    ap.add_argument("--auto_fit_min_points", type=int, default=3, help="First k value tested by --auto_fit_points.")
-    ap.add_argument("--auto_fit_max_points", type=int, default=9, help="Last k value tested by --auto_fit_points.")
-    ap.add_argument("--gamma", type=float, default=267.5221900, help="Gyromagnetic ratio used when deriving b-values from gradients.")
-    ap.add_argument("--td_ms", type=float, default=None, help="Optional td_ms override for fitted/resampled signal fits.")
-    ap.add_argument("--delta_ms", type=float, default=None, help="Optional delta_ms override for fitted/resampled signal fits.")
-    ap.add_argument("--Delta_app_ms", type=float, default=None, help="Optional Delta_app_ms override for fitted/resampled signal fits.")
-    ap.add_argument("--D0_init", type=float, default=0.0023, help="Initial D0 seed in mm^2/s for fitted/resampled signal fits.")
-    ap.add_argument("--peak_D0_fix", type=float, default=3.2e-12, help="Fixed D0 in m^2/ms used to convert the resampled contrast peak into tc_peak_ms.")
-    ap.add_argument("--fix_M0", type=float, default=1.0, help="Fixed M0 value for fitted/resampled signal fits unless --free_M0 is used.")
-    ap.add_argument("--free_M0", action="store_true", help="Fit M0 for fitted/resampled signal fits instead of fixing it.")
+    ap.add_argument("--td_ms", type=float, default=None, help="Optional td_ms selector for master table rows.")
     corr_group = ap.add_mutually_exclusive_group()
     corr_group.add_argument(
         "--apply_grad_corr",
         action="store_true",
         help=(
             "Apply the gradient correction factor from master rows to each signal side before building the contrast. "
-            "For direct contrasts the gradient columns are rescaled; "
-            "for fitted_resampled contrasts the correction is applied during signal fitting. "
+            "Gradient columns are rescaled per direction. "
             "Requires grad_correction_factor to be populated in master rows (run step 10 first)."
         ),
     )
     corr_group.add_argument("--no_grad_corr", action="store_true", help="Explicitly disable gradient correction (default).")
     args = ap.parse_args()
-    validate_experiment_model("ogse_signal_vs_g", args.signal_model)
-
-    if args.resample_grid_n is not None and args.resample_grid_n <= 0:
-        raise ValueError("--resample_grid_n must be > 0.")
-    if (args.resample_grid_min_mTm is None) != (args.resample_grid_max_mTm is None):
-        raise ValueError("Pass both --resample_grid_min_mTm and --resample_grid_max_mTm, or neither.")
-    if args.resample_grid_min_mTm is not None and args.resample_grid_max_mTm is not None:
-        if float(args.resample_grid_max_mTm) <= float(args.resample_grid_min_mTm):
-            raise ValueError("--resample_grid_max_mTm must be greater than --resample_grid_min_mTm.")
-    if args.fit_points is not None and args.fit_points <= 0:
-        raise ValueError("--fit_points must be > 0.")
-    if args.auto_fit_tol < 0:
-        raise ValueError("--auto_fit_tol must be >= 0.")
-    if args.auto_fit_err_floor < 0:
-        raise ValueError("--auto_fit_err_floor must be >= 0.")
-    if args.auto_fit_min_points < 1:
-        raise ValueError("--auto_fit_min_points must be >= 1.")
-    if args.auto_fit_max_points is not None and args.auto_fit_max_points < args.auto_fit_min_points:
-        raise ValueError("--auto_fit_max_points must be >= --auto_fit_min_points.")
 
     if args.master_parquet is None and (args.ref_parquet is None or args.cmp_parquet is None):
         raise ValueError("Provide ref_parquet and cmp_parquet, or use --master-parquet with side selectors.")
@@ -618,24 +485,16 @@ def main():
             )
 
     use_grad_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
-    f_ref: dict[str, float] = {}
-    f_cmp: dict[str, float] = {}
     if use_grad_corr:
         f_ref = signal_correction_factors_from_rows(df_ref)
         f_cmp = signal_correction_factors_from_rows(df_cmp)
-        if args.contrast_source == "direct":
-            df_ref = _apply_grad_correction(df_ref, f_ref)
-            df_cmp = _apply_grad_correction(df_cmp, f_cmp)
+        df_ref = _apply_grad_correction(df_ref, f_ref)
+        df_cmp = _apply_grad_correction(df_cmp, f_cmp)
 
     oneg_mode = bool(args.oneg or _has_oneg_marker(df_ref) or _has_oneg_marker(df_cmp))
 
     analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp, oneg=oneg_mode)
     old_analysis_id, _ = build_analysis_id_without_sequence(df_ref, df_cmp, directions, args.exp)
-    if args.contrast_source == "fitted_resampled":
-        source_tag = _sanitize(f"fitresamp-{args.signal_model}-{args.g_type}")
-        if use_grad_corr:
-            source_tag += "_corr"
-        analysis_id = _sanitize(f"{analysis_id}_{source_tag}")[:160]
     sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
     subj = _one(df_ref, "subj", _one(df_cmp, "subj", infer_subj_label(sheet, source_name=analysis_id)))
 
@@ -643,64 +502,23 @@ def main():
         print(f"Skipped: {analysis_id} (subj={subj})")
         return
 
-    signal_fit_params = pd.DataFrame()
-    signal_fit_points = pd.DataFrame()
-    signal_fit_curves = pd.DataFrame()
-    contrast_peak_params = pd.DataFrame()
-    if args.contrast_source == "direct":
-        # Core contrast table: value/value_norm plus side-specific value_1/value_2 columns.
-        res = make_contrast(
-            df_ref,
-            df_cmp,
-            axes=tuple(directions) if directions else None,
-            y_col="value",
-            y_norm_col="value_norm",
-            key_cols=KEY_COLS,
-        )
-        out = res.df.copy()
+    # Core contrast table: value/value_norm plus side-specific value_1/value_2 columns.
+    res = make_contrast(
+        df_ref,
+        df_cmp,
+        axes=tuple(directions) if directions else None,
+        y_col="value",
+        y_norm_col="value_norm",
+        key_cols=KEY_COLS,
+    )
+    out = res.df.copy()
 
-        _validate_input(out, "contrast_out")
-        out = _normalize_key_dtypes(out, "contrast_out")
+    _validate_input(out, "contrast_out")
+    out = _normalize_key_dtypes(out, "contrast_out")
 
-        # Carry all extra columns from ref and cmp.
-        out = _merge_side_columns(out, df_ref, side=1)
-        out = _merge_side_columns(out, df_cmp, side=2)
-    else:
-        res_fit = build_fitted_resampled_ogse_contrast(
-            df_ref,
-            df_cmp,
-            axes=tuple(directions) if directions else None,
-            ycol=args.ycol,
-            signal_model=args.signal_model,
-            g_type=args.g_type,
-            grid_n=args.resample_grid_n,
-            grid_min=args.resample_grid_min_mTm,
-            grid_max=args.resample_grid_max_mTm,
-            fit_points=None if args.auto_fit_points else args.fit_points,
-            auto_fit_points=bool(args.auto_fit_points),
-            auto_fit_min_points=int(args.auto_fit_min_points),
-            auto_fit_max_points=args.auto_fit_max_points,
-            auto_fit_rel_tol=float(args.auto_fit_tol),
-            auto_fit_err_floor=float(args.auto_fit_err_floor),
-            free_M0=bool(args.free_M0),
-            fix_M0=float(args.fix_M0),
-            D0_init=float(args.D0_init),
-            gamma=float(args.gamma),
-            peak_D0_fix=float(args.peak_D0_fix),
-            delta_ms=args.delta_ms,
-            Delta_app_ms=args.Delta_app_ms,
-            td_ms=args.td_ms,
-            key_cols=KEY_COLS,
-            f_by_direction_ref=f_ref if use_grad_corr else None,
-            f_by_direction_cmp=f_cmp if use_grad_corr else None,
-        )
-        out = res_fit.df.copy()
-        signal_fit_params = res_fit.signal_fit_params.copy()
-        signal_fit_points = res_fit.signal_fit_points.copy()
-        signal_fit_curves = res_fit.signal_fit_curves.copy()
-        contrast_peak_params = res_fit.contrast_peak_params.copy()
-        if out.empty:
-            raise ValueError("fitted_resampled contrast build produced no rows.")
+    # Carry all extra columns from ref and cmp.
+    out = _merge_side_columns(out, df_ref, side=1)
+    out = _merge_side_columns(out, df_cmp, side=2)
 
     _validate_input(out, "contrast_out")
     out = _normalize_key_dtypes(out, "contrast_out")
@@ -721,7 +539,6 @@ def main():
         out = _order_columns(out)
 
     tables_dir = Path(args.out_root) / "tables" / analysis_short
-    plots_dir = Path(args.out_root) / "plots" / analysis_short
     tables_dir.mkdir(parents=True, exist_ok=True)
 
     out_parquet = tables_dir / f"{analysis_id}.long.parquet"
@@ -736,78 +553,8 @@ def main():
         )
         print("Appended contrast to master:", args.master_parquet)
 
-    if args.contrast_source == "fitted_resampled" and not signal_fit_params.empty:
-        signal_fit_params["analysis_id"] = str(analysis_id)
-        signal_fit_params["sheet"] = sheet
-        signal_fit_params["subj"] = str(subj)
-        fit_params_parquet = tables_dir / f"{analysis_id}.signal_fit_params.parquet"
-        write_table_outputs(signal_fit_params, fit_params_parquet, xlsx_path=fit_params_parquet.with_suffix(".xlsx"))
-
-    if args.contrast_source == "fitted_resampled" and not signal_fit_points.empty:
-        signal_fit_points["analysis_id"] = str(analysis_id)
-        signal_fit_points["sheet"] = sheet
-        signal_fit_points["subj"] = str(subj)
-        points_parquet = tables_dir / f"{analysis_id}.signal_fit_points.parquet"
-        write_table_outputs(signal_fit_points, points_parquet, xlsx_path=points_parquet.with_suffix(".xlsx"))
-
-    if args.contrast_source == "fitted_resampled" and not signal_fit_curves.empty:
-        signal_fit_curves["analysis_id"] = str(analysis_id)
-        signal_fit_curves["sheet"] = sheet
-        signal_fit_curves["subj"] = str(subj)
-        curves_parquet = tables_dir / f"{analysis_id}.signal_fit_curves.parquet"
-        write_table_outputs(signal_fit_curves, curves_parquet, xlsx_path=curves_parquet.with_suffix(".xlsx"))
-
-    if args.contrast_source == "fitted_resampled":
-        signal_plot_paths = _plot_fitted_resampled_signal_fits(
-            points=signal_fit_points,
-            curves=signal_fit_curves,
-            out_dir=plots_dir / analysis_id / "signal_fits",
-            xcol=str(args.g_type),
-            ycol=str(args.ycol),
-        )
-        if signal_plot_paths:
-            print("Saved signal-fit plots:", len(signal_plot_paths))
-
-        contrast_xcol = str(args.g_type)
-        if f"{contrast_xcol}_1" in out.columns:
-            contrast_xcol = f"{contrast_xcol}_1"
-        plot_out = out.copy()
-        if "stat" in plot_out.columns:
-            plot_out = plot_out[plot_out["stat"].astype(str) == "avg"].copy()
-        if not plot_out.empty:
-            contrast_plot_paths = plot_ogse_contrast_summary(
-                plot_out,
-                out_root=plots_dir / "contrasts",
-                exp_id=analysis_id,
-                xcol=contrast_xcol,
-                ycol=str(args.ycol),
-                directions=directions or sorted(plot_out["direction"].dropna().astype(str).unique().tolist()),
-                rois_requested=None,
-                stat="avg",
-            )
-            if contrast_plot_paths:
-                print("Saved fitted/resampled contrast plots:", len(contrast_plot_paths))
-
-    if args.contrast_source == "fitted_resampled" and not contrast_peak_params.empty:
-        contrast_peak_params["analysis_id"] = str(analysis_id)
-        contrast_peak_params["sheet"] = sheet
-        contrast_peak_params["subj"] = str(subj)
-        contrast_peak_params = standardize_fit_params(
-            contrast_peak_params,
-            fit_kind="ogse_contrast",
-            source_file=Path(args.ref_parquet).name if args.ref_parquet is not None else str(_one(df_ref, "source_file", "master")),
-        )
-        fit_params_name = fit_params_output_basename(
-            model=str(args.signal_model),
-            axis=str(args.g_type),
-            ycol=str(args.ycol),
-            directions=directions or None,
-        )
-        peak_params_parquet = tables_dir / f"{fit_params_name}.parquet"
-        write_table_outputs(contrast_peak_params, peak_params_parquet, xlsx_path=peak_params_parquet.with_suffix(".xlsx"))
-
     # Remove older duplicate outputs that used the pre-sequence naming scheme.
-    if args.contrast_source == "direct" and old_analysis_id != analysis_id:
+    if old_analysis_id != analysis_id:
         old_parquet = tables_dir / f"{old_analysis_id}.long.parquet"
         old_xlsx = old_parquet.with_suffix(".xlsx")
         for old_path in (old_parquet, old_xlsx):
