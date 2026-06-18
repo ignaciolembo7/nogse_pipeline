@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -194,6 +195,85 @@ def _fit_monoexp(
 
 
 # ---------------------------------------------------------------------------
+# Comparison plots
+# ---------------------------------------------------------------------------
+
+def _plot_correction_fits(plot_items: list[dict], plot_dir: Path) -> list[Path]:
+    """
+    Two-panel figure per manifest row.
+    Left:  signal_norm vs G_raw  + NOGSE free fit on G_raw.
+    Right: signal_norm vs G_corr + NOGSE free fit re-fitted on G_corr = G_raw * correction_factor.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    saved: list[Path] = []
+
+    for item in plot_items:
+        td_ms: float = item['td_ms']
+        N: int = item['N']
+        G_raw: np.ndarray = item['G']
+        y: np.ndarray = item['y']
+        fit_raw: dict = item['fit_nogse']
+        correction_factor: float = item['correction_factor']
+        g_col: str = item['g_col']
+        M0_vary: bool = item['M0_vary']
+        M0_value: float = item['M0_value']
+        D0_init: float = item['D0_init']
+
+        cf = float(correction_factor) if np.isfinite(correction_factor) else 1.0
+        G_corr = G_raw * cf
+        fit_corr = _fit_nogse_signal_free(
+            td_ms=td_ms, G=G_corr, N=N, y=y,
+            M0_vary=M0_vary, M0_value=M0_value, D0_init=D0_init,
+        )
+
+        fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.5), sharey=True)
+        for ax, G_plot, fit, title in [
+            (axes[0], G_raw,  fit_raw,  'before correction'),
+            (axes[1], G_corr, fit_corr, 'after correction'),
+        ]:
+            valid = np.isfinite(G_plot) & np.isfinite(y)
+            ax.plot(G_plot[valid], y[valid], 'o', markersize=5, label='data')
+            if fit.get('ok') and np.isfinite(float(fit.get('D0_m2_ms', np.nan))):
+                G_max = float(np.nanmax(G_plot[valid])) if valid.any() else 100.0
+                G_fine = np.linspace(0.0, G_max, 250)
+                y_fit = _nogse_signal_model(td_ms, G_fine, N, fit['M0'], fit['D0_m2_ms'])
+                D0_txt = f"{fit['D0_mm2_s']:.4f} mm²/s"
+                ax.plot(G_fine, y_fit, '-', linewidth=2,
+                        label=f"M0={fit['M0']:.3g}, D₀={D0_txt}")
+            ax.set_title(title)
+            ax.set_xlabel(f'{g_col} [mT/m]')
+            ax.grid(True, alpha=0.25)
+            ax.legend(frameon=False, fontsize=8)
+
+        axes[0].set_ylabel('signal_norm')
+        cf_txt = f"{correction_factor:.4f}" if np.isfinite(correction_factor) else "NA"
+        fig.suptitle(
+            f"NOGSE free fit | {item['subj']} | {item['sheet']} | "
+            f"roi={item['roi']} | dir={item['direction']} | "
+            f"td={td_ms:g} ms | N={N} | cf={cf_txt}",
+            fontsize=10,
+        )
+        fig.tight_layout()
+
+        raw_name = (
+            f"{item['subj']}_{item['sheet']}_{item['roi']}"
+            f"_{item['direction']}_td{td_ms:.1f}_N{N}.png"
+        )
+        fname = re.sub(r'[^\w._-]', '_', raw_name)
+        out_path = plot_dir / fname
+        fig.savefig(out_path, dpi=200, bbox_inches='tight')
+        plt.close(fig)
+        saved.append(out_path)
+        print(f'  plot: {out_path}')
+
+    return saved
+
+
+# ---------------------------------------------------------------------------
 # Main: build correction table from manifest + master parquet
 # ---------------------------------------------------------------------------
 
@@ -205,10 +285,12 @@ def make_grad_correction_from_manifest(
     row_kind: str = 'signal_rotated',
     gbase: str = 'g_lin_max',
     bbase: str = 'bvalue_thorsten',
+    ycol: str = 'value_norm',
     M0_vary: bool = False,
     M0_value: float = 1.0,
     D0_init: float = 2.3e-12,
     tol_ms: float = 1e-3,
+    plot_dir: Path | None = None,
 ) -> pd.DataFrame:
     """
     Read the grad-correction manifest and the master parquet, then for each
@@ -252,6 +334,7 @@ def make_grad_correction_from_manifest(
     D0_init_mm2_s = float(D0_init) * 1e9
 
     rows: list[dict] = []
+    plot_items: list[dict] = []
     for _, mrow in mf.iterrows():
         subj = str(mrow['subj']).strip()
         sheet = str(mrow['sheet']).strip()
@@ -280,7 +363,7 @@ def make_grad_correction_from_manifest(
         curve_sorted = curve.sort_values(g_col)
         G = pd.to_numeric(curve_sorted[g_col], errors='coerce').to_numpy(dtype=float)
         b = pd.to_numeric(curve_sorted[b_col], errors='coerce').to_numpy(dtype=float)
-        y = pd.to_numeric(curve_sorted['value_norm'], errors='coerce').to_numpy(dtype=float)
+        y = pd.to_numeric(curve_sorted[ycol], errors='coerce').to_numpy(dtype=float)
 
         fit_nogse = _fit_nogse_signal_free(
             td_ms=td_ms, G=G, N=N, y=y,
@@ -302,6 +385,24 @@ def make_grad_correction_from_manifest(
         else:
             ratio = np.nan
             correction_factor = np.nan
+
+        if plot_dir is not None:
+            plot_items.append({
+                'subj': subj,
+                'sheet': sheet,
+                'roi': roi,
+                'direction': direction,
+                'td_ms': td_ms,
+                'N': N,
+                'G': G,
+                'y': y,
+                'fit_nogse': fit_nogse,
+                'correction_factor': correction_factor,
+                'g_col': g_col,
+                'M0_vary': M0_vary,
+                'M0_value': M0_value,
+                'D0_init': D0_init,
+            })
 
         rows.append({
             'subj': subj,
@@ -335,6 +436,11 @@ def make_grad_correction_from_manifest(
 
     out = pd.DataFrame(rows)
     out = out.sort_values(['subj', 'sheet', 'direction', 'td_ms', 'N'], kind='stable').reset_index(drop=True)
+
+    if plot_dir is not None and plot_items:
+        n_plots = len(_plot_correction_fits(plot_items, Path(plot_dir)))
+        print(f'Saved {n_plots} comparison plot(s) to: {plot_dir}')
+
     return out
 
 
@@ -342,14 +448,92 @@ def make_grad_correction_from_manifest(
 # Master table update
 # ---------------------------------------------------------------------------
 
+def _fill_missing_correction_factors_by_avg(master_path: Path) -> None:
+    """Fill grad_correction_factor on signal rows that the manifest didn't cover.
+
+    After the manifest-based factors are written, some subjects/sessions may still
+    have NaN because they have no syringe curve in the manifest (e.g. a subject
+    whose only session was scanned without a reference phantom).  Since the factor
+    is a scanner / gradient property (not a biological one) we fill those gaps
+    with the cross-subject mean at the same (direction, td_ms, N).
+
+    Only rows that already received a factor from the manifest are used as sources.
+    Rows that cannot be matched (no other subject with that direction/td/N) are
+    left as NaN and a warning is printed.
+    """
+    from data_processing.master_table import load_master_table, write_master_table
+
+    master = load_master_table(master_path)
+    master['grad_correction_factor'] = pd.to_numeric(
+        master.get('grad_correction_factor'), errors='coerce'
+    )
+
+    signal_mask = master['row_kind'].astype(str).isin(['signal', 'signal_rotated'])
+    has_factor = signal_mask & master['grad_correction_factor'].notna()
+    missing    = signal_mask & master['grad_correction_factor'].isna()
+
+    if not missing.any():
+        return
+
+    if not has_factor.any():
+        n = int(missing.sum())
+        print(f'WARNING fill_missing_correction: {n} signal rows lack a factor '
+              'but no source factors exist to average from.')
+        return
+
+    # Build group mean: (direction, td_ms_rounded, N_rounded) -> mean factor
+    source = master[has_factor].copy()
+    source['_td_r'] = pd.to_numeric(source['td_ms'], errors='coerce').round(3)
+    source['_N_r']  = pd.to_numeric(source['N'],     errors='coerce').round(1)
+    group_means = (
+        source.groupby(['direction', '_td_r', '_N_r'])['grad_correction_factor']
+        .mean()
+    )
+
+    target = master[missing].copy()
+    target['_td_r'] = pd.to_numeric(target['td_ms'], errors='coerce').round(3)
+    target['_N_r']  = pd.to_numeric(target['N'],     errors='coerce').round(1)
+
+    filled = 0
+    for idx, row in target.iterrows():
+        key = (str(row['direction']), float(row['_td_r']), float(row['_N_r']))
+        avg = group_means.get(key, np.nan)
+        if np.isfinite(float(avg)):
+            master.at[idx, 'grad_correction_factor'] = float(avg)
+            filled += 1
+
+    n_still = int(master[signal_mask & master['grad_correction_factor'].isna()].shape[0])
+
+    if filled > 0:
+        write_master_table(master, master_path)
+        n_src_subj = int(master[has_factor]['subj'].nunique())
+        print(
+            f'Filled {filled} missing grad_correction_factor entries '
+            f'using cross-subject mean ({n_src_subj} source subject(s)).'
+        )
+    if n_still > 0:
+        still_rows = master[signal_mask & master['grad_correction_factor'].isna()]
+        combos = (
+            still_rows[['subj', 'direction', 'td_ms', 'N']]
+            .drop_duplicates()
+            .sort_values(['subj', 'direction', 'td_ms', 'N'])
+        )
+        print(
+            f'WARNING fill_missing_correction: {n_still} signal rows still lack a factor '
+            '(no matching direction/td_ms/N in any other subject):\n'
+            + combos.to_string(index=False)
+        )
+
+
 def _update_master_correction_factors(master_path: Path, corr: pd.DataFrame, tol_ms: float = 1e-3) -> None:
     """
     Write correction_factor from the correction table into master.long.parquet.
 
-    For signal/signal_rotated rows: matches on (subj, sheet, direction, td_ms, N).
-    For contrast rows: matches N against N_1 → grad_correction_factor_1,
-                       and N against N_2 → grad_correction_factor_2.
-    The correction propagates to ALL rois in the master, not just the syringe roi.
+    Only signal and signal_rotated rows are updated — the correction is applied at
+    the signal level. Contrast rows are NOT touched; they inherit the correction
+    through their source signal rows when contrast is (re-)computed.
+
+    Matches on (subj, sheet, direction, td_ms, N) and propagates to ALL rois.
     """
     from data_processing.master_table import load_master_table, write_master_table
 
@@ -362,9 +546,9 @@ def _update_master_correction_factors(master_path: Path, corr: pd.DataFrame, tol
     master_sheet_canon = master['sheet'].astype(str).apply(canonical_sheet_name)
     master_dir = master['direction'].astype(str)
     master_td = pd.to_numeric(master['td_ms'], errors='coerce')
+    master_N = pd.to_numeric(master['N'], errors='coerce')
 
     signal_mask = master['row_kind'].astype(str).isin(['signal', 'signal_rotated'])
-    contrast_mask = master['row_kind'].astype(str) == 'contrast'
 
     for _, row in corr.iterrows():
         factor = row.get('correction_factor')
@@ -378,32 +562,15 @@ def _update_master_correction_factors(master_path: Path, corr: pd.DataFrame, tol
         td_ms = float(row['td_ms'])
         N = float(row['N'])
 
-        base = (
+        mask = (
+            signal_mask &
             (master_subj == subj) &
             (master_sheet_canon == sheet_canon) &
             (master_dir == direction) &
-            np.isclose(master_td, td_ms, atol=tol_ms)
+            np.isclose(master_td, td_ms, atol=tol_ms) &
+            np.isclose(master_N, N, atol=0.5)
         )
-
-        # Signal rows (all rois): match on N
-        master_N = pd.to_numeric(master['N'], errors='coerce')
-        sig_mask = signal_mask & base & np.isclose(master_N, N, atol=0.5)
-        master.loc[sig_mask, 'grad_correction_factor'] = factor
-
-        # Contrast rows (all rois): match N against N_1 and N_2
-        if 'N_1' in master.columns:
-            master_N1 = pd.to_numeric(master['N_1'], errors='coerce')
-            c1_mask = contrast_mask & base & np.isclose(master_N1, N, atol=0.5)
-            if 'grad_correction_factor_1' not in master.columns:
-                master['grad_correction_factor_1'] = np.nan
-            master.loc[c1_mask, 'grad_correction_factor_1'] = factor
-
-        if 'N_2' in master.columns:
-            master_N2 = pd.to_numeric(master['N_2'], errors='coerce')
-            c2_mask = contrast_mask & base & np.isclose(master_N2, N, atol=0.5)
-            if 'grad_correction_factor_2' not in master.columns:
-                master['grad_correction_factor_2'] = np.nan
-            master.loc[c2_mask, 'grad_correction_factor_2'] = factor
+        master.loc[mask, 'grad_correction_factor'] = factor
 
     write_master_table(master, master_path)
     print('Updated master grad_correction_factor:', master_path)

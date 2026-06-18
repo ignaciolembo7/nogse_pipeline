@@ -15,7 +15,7 @@ from tools.strict_columns import raise_on_unrecognized_column_names
 MASTER_ROW_KINDS = ("signal", "signal_rotated", "contrast", "dproj", "fit_params", "fit_points")
 
 SIGNAL_ROW_KINDS = {"signal", "signal_rotated"}
-CONTRAST_REQUIRED_COLUMNS = {"stat", "roi", "direction", "b_step", "value", "value_norm", "N_1", "N_2"}
+CONTRAST_REQUIRED_COLUMNS = {"stat", "roi", "direction", "b_step", "value", "value_norm"}
 MASTER_BASE_COLUMNS = [
     "row_kind",
     "analysis_id",
@@ -29,15 +29,9 @@ MASTER_BASE_COLUMNS = [
     "value_norm",
     "D_proj",
     "grad_correction_factor",
-    "grad_correction_factor_1",
-    "grad_correction_factor_2",
     "td_ms",
     "N",
-    "N_1",
-    "N_2",
     "Hz",
-    "Hz_1",
-    "Hz_2",
     "source_file",
     "source_path",
     "source_hash",

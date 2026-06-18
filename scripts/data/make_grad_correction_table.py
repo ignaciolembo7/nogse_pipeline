@@ -10,6 +10,7 @@ import pandas as pd
 from data_processing.io import write_xlsx_sheets
 from ogse_fitting.make_grad_correction_table import (
     make_grad_correction_from_manifest,
+    _fill_missing_correction_factors_by_avg,
     _update_master_correction_factors,
 )
 
@@ -37,6 +38,10 @@ def main() -> None:
     )
     ap.add_argument('--out-xlsx', required=True, help='Output .xlsx path.')
     ap.add_argument('--out-csv', default=None, help='Optional .csv output.')
+    ap.add_argument(
+        '--plot-dir', type=Path, default=None,
+        help='Directory to save per-curve comparison plots (NOGSE fit vs monoexp fit).',
+    )
 
     ap.add_argument(
         '--stat', default='avg',
@@ -55,12 +60,26 @@ def main() -> None:
         help='B-value column for monoexp fit (default: bvalue_thorsten).',
     )
     ap.add_argument(
+        '--ycol', default='value_norm',
+        help='Signal column to fit (default: value_norm). Use value for raw signal.',
+    )
+    ap.add_argument(
         '--D0-init', type=float, default=2.3e-12,
         help='D0 seed for NOGSE free fit in m2/ms (default: 2.3e-12).',
     )
     ap.add_argument(
         '--tol-ms', type=float, default=1e-3,
         help='Tolerance in ms when matching td_ms values (default: 1e-3).',
+    )
+
+    ap.add_argument(
+        '--no-fill-missing',
+        action='store_true',
+        help=(
+            'Skip the cross-subject fill step. By default, after writing manifest-derived '
+            'factors, any signal rows still missing a factor receive the mean factor from '
+            'other subjects at the same (direction, td_ms, N).'
+        ),
     )
 
     m0_group = ap.add_mutually_exclusive_group()
@@ -85,10 +104,12 @@ def main() -> None:
         row_kind=args.row_kind,
         gbase=args.gbase,
         bbase=args.bbase,
+        ycol=args.ycol,
         M0_vary=M0_vary,
         M0_value=M0_value,
         D0_init=args.D0_init,
         tol_ms=args.tol_ms,
+        plot_dir=args.plot_dir,
     )
 
     out_xlsx = Path(args.out_xlsx)
@@ -103,6 +124,9 @@ def main() -> None:
         print('OK:', out_csv)
 
     _update_master_correction_factors(args.master_parquet, out, tol_ms=args.tol_ms)
+
+    if not args.no_fill_missing:
+        _fill_missing_correction_factors_by_avg(args.master_parquet)
 
     n_ok = int(out['correction_factor'].notna().sum())
     n_total = len(out)

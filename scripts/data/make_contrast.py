@@ -9,6 +9,8 @@ import pandas as pd
 
 from data_processing.io import fit_params_output_basename, write_table_outputs
 from data_processing.master_table import append_master_rows, build_analysis_id_from_columns, load_master_table, select_signal
+from fitting.b_from_g import VALID_G_TYPES as _GRADIENT_G_TYPES
+from fitting.cli_common import signal_correction_factors_from_rows
 from fitting.contrast import make_contrast
 from fitting.experiments import experiment_models, validate_experiment_model
 from ogse_fitting.contrast import build_fitted_resampled_ogse_contrast
@@ -258,12 +260,20 @@ def _normalize_key_dtypes(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return out
 
 
+_NUMERIC_SUFFIX_RE = re.compile(r'_\d+(_\d+)*$')
+
+
 def _merge_side_columns(out: pd.DataFrame, side_df: pd.DataFrame, *, side: int) -> pd.DataFrame:
     """
     Carry all columns from side_df except KEY_COLS, using the _1 or _2 suffix.
     Skip columns that already exist as {col}_{side}.
+    Columns that already end in _N or _N_M (accumulated from prior contrast runs) are
+    excluded to prevent exponential column growth on repeated contrast runs.
     """
-    extra_cols = [c for c in side_df.columns if c not in KEY_COLS]
+    extra_cols = [
+        c for c in side_df.columns
+        if c not in KEY_COLS and not _NUMERIC_SUFFIX_RE.search(c)
+    ]
     sub = side_df[list(KEY_COLS) + extra_cols].drop_duplicates(list(KEY_COLS), keep="first")
 
     rename = {}
@@ -382,6 +392,27 @@ def build_analysis_id_without_sequence(
     sheet_override: str | None,
 ) -> tuple[str, str]:
     return _build_analysis_core(df_ref, df_cmp, directions, sheet_override)
+
+
+_GRADIENT_COLS = frozenset(_GRADIENT_G_TYPES)
+_BVALUE_COLS = frozenset({"bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten"})
+
+
+def _apply_grad_correction(df: pd.DataFrame, f_by_direction: dict[str, float]) -> pd.DataFrame:
+    """Scale gradient columns by f and bvalue columns by f² per direction."""
+    out = df.copy()
+    for direction, f in f_by_direction.items():
+        if f == 1.0:
+            continue
+        mask = out["direction"].astype(str) == str(direction)
+        for col in _GRADIENT_COLS:
+            if col in out.columns:
+                out.loc[mask, col] = pd.to_numeric(out.loc[mask, col], errors="coerce") * f
+        f2 = f * f
+        for col in _BVALUE_COLS:
+            if col in out.columns:
+                out.loc[mask, col] = pd.to_numeric(out.loc[mask, col], errors="coerce") * f2
+    return out
 
 
 def _plot_fitted_resampled_signal_fits(
@@ -518,6 +549,18 @@ def main():
     ap.add_argument("--peak_D0_fix", type=float, default=3.2e-12, help="Fixed D0 in m^2/ms used to convert the resampled contrast peak into tc_peak_ms.")
     ap.add_argument("--fix_M0", type=float, default=1.0, help="Fixed M0 value for fitted/resampled signal fits unless --free_M0 is used.")
     ap.add_argument("--free_M0", action="store_true", help="Fit M0 for fitted/resampled signal fits instead of fixing it.")
+    corr_group = ap.add_mutually_exclusive_group()
+    corr_group.add_argument(
+        "--apply_grad_corr",
+        action="store_true",
+        help=(
+            "Apply the gradient correction factor from master rows to each signal side before building the contrast. "
+            "For direct contrasts the gradient columns are rescaled; "
+            "for fitted_resampled contrasts the correction is applied during signal fitting. "
+            "Requires grad_correction_factor to be populated in master rows (run step 10 first)."
+        ),
+    )
+    corr_group.add_argument("--no_grad_corr", action="store_true", help="Explicitly disable gradient correction (default).")
     args = ap.parse_args()
     validate_experiment_model("ogse_signal_vs_g", args.signal_model)
 
@@ -574,12 +617,24 @@ def main():
                 f"Requested directions={directions}, ref_available={ref_dirs_before}, cmp_available={cmp_dirs_before}."
             )
 
+    use_grad_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
+    f_ref: dict[str, float] = {}
+    f_cmp: dict[str, float] = {}
+    if use_grad_corr:
+        f_ref = signal_correction_factors_from_rows(df_ref)
+        f_cmp = signal_correction_factors_from_rows(df_cmp)
+        if args.contrast_source == "direct":
+            df_ref = _apply_grad_correction(df_ref, f_ref)
+            df_cmp = _apply_grad_correction(df_cmp, f_cmp)
+
     oneg_mode = bool(args.oneg or _has_oneg_marker(df_ref) or _has_oneg_marker(df_cmp))
 
     analysis_id, analysis_short = build_analysis_id(df_ref, df_cmp, directions, args.exp, oneg=oneg_mode)
     old_analysis_id, _ = build_analysis_id_without_sequence(df_ref, df_cmp, directions, args.exp)
     if args.contrast_source == "fitted_resampled":
         source_tag = _sanitize(f"fitresamp-{args.signal_model}-{args.g_type}")
+        if use_grad_corr:
+            source_tag += "_corr"
         analysis_id = _sanitize(f"{analysis_id}_{source_tag}")[:160]
     sheet = canonical_sheet_name(args.exp or _one(df_ref, "sheet", _one(df_cmp, "sheet", None)))
     subj = _one(df_ref, "subj", _one(df_cmp, "subj", infer_subj_label(sheet, source_name=analysis_id)))
@@ -636,6 +691,8 @@ def main():
             Delta_app_ms=args.Delta_app_ms,
             td_ms=args.td_ms,
             key_cols=KEY_COLS,
+            f_by_direction_ref=f_ref if use_grad_corr else None,
+            f_by_direction_cmp=f_cmp if use_grad_corr else None,
         )
         out = res_fit.df.copy()
         signal_fit_params = res_fit.signal_fit_params.copy()

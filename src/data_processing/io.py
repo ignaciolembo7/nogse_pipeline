@@ -122,7 +122,16 @@ def write_table_outputs(
     if xlsx_path is not None:
         out_xlsx = Path(xlsx_path)
         out_xlsx.parent.mkdir(parents=True, exist_ok=True)
-        df.to_excel(out_xlsx, index=False)
+        _EXCEL_MAX_COLS = 16384
+        if df.shape[1] > _EXCEL_MAX_COLS:
+            import warnings
+            warnings.warn(
+                f"Skipping {out_xlsx.name}: {df.shape[1]} columns exceeds Excel limit "
+                f"({_EXCEL_MAX_COLS}). Parquet output is complete.",
+                stacklevel=2,
+            )
+        else:
+            df.to_excel(out_xlsx, index=False)
 
     if csv_path is not None:
         out_csv = Path(csv_path)

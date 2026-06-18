@@ -36,6 +36,25 @@ pipeline_require_file "$FIT_GLOBAL_SIGNAL_SCRIPT" "global signal fit script"
 pipeline_require_file "$MASTER_PARQUET" "master table"
 mkdir -p "$GLOBAL_SIGNAL_OUT_ROOT"
 
+# Auto-select manifest if not explicitly set.
+# When any parameter mode is global_contrast, default to contrasts.csv;
+# otherwise default to signal_fits.csv. Either file may be absent (manifest is optional).
+if [[ -z "${GLOBAL_SIGNAL_MANIFEST+x}" ]]; then
+    _has_gc=false
+    for _mode in \
+        "${GLOBAL_SIGNAL_TC_MODE:-global_td}" \
+        "${GLOBAL_SIGNAL_ALPHA_MODE:-global_td}" \
+        "${GLOBAL_SIGNAL_M0_MODE:-global_contrast}" \
+        "${GLOBAL_SIGNAL_C_MODE:-global_contrast}"; do
+        if [[ "$_mode" == "global_contrast" ]]; then _has_gc=true; break; fi
+    done
+    if [[ "$_has_gc" == "true" ]]; then
+        GLOBAL_SIGNAL_MANIFEST="$MANIFEST_DIR/contrasts.csv"
+    else
+        GLOBAL_SIGNAL_MANIFEST="$MANIFEST_DIR/signal_fits.csv"
+    fi
+fi
+
 args=(
     --master-parquet "$MASTER_PARQUET"
     --row-kind "${GLOBAL_SIGNAL_ROW_KIND:-signal_rotated}"
@@ -72,6 +91,15 @@ fi
 if [[ "${GLOBAL_SIGNAL_SUBJS:-ALL}" != "ALL" ]]; then
     read -r -a subj_args <<< "${GLOBAL_SIGNAL_SUBJS//,/ }"
     args+=(--subjs "${subj_args[@]}")
+fi
+
+# Manifest: pass if the file exists (it is optional)
+if [[ -n "${GLOBAL_SIGNAL_MANIFEST:-}" ]] && [[ "${GLOBAL_SIGNAL_MANIFEST}" != "none" ]]; then
+    if [[ -f "$GLOBAL_SIGNAL_MANIFEST" ]]; then
+        args+=(--manifest "$GLOBAL_SIGNAL_MANIFEST")
+    else
+        echo "  WARNING: GLOBAL_SIGNAL_MANIFEST=$GLOBAL_SIGNAL_MANIFEST not found; fitting all signal rows."
+    fi
 fi
 
 if [[ "${GLOBAL_SIGNAL_APPLY_GRAD_CORR:-true}" == "true" ]]; then

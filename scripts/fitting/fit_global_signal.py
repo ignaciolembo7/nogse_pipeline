@@ -26,6 +26,7 @@ from data_processing.io import write_table_outputs
 from fitting.b_from_g import normalize_axis_base
 from fitting.global_signal_fit import build_global_signal_rows, fit_global_curve_group, param_order
 from fitting.global_signal_inputs import (
+    apply_manifest_filter,
     group_curves_by_subject_roi_direction,
     load_master_signal_input,
     prepare_signal_curves,
@@ -106,6 +107,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ap.add_argument("--master-parquet", type=Path, required=True, help="Master table containing the signal rows to fit.")
+    ap.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Optional manifest CSV to select which curves to fit. "
+            "Contrast manifests (columns N_1, N_2) select paired curves for global_contrast mode. "
+            "Signal manifests (column N) select individual curves. "
+            "Values of ALL are wildcards."
+        ),
+    )
     ap.add_argument("--row-kind", default="signal_rotated", help="Master row_kind to fit. Defaults to signal_rotated.")
     ap.add_argument("--out_root", required=True, type=Path)
     ap.add_argument("--type-seq", "--type_seq", "--family", dest="type_seq", choices=["ogse", "nogse"], default="ogse")
@@ -179,6 +191,11 @@ def main() -> None:
 
     param_configs = build_param_configs(args, model_spec=model_spec)
     signal_df = load_master_signal_input(args)
+
+    if args.manifest is not None:
+        signal_df = apply_manifest_filter(signal_df, args.manifest)
+        if signal_df.empty:
+            raise ValueError(f"No master rows matched the manifest: {args.manifest}")
 
     apply_corr = bool(args.apply_grad_corr) and not bool(args.no_grad_corr)
 

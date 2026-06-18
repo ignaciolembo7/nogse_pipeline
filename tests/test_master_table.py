@@ -55,8 +55,6 @@ def _contrast_rows() -> pd.DataFrame:
             "b_step": [0, 1],
             "value": [0.0, 0.25],
             "value_norm": [0.0, 0.25],
-            "N_1": [4, 4],
-            "N_2": [2, 2],
             "td_ms": [40.0, 40.0],
             "subj": ["S1", "S1"],
             "sheet": ["S1", "S1"],
@@ -79,7 +77,7 @@ class MasterTableTests(unittest.TestCase):
         master = append_master_rows(None, _signal_rows(), row_kind="signal", analysis_id="S1_td40_N2")
         master = append_master_rows(master, _contrast_rows())
 
-        selected = select_contrast_pair(master, subj="S1", roi="ROI_A", direction="long", N_1=4, N_2=2)
+        selected = select_contrast_pair(master, subj="S1", roi="ROI_A", direction="long")
 
         self.assertEqual(len(selected), 2)
         self.assertEqual(selected["analysis_id"].unique().tolist(), ["S1_N4-N2_td40"])

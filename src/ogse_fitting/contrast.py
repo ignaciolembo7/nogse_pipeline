@@ -10,6 +10,7 @@ from fitting.b_from_g import (
     axis_uses_bvalue,
     build_axis_bundle,
     bvalue_from_gradient,
+    coerce_positive_correction_factor,
     gradient_base_for_axis,
     gradient_column_name,
     normalize_axis_base,
@@ -31,6 +32,7 @@ from ogse_fitting.fit_ogse_signal_vs_g import (
     OGSE_SIGNAL_MODEL_REST,
     OGSE_SIGNAL_MODEL_REST_OFFSET,
     VALID_OGSE_SIGNAL_MODELS,
+    normalize_ogse_signal_model,
     _ogse_signal_free,
     _ogse_signal_rest,
     _select_fit_result as _select_ogse_signal_fit_result,
@@ -133,6 +135,7 @@ def _fit_one_signal_curve(
     delta_ms: float | None,
     Delta_app_ms: float | None,
     td_ms: float | None,
+    correction_factor: float = 1.0,
 ) -> _SignalCurveFit:
     d = df.sort_values("b_step", kind="stable").copy()
     if ycol not in d.columns:
@@ -151,6 +154,7 @@ def _fit_one_signal_curve(
     bundle = build_axis_bundle(
         d,
         axis=g_type,
+        correction_factor=float(correction_factor),
         gamma=float(gamma),
         N=float(n_value),
         delta_ms=delta_value,
@@ -168,7 +172,7 @@ def _fit_one_signal_curve(
             Delta_app_ms=Delta_app_value,
         )
 
-    model_name = str(model)
+    model_name = normalize_ogse_signal_model(str(model))
     if model_name == OGSE_SIGNAL_MODEL_MONOEXP:
         b = _monoexp_b_from_mode(
             d,
@@ -353,11 +357,13 @@ def build_fitted_resampled_ogse_contrast(
     Delta_app_ms: float | None = None,
     td_ms: float | None = None,
     key_cols: tuple[str, ...] = ("stat", "roi", "direction", "b_step"),
+    f_by_direction_ref: dict[str, float] | None = None,
+    f_by_direction_cmp: dict[str, float] | None = None,
 ) -> FittedResampledContrastResult:
     raise_on_unrecognized_column_names(df_ref.columns, context="build_fitted_resampled_ogse_contrast(df_ref)")
     raise_on_unrecognized_column_names(df_cmp.columns, context="build_fitted_resampled_ogse_contrast(df_cmp)")
 
-    model_name = str(signal_model)
+    model_name = normalize_ogse_signal_model(str(signal_model))
     if model_name not in VALID_OGSE_SIGNAL_MODELS:
         raise ValueError(
             f"Unsupported OGSE signal model {model_name!r}. "
@@ -403,6 +409,14 @@ def build_fitted_resampled_ogse_contrast(
         if cmp_group.empty:
             continue
 
+        direction_key = str(key_dict.get("direction", ""))
+        f_ref = coerce_positive_correction_factor(
+            f_by_direction_ref.get(direction_key, 1.0) if f_by_direction_ref else None
+        )
+        f_cmp = coerce_positive_correction_factor(
+            f_by_direction_cmp.get(direction_key, 1.0) if f_by_direction_cmp else None
+        )
+
         ref_fit = _fit_one_signal_curve(
             ref_group,
             model=model_name,
@@ -421,6 +435,7 @@ def build_fitted_resampled_ogse_contrast(
             delta_ms=delta_ms,
             Delta_app_ms=Delta_app_ms,
             td_ms=td_ms,
+            correction_factor=f_ref,
         )
         cmp_fit = _fit_one_signal_curve(
             cmp_group,
@@ -440,6 +455,7 @@ def build_fitted_resampled_ogse_contrast(
             delta_ms=delta_ms,
             Delta_app_ms=Delta_app_ms,
             td_ms=td_ms,
+            correction_factor=f_cmp,
         )
 
         g_common, grid_mode = _common_gradient_grid(

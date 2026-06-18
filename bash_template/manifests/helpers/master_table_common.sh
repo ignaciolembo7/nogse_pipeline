@@ -159,27 +159,29 @@ Available steps:
     filter_master_points
                      Write an intermediate master table with first points by td_ms.
     rotate           Rotate signal tensor directions.
-    contrast         Build contrast rows using manifests/*/contrasts.csv.
     export_master_xlsx
                      Export the selected master parquet to an Excel workbook.
 
   Plots:
     plot_signal      Plot signal curves from master.long.parquet.
-    plot_contrast    Plot contrast curves from master.long.parquet.
-    plot_d0_delta    Plot D0/Dproj vs Delta_app_ms.
     plot_monoexp_d   Plot monoexponential D vs td_ms/Delta_app_ms.
 
   Fits:
     fit_signal                 Fit signal curves using signal_fits.csv.
     fit_signal_gradcorr        fit_signal with gradient correction enabled.
+    fit_global_signal          Fit mixed/global signal models directly.
     fit_contrast               Fit contrast rows.
     fit_contrast_free          fit_contrast with free-model defaults.
     fit_contrast_mixed_global  fit_contrast with mixed_global model.
-    fit_global_signal          Fit mixed/global signal models directly.
 
-  Summaries:
+  Contrast construction:
+    contrast           Build direct contrast rows (point-by-point subtraction).
+    contrast_resampled Build resampled contrasts from signal fit curves (requires fit_signal).
+
+  Summaries and analysis:
     grad_correction  Build and embed gradient-correction factors.
-    alpha            Build alpha_macro summaries.
+    alpha            Build alpha_macro summaries and D vs Delta plots.
+    extract_tc_peak  Consolidate fit_params, extract tc_peak table, and plot panels.
     tc               Fit tc-vs-td summaries.
 
 Help for one step:
@@ -201,9 +203,9 @@ Common environment variables:
   MASTER_FIRST_POINTS_PARQUET
                     Optional filtered master output path. Default:
                     $ANALYSIS_ROOT/master.first_points.long.parquet.
-  TC_FIT_PARAMS     Fit-params parquet used by the tc step. Must point to
-                    the accumulated contrast fit-params file produced by
-                    fit_contrast (e.g. fits/master/ogse_.../fit_params.*.parquet).
+  TC_FIT_PARAMS     Fit-params parquet used by the tc step. Defaults to the
+                    tc_peak_table.parquet produced by extract_tc_peak. Override
+                    only if pointing to a non-default location.
 
 Master table format:
   master.long.parquet is the canonical master table and the pipeline only
@@ -236,7 +238,7 @@ Examples:
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
   # Run several steps from PIPELINE_STEPS instead of positional step names.
-  PIPELINE_STEPS="rotate contrast fit_signal fit_contrast alpha tc" \
+  PIPELINE_STEPS="rotate contrast fit_signal fit_contrast extract_tc_peak tc" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse
 EOF
 }
@@ -384,22 +386,31 @@ Usage:
 
 What it does:
   Reads declarative contrast selectors from manifests/<type_subj>_<type_seq>/contrasts.csv,
-  selects two signal_rotated groups from master, subtracts them, and appends row_kind='contrast'.
+  selects two signal_rotated groups from master, subtracts them point-by-point, and appends
+  row_kind='contrast' rows to MASTER_PARQUET. Also produces figures of the two signals and
+  the resulting contrast.
 
-  By default contrasts are direct point-by-point subtractions. To build fitted/resampled
-  contrasts instead, pass --contrast-source fitted_resampled through MAKE_CONTRAST_EXTRA_ARGS.
-  Fit steps do not resample contrasts themselves; they fit whatever contrast rows already
-  exist in MASTER_PARQUET.
+  To build resampled contrasts from pre-fitted signal curves instead, use contrast_resampled.
 
 Variables for this step:
-  CONTRAST_MANIFEST       CSV contrast manifest.
-  MASTER_PARQUET          Input/output master table.
-  MAKE_CONTRAST_SCRIPT    Python script override.
-  CONTRAST_OUT_ROOT       Output root. Default: $ANALYSIS_ROOT/contrast-data-master
-  MAKE_CONTRAST_EXTRA_ARGS Extra make_contrast.py options.
+  CONTRAST_MANIFEST         CSV contrast manifest.
+  MASTER_PARQUET            Input/output master table.
+  MAKE_CONTRAST_SCRIPT      Python script override.
+  CONTRAST_OUT_ROOT         Output root. Default: $ANALYSIS_ROOT/contrast-data-master
+  MAKE_CONTRAST_EXTRA_ARGS  Extra make_contrast.py options (see below).
 
 Manifest columns:
-  subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+  subj, sheet, roi, direction, td_ms, N_1, N_2, Hz_1, Hz_2
+
+Useful MAKE_CONTRAST_EXTRA_ARGS:
+  --apply_grad_corr
+      Correct gradient axes by the per-direction grad_correction_factor stored in
+      master rows before computing the contrast. Requires step grad_correction first.
+      Mutually exclusive with --no_grad_corr.
+  --no_grad_corr
+      Explicitly skip gradient correction (default behaviour).
+  --master-rotated / --no-master-rotated
+      Select rotated or raw signal rows from master. Default: --master-rotated.
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
@@ -407,8 +418,44 @@ Examples:
   CONTRAST_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/contrasts.csv \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
 
-  MAKE_CONTRAST_EXTRA_ARGS="--contrast-source fitted_resampled --signal-model monoexp --g_type g_lin_max --auto_fit_points" \
+  # Direct contrast with gradient correction
+  MAKE_CONTRAST_EXTRA_ARGS="--apply_grad_corr" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast
+EOF
+            ;;
+        contrast_resampled)
+            cat <<'EOF'
+Usage:
+  bash run_dataset.sh <type_subj> <type_seq> contrast_resampled
+
+What it does:
+  Builds resampled contrast tables and figures from pre-fitted signal curves. Uses the
+  individual signal fit parameters produced by fit_signal or fit_global_signal (step 04)
+  to reconstruct each signal curve, then subtracts the two fitted curves to obtain a
+  smooth, resampled contrast on a common gradient grid.
+
+  Requires step 04 (fit_signal or fit_global_signal) to have been run first.
+  The direct contrast step (contrast) must also have been run so that CONTRAST_ROOT exists.
+
+Variables for this step:
+  SIGNAL_FIT_OUT_ROOT         Signal fits directory from step 04. Required — no default.
+                              Example: $ANALYSIS_ROOT/fits/ogse_signal_ogse_mixed_offset
+  CONTRAST_ROOT               Direct contrast tables root from step 07 (contrast).
+                              Default: $ANALYSIS_ROOT/contrast-data-master
+  CONTRAST_RESAMPLED_OUT_DIR  Output directory for resampled contrast tables and figures.
+                              Default: $ANALYSIS_ROOT/contrast-data-resampled
+  EXPORT_RESAMPLED_SCRIPT     Python script override.
+  EXPORT_GRID_MIN_MTM         Minimum gradient in mT/m for the common grid. Default: 0
+  EXPORT_GRID_MAX_MODE        How to set the upper grid limit: observed_pair_max|fixed.
+                              Default: observed_pair_max
+  EXPORT_GRID_N               Number of points in the common gradient grid. Default: 1000
+  EXPORT_CONTRAST_MODE        signal_fit|rest_only. Default: signal_fit
+  EXPORT_MODELS               Optional model filter (space-separated).
+  EXPORT_RESAMPLED_EXTRA_ARGS Extra export_ogse_resampled_contrasts_from_fits.py options.
+
+Examples:
+  SIGNAL_FIT_OUT_ROOT=analysis/brains/ogse_experiments/fits/ogse_signal_ogse_mixed_offset \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast_resampled
 EOF
             ;;
         plot_signal)
@@ -448,38 +495,6 @@ Examples:
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_signal
 EOF
             ;;
-        plot_contrast)
-            cat <<'EOF'
-Usage:
-  bash run_dataset.sh <type_subj> <type_seq> plot_contrast
-
-What it does:
-  Plots contrast curves selected from master.long.parquet using the script for TYPE_SEQ.
-
-Variables for this step:
-  MASTER_PARQUET            Input master table.
-  PLOT_CONTRAST_SCRIPT      Python script override.
-  PLOT_OUT_ROOT             Output root. Default: $ANALYSIS_ROOT/plots-master/contrast
-  PLOT_SUBJ                 Optional subj selector.
-  PLOT_SHEET                Optional sheet selector.
-  PLOT_ROI                  Optional ROI selector.
-  PLOT_DIRECTION            Optional direction selector, e.g. long|tra|x|y|z.
-  PLOT_TD_MS                Optional td_ms selector.
-  PLOT_N1                   Optional N_1 selector.
-  PLOT_N2                   Optional N_2 selector.
-  PLOT_CONTRAST_YCOL        value|value_norm. Default: value_norm
-  PLOT_CONTRAST_XCOL        Gradient column for side 1 (x axis).
-                            g_1|g_max_1|g_lin_max_1|g_thorsten_1|bvalue_1|bvalue_thorsten_1. Default: g_thorsten_1
-  PLOT_STAT                 avg|std. Default: avg
-  PLOT_CONTRAST_EXTRA_ARGS  Extra plot_<type_seq>_contrast_vs_g.py options.
-
-Examples:
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_contrast
-
-  PLOT_ROI=Left-Lateral-Ventricle PLOT_DIRECTION=tra \
-    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_contrast
-EOF
-            ;;
         fit_signal|fit_signal_gradcorr)
             cat <<'EOF'
 Usage:
@@ -489,7 +504,7 @@ Usage:
 What it does:
   Fits signal curves selected from master according to manifests/<type_subj>_<type_seq>/signal_fits.csv.
   The model to use per row is set in the manifest's "model" column.
-  fit_signal_gradcorr adds --apply_grad_corr to every fit.
+  fit_signal_gradcorr is a preset that adds --apply_grad_corr to every fit automatically.
 
 Variables for this step:
   MASTER_PARQUET          Input master table.
@@ -499,20 +514,79 @@ Variables for this step:
   SIGNAL_FIT_MODEL        Fallback model when the manifest "model" column is empty.
                           OGSE: monoexp|ogse_free|ogse_rest|ogse_rest_offset. Default: monoexp
                           NOGSE: free_cpmg|nogse_free|mixed_global. Default: nogse_free
-  SIGNAL_FIT_G_TYPE       Gradient column.
+  SIGNAL_FIT_G_TYPE       Gradient column (also sets the fit x-axis).
                           OGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: bvalue_thorsten
                           NOGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g
   SIGNAL_FIT_XCOL         NOGSE x-axis override. Defaults to SIGNAL_FIT_G_TYPE.
-                          Has no effect for OGSE (OGSE uses --g_type / SIGNAL_FIT_G_TYPE directly).
+                          Has no effect for OGSE.
   SIGNAL_FIT_YCOL         value|value_norm. Default: value_norm
-  SIGNAL_FIT_EXTRA_ARGS   Extra fit_<type_seq>_signal_vs_g.py options.
+  SIGNAL_FIT_EXTRA_ARGS   Extra fit_<type_seq>_signal_vs_g.py options (see below).
 
 Manifest columns:
-  subj,sheet,roi,direction,td_ms,N,Hz,model
+  subj, sheet, roi, direction, td_ms, N, Hz, model
 
-Useful SIGNAL_FIT_EXTRA_ARGS:
-  OGSE monoexp:  --fix_M0 1.0 --auto_fit_tol 0.05 --auto_fit_min_points 3 --auto_fit_max_points 9
-  NOGSE/OGSE free: see scripts/fitting/fit_{nogse,ogse}_signal_vs_g.py --help
+Useful SIGNAL_FIT_EXTRA_ARGS (OGSE):
+
+  Gradient correction
+  -------------------
+  --apply_grad_corr
+      Scale the gradient axis by the per-direction grad_correction_factor in master rows
+      before fitting. Requires step 10 (grad_correction) to have been run.
+      Equivalent to running fit_signal_gradcorr instead of fit_signal.
+      Mutually exclusive with --no_grad_corr.
+  --no_grad_corr
+      Explicitly skip gradient correction (default behaviour).
+
+  Fit point selection  [mutually exclusive]
+  -----------------------------------------
+  --fit_points N
+      Fixed number of leading points to include in the OGSE signal model fit. Default: 6.
+  --auto_fit_points
+      Automatically choose the number of leading points that minimise the fit residual.
+  --auto_fit_tol F        Relative tolerance for --auto_fit_points. Default: 0.05.
+  --auto_fit_err_floor F  Absolute RMSE floor before comparing k values. Default: 0.005.
+  --auto_fit_min_points N First k tested by --auto_fit_points. Default: 3.
+  --auto_fit_max_points N Last k tested by --auto_fit_points. Default: 9.
+
+  Parameter fixing  [each pair is mutually exclusive]
+  ----------------------------------------------------
+  --fix_M0 F
+      Fix M0 to a constant. Default: 1.0.
+  --free_M0
+      Fit M0 freely (releases the --fix_M0 default).
+  --D0_init F
+      Initial D0 seed (mm²/s) for ogse_free/ogse_rest models. Default: 0.0023.
+
+  Overrides (normally inferred from master rows)
+  -----------------------------------------------
+  --td_ms F          Override td_ms.
+  --N F              Override number of gradient lobes N.
+  --delta_ms F       Override delta_ms.
+  --Delta_app_ms F   Override Delta_app_ms.
+
+Useful SIGNAL_FIT_EXTRA_ARGS (NOGSE):
+
+  Gradient correction
+  -------------------
+  --apply_grad_corr / --no_grad_corr   Same semantics as OGSE above.
+
+  Parameter fixing  [each pair is mutually exclusive]
+  ----------------------------------------------------
+  --fix_M0 F / --free_M0   Fix or free M0. Default when ycol=value_norm: fix at 1.0.
+  --fix_D0 F / --free_D0   Fix or free D0 (m²/ms). Default: free.
+
+  Parameter bounds
+  ----------------
+  --M0_bounds MIN MAX   Default: 0.0 inf.
+  --D0_bounds MIN MAX   Default: 1e-16 inf.
+  --tc_bounds MIN MAX   Default: 0.1 1000.0.
+  --tc_init F           Initial tc seed (ms) for model=mixed_global. Default: 5.0.
+
+  Mixed-global fit
+  ----------------
+  --alpha_table PATH    Table with fixed alpha per subj/roi/direction/td_ms.
+  --alpha_col COL       Column in --alpha_table. Default: alpha, then alpha_macro.
+  --alpha_td_tol_ms F   Tolerance (ms) for td_ms matching. Default: 0.001.
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
@@ -520,7 +594,13 @@ Examples:
   SIGNAL_FIT_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/signal_fits.csv \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
-  SIGNAL_FIT_EXTRA_ARGS="--fix_M0 1.0 --auto_fit_tol 0.05" \
+  # Monoexp with automatic point selection
+  SIGNAL_FIT_EXTRA_ARGS="--auto_fit_points --auto_fit_tol 0.05" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
+
+  # ogse_free with gradient correction
+  SIGNAL_FIT_MODEL=ogse_free \
+  SIGNAL_FIT_EXTRA_ARGS="--apply_grad_corr --D0_init 0.0023" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal
 
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_gradcorr
@@ -547,9 +627,8 @@ What it does:
     bash run_dataset.sh brain ogse fit_contrast_free
     FIT_MODEL=ogse_free bash run_dataset.sh brain ogse fit_contrast
 
-  Contrast resampling is controlled by the contrast step, not by fit_contrast. If you
-  need resampled contrasts, first run contrast with MAKE_CONTRAST_EXTRA_ARGS containing
-  --contrast-source fitted_resampled, then run the desired fit_contrast* step.
+  After fitting, run extract_tc_peak (step 09) to consolidate the tc_peak table and
+  plot panels, then tc (step 10) for the tc-vs-td analysis.
 
 Variables for this step:
   MASTER_PARQUET        Input master table.
@@ -557,18 +636,92 @@ Variables for this step:
   FIT_OUT_ROOT          Output root. Default: $ANALYSIS_ROOT/fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>
   FIT_MODEL             OGSE: ogse_free|ogse_tort|ogse_rest|ogse_rest_offset|ogse_mixed. Default: ogse_free
                         NOGSE: nogse_free|nogse_free_grad_offset|nogse_tort|nogse_rest. Default: nogse_free
-                        fit_contrast_free  → presets ogse_free (OGSE) / nogse_free (NOGSE).
+                        fit_contrast_free         → presets ogse_free (OGSE) / nogse_free (NOGSE).
                         fit_contrast_mixed_global → presets mixed_global.
-  FIT_GBASE             g|g_lin_max|g_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g_lin_max
+  FIT_GBASE             Gradient column for the x-axis.
+                        g|g_lin_max|g_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g_lin_max
   FIT_YCOL              value|value_norm. Default: value_norm
-  FIT_STAT              avg|std. Default: avg
-  FIT_EXTRA_ARGS        Extra fit_<type_seq>_contrast_vs_g.py options.
+  FIT_STAT              avg|std|ALL. Default: avg
+  FIT_EXTRA_ARGS        Extra fit_<type_seq>_contrast_vs_g.py options (see below).
 
-Useful FIT_EXTRA_ARGS:
-  --apply_grad_corr         Apply embedded gradient correction when fitting.
-  Use the Python script help for model-specific flags:
-    python scripts/fitting/fit_ogse_contrast_vs_g.py --help
-    python scripts/fitting/fit_nogse_contrast_vs_g.py --help
+Useful FIT_EXTRA_ARGS (OGSE and NOGSE):
+
+  Gradient correction
+  -------------------
+  --apply_grad_corr
+      Apply the per-direction grad_correction_factor embedded in master contrast rows.
+      Only meaningful if the contrast step was run with --apply_grad_corr (direct mode)
+      or if the factor columns grad_correction_factor_1/2 are present in the rows.
+      Requires step 10 (grad_correction) to have been run first.
+      Mutually exclusive with --no_grad_corr.
+  --no_grad_corr
+      Explicitly skip gradient correction (default behaviour).
+  --corr_td_ms F
+      Override the td_ms used when applying the gradient correction factor.
+
+  Parameter fixing  [each pair is mutually exclusive]
+  ----------------------------------------------------
+  --fix_M0 F / --free_M0 [SEED]
+      Fix or free M0. Default: free, initial seed 1.0.
+  --fix_D0 F / --free_D0 [SEED]
+      Fix or free D0 (m²/ms; e.g. 3.2e-12 = 0.0032 mm²/s). Default: free, seed 2.3e-12.
+  --fix_tc F / --free_tc [SEED]
+      Fix or free tc (ms). Default: free, seed from --tc_init (5.0).
+      NOGSE: only applies to model=nogse_rest.
+  --tc_init F
+      Initial tc seed (ms) when --fix_tc/--free_tc are not given. Default: 5.0.
+  --fix_C F / --free_C [SEED]
+      Fix or free rest-offset offset parameter C. Default: free, seed 0.0.
+      OGSE: applies to model=ogse_rest_offset only.
+
+  NOGSE-specific parameter fixing
+  --------------------------------
+  --fix_g0 F / --free_g0 [SEED]
+      Fix or free gradient offset g0 (mT/m). Default: free, seed 0.0.
+      Applies to model=nogse_free_grad_offset only.
+
+  Parameter bounds
+  ----------------
+  --tc_bounds MIN MAX     Search bounds for tc (ms). Default: 0.1 1000.0.
+  --M0_bounds MIN MAX     Search bounds for M0. Default: 0.0 5.0.
+  --D0_bounds MIN MAX     Search bounds for D0 (m²/ms). Default: 1e-16 1e-10.
+  --C_bounds  MIN MAX     Search bounds for C. Default: 0.0 1.0.
+  --g0_bounds MIN MAX     Search bounds for g0 (mT/m). NOGSE. Default: -20.0 20.0.
+
+  Fitted peak
+  -----------
+  --peak_grid_n N
+      Grid resolution for the fitted-peak search. Default: 1000.
+  --peak_D0_fix F
+      Fixed D0 (m²/ms) used to convert the gradient peak into tc_peak_ms. Default: 3.2e-12.
+  --peak_g_max_mTm F
+      Upper gradient limit (mT/m) for the peak search.
+  --peak_resample_gradient
+      Also compute tc_peak_resampled_ms by rebuilding the fitted contrast on a common
+      gradient grid. OGSE only.
+  --peak_resample_g_max_corr_mTm F
+      Upper gradient (mT/m) for the resampled-peak grid (after correction). OGSE only.
+
+  Global / shared-parameter fits  [OGSE only]
+  --------------------------------------------
+  --global_params PARAM [PARAM...]
+      Fit all td curves jointly per subj/ROI/direction and share the listed parameters.
+      Unlisted free parameters remain local to each td curve.
+      Examples: --global_params tc_ms   or   --global_params tc_ms D0_m2_ms
+  --alpha_table PATH
+      Fixed-alpha table for model=mixed_global.
+  --alpha_col COL
+      Alpha column in --alpha_table. Default: alpha, then alpha_macro.
+  --alpha_td_tol_ms F
+      Tolerance (ms) for matching alpha rows by td_ms. Default: 0.001.
+
+  Filtering and output
+  --------------------
+  --directions DIR [DIR...]   Filter by direction (e.g. long tra). Default: all.
+  --rois ROI [ROI...]         Filter by ROI. Default: all.
+  --n_fit N                   Use only the first N points sorted by x.
+  --no_plots                  Skip generating fit plots.
+  --oneg                      Allow one-g-per-sequence contrast tables.
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
@@ -579,8 +732,17 @@ Examples:
   FIT_MODEL=ogse_mixed FIT_GBASE=g_lin_max FIT_YCOL=value_norm \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
 
+  # Fit with gradient correction applied during fitting
   FIT_EXTRA_ARGS="--apply_grad_corr" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast
+
+  # Fix D0 and restrict tc range
+  FIT_EXTRA_ARGS="--fix_D0 3.2e-12 --tc_bounds 0.5 200.0" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
+
+  # Jointly fit tc across all td curves
+  FIT_EXTRA_ARGS="--global_params tc_ms" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
 EOF
             ;;
         fit_global_signal)
@@ -590,8 +752,14 @@ Usage:
 
 What it does:
   Fits a global/mixed signal model pooling all subjects from master.long.parquet.
-  Parameters that are "global_td" are shared across subjects at the same td_ms;
-  "global_contrast" parameters are shared across subjects at the same (td_ms, roi, direction).
+  Parameters that are "global_td" are shared across subjects at the same td_ms.
+  Parameters that are "global_contrast" are shared across the N pair defined by the manifest
+  (e.g. N=8 and N=4 at the same td_ms/roi/direction), NOT across all N values.
+  A manifest CSV controls which curves enter the fit:
+    - When global_contrast is active, GLOBAL_SIGNAL_MANIFEST defaults to contrasts.csv
+      (columns N_1, N_2) which selects exactly those two N values per row.
+    - Otherwise it defaults to signal_fits.csv (column N) for individual curve selection.
+  Missing gradient-correction factors default to the mean of other subjects (avg_others).
 
 Available models (set via GLOBAL_SIGNAL_MODEL):
   OGSE: ogse_free | ogse_rest | ogse_rest_offset | ogse_mixed | ogse_mixed_offset
@@ -648,6 +816,22 @@ Variables for this step:
   GLOBAL_SIGNAL_ROIS             Space- or comma-separated ROIs, or ALL. Default: ALL
   GLOBAL_SIGNAL_SUBJS            Space- or comma-separated subjects, or ALL. Default: ALL
   GLOBAL_SIGNAL_APPLY_GRAD_CORR  true|false. Default: true
+                                 Missing factors are handled at the grad_correction step
+                                 (cross-subject fill). By the time fit_global_signal runs,
+                                 all signal rows should have a factor or grad_correction
+                                 was not run.
+  Manifest (curve selection)
+  --------------------------
+  GLOBAL_SIGNAL_MANIFEST         Path to a manifest CSV that selects which curves to fit.
+                                 Auto-detected when not set:
+                                   · global_contrast mode → $MANIFEST_DIR/contrasts.csv
+                                   · otherwise            → $MANIFEST_DIR/signal_fits.csv
+                                 If the file does not exist the step warns and fits all rows.
+                                 Set to "none" to always fit all rows regardless.
+                                 Contrast manifest (columns N_1, N_2): selects exactly those two
+                                   N values per row, linking them as a pair for global_contrast.
+                                 Signal manifest (column N): selects individual N values.
+                                 Values of ALL in any column are wildcards.
   GLOBAL_SIGNAL_EXTRA_ARGS       Extra fit_global_signal.py options (e.g. --tc_init 5.0).
 
 Examples:
@@ -668,6 +852,14 @@ Examples:
   GLOBAL_SIGNAL_OUT_ROOT="analysis/brains/ogse_experiments/fits/ogse_signal_ogse_mixed_offset_raw" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
 
+  # use a custom manifest (e.g. only N=8/N=4 pairs at td=90 for specific ROIs)
+  GLOBAL_SIGNAL_MANIFEST="my_manifests/subset_contrasts.csv" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
+
+  # fit all signal rows without manifest filtering
+  GLOBAL_SIGNAL_MANIFEST=none \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
+
   # restrict to specific ROIs/directions
   GLOBAL_SIGNAL_DIRECTIONS="long tra" GLOBAL_SIGNAL_ROIS="Left-Lateral-Ventricle AntCC" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal
@@ -685,6 +877,11 @@ What it does:
   correction_factor = sqrt(D0_nogse / D0_monoexp), and writes the factor back to
   all master rows that share the same subj, sheet, direction, td_ms, and N.
 
+  After the manifest-derived factors are written, any signal rows that still lack
+  a factor (subjects/sessions with no syringe in the manifest) are automatically
+  filled with the cross-subject mean at the same (direction, td_ms, N). Pass
+  --no-fill-missing in GRAD_CORR_EXTRA_ARGS to disable this step.
+
 Variables for this step:
   GRAD_CORR_SCRIPT      Python script override.
   GRAD_CORR_MANIFEST    CSV manifest. Default: $MANIFEST_DIR/grad_correction.csv
@@ -698,10 +895,12 @@ Useful GRAD_CORR_EXTRA_ARGS:
   --row-kind signal_rotated Input row kind. Default: signal_rotated
   --gbase g_lin_max        Gradient column for the NOGSE free fit.
   --bbase bvalue_thorsten  B-value column for the monoexp fit.
+  --ycol value_norm        Signal column to fit: value_norm (default) or value.
   --D0-init 2.3e-12        NOGSE free D0 seed in m2/ms.
   --tol-ms 1e-3            Matching tolerance for td_ms.
   --fix-M0 1.0             Fix M0 in both fits.
   --free-M0 1.0            Fit M0 in both fits with optional seed.
+  --no-fill-missing        Skip the cross-subject fill for sessions without a syringe.
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
@@ -709,32 +908,6 @@ Examples:
   GRAD_CORR_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/grad_correction.csv \
   GRAD_CORR_EXTRA_ARGS="--bbase bvalue_thorsten --fix-M0 1.0" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
-EOF
-            ;;
-        plot_d0_delta)
-            cat <<'EOF'
-Usage:
-  bash run_dataset.sh <type_subj> <type_seq> plot_d0_delta
-
-What it does:
-  Plots Dproj/D0 vs Delta_app_ms from master and can reuse summary_alpha_values.
-
-Variables for this step:
-  MASTER_PARQUET       Input master table. Must contain signal_rotated rows with D_proj.
-  PLOT_D0_SCRIPT       Python script override.
-  ALPHA_OUT_DIR        Output directory. Default: $ANALYSIS_ROOT/alpha_macro/master
-  SUMMARY_ALPHA        Optional summary_alpha_values.xlsx path.
-  DPROJ_N              Optional N selector.
-  DPROJ_HZ             Optional Hz selector.
-  DPROJ_ROIS           Space-separated ROI list.
-  DPROJ_DIRS           Space-separated direction list, e.g. "long tra x y z".
-  PLOT_D0_EXTRA_ARGS   Extra plot_D0_vs_Delta.py options.
-
-Examples:
-  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_d0_delta
-
-  DPROJ_N=1 DPROJ_DIRS="long tra x y z" \
-    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_d0_delta
 EOF
             ;;
         plot_monoexp_d)
@@ -765,38 +938,118 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> alpha
 
 What it does:
-  Computes alpha_macro summaries from D_proj values in signal_rotated rows.
+  1. Computes alpha_macro from D_proj values in signal_rotated rows and writes
+     summary_alpha_values.xlsx (make_alpha_macro_summary.py).
+  2. Generates per-group D vs Delta_app_ms plots with a dotted alpha annotation
+     at the selected bvalue (plot_D0_vs_Delta.py). The bvalue per ROI is read
+     automatically from the summary written in step 1, so --roi-bvalmax is
+     respected in the plots without extra configuration.
 
 Variables for this step:
   MASTER_PARQUET       Input master table. Must contain signal_rotated rows with D_proj.
-  ALPHA_MACRO_SCRIPT   Python script override.
-  ALPHA_N              N selector. Default: 1
-  ALPHA_OUT_DIR        Output directory. Default: $ANALYSIS_ROOT/alpha_macro/master
-  ALPHA_EXTRA_ARGS     Extra make_alpha_macro_summary.py options.
+  ALPHA_MACRO_SCRIPT   Python script override for make_alpha_macro_summary.py.
+  PLOT_D0_SCRIPT       Python script override for plot_D0_vs_Delta.py.
+  ALPHA_N              N selector passed to make_alpha_macro_summary.py. Default: 1
+  ALPHA_OUT_DIR        Output directory for all outputs. Default: $ANALYSIS_ROOT/alpha_macro/master
+  ALPHA_EXTRA_ARGS     Extra options forwarded to make_alpha_macro_summary.py (see below).
+  DPROJ_N              N selector for the D-vs-Delta plots (if different from ALPHA_N).
+  DPROJ_HZ             Hz selector for the D-vs-Delta plots.
+  DPROJ_ROIS           Space-separated ROI list for the D-vs-Delta plots.
+  DPROJ_DIRS           Space-separated direction list for the D-vs-Delta plots.
+                       Example: DPROJ_DIRS="long tra"
+  PLOT_D0_EXTRA_ARGS   Extra options forwarded only to plot_D0_vs_Delta.py.
 
 Note:
   This step always passes --no-master-fit-params, so alpha_macro results are NOT
-  appended to any cumulative fit-params table. The outputs are the xlsx files below.
+  appended to any cumulative fit-params table. The outputs are the xlsx/png files below.
 
-Useful ALPHA_EXTRA_ARGS:
+Useful ALPHA_EXTRA_ARGS (passed to make_alpha_macro_summary.py):
   --bvalmax N              Use the N-th bvalue (1-based ascending) for all ROIs.
                            Default: highest bvalue.
-  --roi-bvalmax ROI=N      Per-ROI bvalue override. Repeatable.
+  --roi-bvalmax ROI=N      Per-ROI bvalue override. Repeatable. The selected bstep
+                           is stored in the summary and reused automatically by the
+                           D-vs-Delta plots without any extra flag.
                            Example: --roi-bvalmax AntCC=7 --roi-bvalmax CSF=3
-  --dirs long tra          Restrict to specific directions.
-  --rois ROI1 ROI2         Restrict to specific ROIs.
+  --dirs DIR1 DIR2         Restrict summary to specific directions.
+  --rois ROI1 ROI2         Restrict summary to specific ROIs.
+  --subjs S1 S2            Restrict summary to specific subjects.
+  --reference-D0 F         Reference D0 used to compute alpha_macro. Default: 0.0032
+  --out-plot PATH          Override output path for alpha_macro_vs_roi.png.
+
+Useful PLOT_D0_EXTRA_ARGS (passed only to plot_D0_vs_Delta.py):
+  --bvalmax N              Fallback bstep for groups absent in summary_alpha_values.xlsx.
+  --reference-D0 F         Reference D0 used for the horizontal annotation. Default: 0.0032
 
 Outputs:
-  $ALPHA_OUT_DIR/summary_alpha_values.xlsx
-  $ALPHA_OUT_DIR/D_vs_delta_app.combined.xlsx
-  $ALPHA_OUT_DIR/alpha_macro_vs_roi.png
+  $ALPHA_OUT_DIR/summary_alpha_values.xlsx      alpha_macro per subj/roi/direction
+  $ALPHA_OUT_DIR/D_vs_delta_app.combined.xlsx   aggregated D vs Delta_app table
+  $ALPHA_OUT_DIR/alpha_macro_vs_roi.png         bar summary plot
+  $ALPHA_OUT_DIR/<subj>/<roi>/<dir>_*.png       per-group D vs Delta_app curves
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
 
   ALPHA_N=1 \
-  ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax AntCC=7 --roi-bvalmax CSF=3" \
+  ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax AntCC=7 --roi-bvalmax CSF=3 --dirs long tra" \
+  DPROJ_DIRS="long tra" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
+
+  # Restrict plots to a subset of ROIs while keeping the full summary
+  ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax Syringe=7" \
+  DPROJ_DIRS="long tra" \
+  DPROJ_ROIS="AntCC MidCC" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha
+EOF
+            ;;
+        extract_tc_peak)
+            cat <<'EOF'
+Usage:
+  bash run_dataset.sh <type_subj> <type_seq> extract_tc_peak
+
+What it does:
+  1. Consolidates fit_params from step 08 (fit_contrast) into a canonical tc_peak table
+     using run_tc_pipeline.py, writing tc_peak_table.parquet and tc_peak_table.xlsx.
+  2. (OGSE only) Plots tc_peak panels using plot_ogse-contrast_tc_peak_panels.py.
+
+  The tc_peak_table.parquet produced here is the default input for step tc (analyze_tc_vs_td).
+
+Variables for this step:
+  FIT_OUT_ROOT              Contrast fits directory from step 08. Derived automatically
+                            using the same FIT_MODEL/FIT_GBASE/FIT_YCOL defaults.
+  TC_PIPELINE_SCRIPT        Python script override for run_tc_pipeline.py.
+  TC_PEAK_DIR               Output directory. Default: $FIT_OUT_ROOT/tc_peak
+  TC_PEAK_MODELS            Optional model filter (space-separated).
+  TC_PEAK_SUBJS             Optional subject filter (space-separated).
+  TC_PEAK_ROIS              Optional ROI filter (space-separated).
+  TC_PEAK_DIRECTIONS        Optional direction filter (space-separated).
+  TC_PIPELINE_EXTRA_ARGS    Extra run_tc_pipeline.py options.
+
+  OGSE panel plot variables:
+  PLOT_TC_PEAKS_SCRIPT      Python script override for plot_ogse-contrast_tc_peak_panels.py.
+  TC_PEAKS_OUT_DIR          Output directory for panels. Default: $TC_PEAK_DIR/panels
+  TC_PEAKS_CONTRAST_ROOT    Root with resampled contrast tables (from contrast_resampled).
+                            Default: $ANALYSIS_ROOT/contrast-data-resampled
+  TC_PEAKS_CONTRAST_SOURCE  direct|fitted_resampled|auto. Default: fitted_resampled
+  TC_PEAKS_PEAK_SOURCE      standard|resampled|both. Default: resampled
+  TC_PEAKS_MODELS           Optional model filter for panels.
+  TC_PEAKS_SUBJS            Optional subject filter for panels.
+  TC_PEAKS_ROIS             Optional ROI filter for panels.
+  TC_PEAKS_DIRECTIONS       Optional direction filter for panels.
+  TC_PEAKS_N1               Keep only fits with this first OGSE N value.
+  TC_PEAKS_N2               Keep only fits with this second OGSE N value.
+  TC_PEAKS_X_VARS           X-axis variables for panels. Default: g Ld lcf lcf_a tc
+  TC_PEAKS_SHOW_RESAMPLED_FIT Set to 1 to overlay the resampled fit curve.
+  TC_PEAKS_HIDE_DATA_POINTS   Set to 1 to hide experimental contrast points.
+  TC_PEAKS_EXCLUDE_FITRESAMP  Set to 1 to skip fit_params from fitted/resampled contrasts.
+  TC_PEAKS_EXTRA_ARGS       Extra plot_ogse-contrast_tc_peak_panels.py options.
+
+Examples:
+  bash nogse_pipeline/bash_template/run_dataset.sh brain ogse extract_tc_peak
+
+  # Filter to specific models/ROIs
+  TC_PEAK_MODELS="ogse_free ogse_tort" \
+  TC_PEAKS_ROIS="AntCC MidCC" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse extract_tc_peak
 EOF
             ;;
         tc)
@@ -805,11 +1058,12 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> tc
 
 What it does:
-  Fits tc-vs-td summaries from a contrast fit-params parquet.
+  Fits tc-vs-td summaries from the tc_peak table produced by extract_tc_peak.
 
 Variables for this step:
-  TC_FIT_PARAMS      Required. Path to the accumulated contrast fit-params parquet
-                     produced by fit_contrast (e.g. fits/master/ogse_.../fit_params.*.parquet).
+  TC_FIT_PARAMS      Tc_peak parquet from step 09 (extract_tc_peak). Derived automatically
+                     from TC_PEAK_DIR/tc_peak_table.parquet using the same defaults.
+                     Override only if pointing to a non-default location.
   TC_VS_TD_SCRIPT    Python script override.
   TC_OUT_DIR         Output root. Default: $ANALYSIS_ROOT/fits/tc_vs_td_master
                      Each method writes to its own subdirectory: $TC_OUT_DIR/$TC_METHOD
@@ -859,17 +1113,17 @@ pipeline_step_script() {
         filter_master_points) echo "$TEMPLATE_ROOT/steps/00_filter_master_points.sh" ;;
         export_master_xlsx) echo "$TEMPLATE_ROOT/steps/99_export_master_xlsx.sh" ;;
         rotate) echo "$TEMPLATE_ROOT/steps/02_rotate_signals.sh" ;;
-        contrast) echo "$TEMPLATE_ROOT/steps/03_make_contrasts.sh" ;;
-        plot_signal) echo "$TEMPLATE_ROOT/steps/04_plot_signals.sh" ;;
-        plot_contrast) echo "$TEMPLATE_ROOT/steps/05_plot_contrasts.sh" ;;
-        fit_signal|fit_signal_gradcorr) echo "$TEMPLATE_ROOT/steps/06_fit_signals.sh" ;;
-        fit_contrast|fit_contrast_free|fit_contrast_mixed_global) echo "$TEMPLATE_ROOT/steps/07_fit_contrasts.sh" ;;
-        fit_global_signal) echo "$TEMPLATE_ROOT/steps/13_fit_global_signals.sh" ;;
-        alpha) echo "$TEMPLATE_ROOT/steps/08_alpha_macro.sh" ;;
-        tc) echo "$TEMPLATE_ROOT/steps/09_tc_vs_td.sh" ;;
-        grad_correction) echo "$TEMPLATE_ROOT/steps/10_make_grad_correction_table.sh" ;;
-        plot_d0_delta) echo "$TEMPLATE_ROOT/steps/11_plot_D0_vs_Delta_alpha.sh" ;;
-        plot_monoexp_d) echo "$TEMPLATE_ROOT/steps/12_plot_monoexp_D_vs_time.sh" ;;
+        plot_signal) echo "$TEMPLATE_ROOT/steps/03_plot_signals.sh" ;;
+        fit_signal|fit_signal_gradcorr) echo "$TEMPLATE_ROOT/steps/04_fit_signals.sh" ;;
+        fit_global_signal) echo "$TEMPLATE_ROOT/steps/04_fit_signals_global.sh" ;;
+        grad_correction) echo "$TEMPLATE_ROOT/steps/05_make_grad_correction.sh" ;;
+        alpha) echo "$TEMPLATE_ROOT/steps/06_alpha_macro.sh" ;;
+        plot_monoexp_d) echo "$TEMPLATE_ROOT/steps/06b_plot_monoexp_D_vs_time.sh" ;;
+        contrast) echo "$TEMPLATE_ROOT/steps/07_make_contrast.sh" ;;
+        contrast_resampled) echo "$TEMPLATE_ROOT/steps/07b_make_contrast_resampled.sh" ;;
+        fit_contrast|fit_contrast_free|fit_contrast_mixed_global) echo "$TEMPLATE_ROOT/steps/08_fit_contrast.sh" ;;
+        extract_tc_peak) echo "$TEMPLATE_ROOT/steps/09_extract_tc_peak.sh" ;;
+        tc) echo "$TEMPLATE_ROOT/steps/10_analyze_tc_vs_td.sh" ;;
         *) return 1 ;;
     esac
 }

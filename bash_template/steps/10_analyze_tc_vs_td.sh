@@ -8,7 +8,21 @@ pipeline_set_dataset_defaults "${TYPE_SUBJ:-${DATASET:?TYPE_SUBJ or DATASET is r
 
 TC_VS_TD_SCRIPT="${TC_VS_TD_SCRIPT:-$REPO_ROOT/scripts/fitting/run_tc_vs_td.py}"
 TC_OUT_DIR="${TC_OUT_DIR:-$ANALYSIS_ROOT/fits/tc_vs_td_master}"
-TC_FIT_PARAMS="${TC_FIT_PARAMS:?TC_FIT_PARAMS must be set to the contrast fit-params parquet (e.g. fits/master/ogse_value_norm_vs_glinmax_ogse_free/fit_params.ogse_free.glinmax.value_norm.direction_ALL.parquet)}"
+
+# Auto-derive tc_peak table from step 09 output using the same FIT_OUT_ROOT logic.
+if [[ "$TYPE_SEQ" == "nogse" ]]; then
+    _tc_default_model="${DEFAULT_FIT_MODEL:-nogse_free}"
+else
+    _tc_default_model="${DEFAULT_FIT_MODEL:-ogse_free}"
+fi
+_tc_master_name=$(basename "${MASTER_PARQUET:-master.long.parquet}" | sed 's/\.long\.parquet$//' | sed 's/\.parquet$//')
+_tc_ycol="${FIT_YCOL:-value_norm}"
+_tc_gtype="${FIT_GBASE:-g_lin_max}"
+_tc_gtype_clean="${_tc_gtype//_/}"
+_tc_model="${FIT_MODEL:-$_tc_default_model}"
+_tc_fit_root="${FIT_OUT_ROOT:-$ANALYSIS_ROOT/fits/$_tc_master_name/${TYPE_SEQ}_${_tc_ycol}_vs_${_tc_gtype_clean}_${_tc_model}}"
+TC_PEAK_DIR="${TC_PEAK_DIR:-$_tc_fit_root/tc_peak}"
+TC_FIT_PARAMS="${TC_FIT_PARAMS:-$TC_PEAK_DIR/tc_peak_table.parquet}"
 
 pipeline_require_file "$TC_VS_TD_SCRIPT" "tc-vs-td script"
 pipeline_require_file "$TC_FIT_PARAMS" "tc fit params"

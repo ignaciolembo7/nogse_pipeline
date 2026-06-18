@@ -58,6 +58,16 @@ VALID_OGSE_SIGNAL_MODELS = {
     OGSE_SIGNAL_MODEL_REST,
     OGSE_SIGNAL_MODEL_REST_OFFSET,
 }
+# Aliases accepted at CLI level (ogse_* prefix form) mapped to canonical names above.
+OGSE_SIGNAL_MODEL_ALIASES: dict[str, str] = {
+    "ogse_free": OGSE_SIGNAL_MODEL_FREE,
+    "ogse_rest": OGSE_SIGNAL_MODEL_REST,
+    "ogse_rest_offset": OGSE_SIGNAL_MODEL_REST_OFFSET,
+}
+
+
+def normalize_ogse_signal_model(name: str) -> str:
+    return OGSE_SIGNAL_MODEL_ALIASES.get(name, name)
 
 
 def infer_exp_id(p: Path) -> str:
