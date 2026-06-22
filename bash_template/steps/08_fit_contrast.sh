@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/manifests/helpers/master_table_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/helpers/master_table_common.sh"
 pipeline_maybe_step_help fit_contrast "$@"
 pipeline_setup_common
 pipeline_set_dataset_defaults "${TYPE_SUBJ:-${DATASET:?TYPE_SUBJ or DATASET is required}}"
@@ -29,7 +29,7 @@ pipeline_require_file "$CONTRAST_PARQUET" "contrast table (run step 07 or 07b fi
 mkdir -p "$FIT_OUT_ROOT"
 
 "$PY" "$FIT_CONTRAST_SCRIPT" \
-    --master-parquet "$CONTRAST_PARQUET" \
+    "$CONTRAST_PARQUET" \
     --model "${FIT_MODEL:-$DEFAULT_FIT_MODEL}" \
     --out_root "$FIT_OUT_ROOT" \
     --gbase "${FIT_GBASE:-g_lin_max}" \

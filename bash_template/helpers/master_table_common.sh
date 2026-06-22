@@ -84,12 +84,12 @@ pipeline_require_file() {
     fi
 }
 
-pipeline_apply_master_first_points_by_td() {
-    local spec="${MASTER_FIRST_POINTS_BY_TD:-}"
+pipeline_apply_master_last_points() {
+    local spec="${MASTER_LAST_POINTS_BY_TD:-}"
     if [[ -z "${spec// }" || "${spec^^}" == "ALL" ]]; then
         return 0
     fi
-    if [[ -n "${MASTER_FIRST_POINTS_APPLIED:-}" ]]; then
+    if [[ -n "${MASTER_LAST_POINTS_APPLIED:-}" ]]; then
         return 0
     fi
 
@@ -98,20 +98,20 @@ pipeline_apply_master_first_points_by_td() {
     pipeline_require_file "$filter_script" "master filter script"
 
     local out_dir
-    out_dir="${MASTER_FIRST_POINTS_DIR:-$ANALYSIS_ROOT}"
+    out_dir="${MASTER_LAST_POINTS_DIR:-$ANALYSIS_ROOT}"
     mkdir -p "$out_dir"
 
     MASTER_PARQUET_ORIGINAL="${MASTER_PARQUET_ORIGINAL:-$MASTER_PARQUET}"
-    MASTER_PARQUET="${MASTER_FIRST_POINTS_PARQUET:-$out_dir/master.first_points.long.parquet}"
+    MASTER_PARQUET="${MASTER_LAST_POINTS_PARQUET:-$out_dir/master.last_points.long.parquet}"
 
     "$PY" "$filter_script" "$MASTER_PARQUET_ORIGINAL" \
         --out-parquet "$MASTER_PARQUET" \
-        --first-points-by-td "$spec"
+        --last-points-by-td-n "$spec"
 
-    MASTER_FIRST_POINTS_APPLIED=1
-    export MASTER_PARQUET MASTER_PARQUET_ORIGINAL MASTER_FIRST_POINTS_APPLIED
+    MASTER_LAST_POINTS_APPLIED=1
+    export MASTER_PARQUET MASTER_PARQUET_ORIGINAL MASTER_LAST_POINTS_APPLIED
     echo "Using filtered master table: $MASTER_PARQUET"
-    echo "First points by td_ms: $spec"
+    echo "Last points by td_ms/N: $spec"
 }
 
 pipeline_usage() {
@@ -172,7 +172,7 @@ Available steps:
     fit_global_signal          Fit mixed/global signal models directly.
     fit_contrast               Fit contrast rows.
     fit_contrast_free          fit_contrast with free-model defaults.
-    fit_contrast_mixed_global  fit_contrast with mixed_global model.
+    fit_contrast_mixed_global  fit_contrast with ogse_mixed_global model (OGSE only).
 
   Contrast construction:
     contrast           Build direct contrast rows (point-by-point subtraction).
@@ -196,13 +196,14 @@ Common environment variables:
   ANALYSIS_ROOT      Output analysis root.
   MASTER_PARQUET     Master table path.
   MANIFEST_DIR       Directory with contrasts.csv, signal_fits.csv, and grad_correction.csv.
-  MASTER_FIRST_POINTS_BY_TD
-                    Optional TD=POINTS rules applied before post-ingest steps.
-                    Example: MASTER_FIRST_POINTS_BY_TD="120=8,210=6"
-                    Unlisted td_ms values keep all points.
-  MASTER_FIRST_POINTS_PARQUET
+  MASTER_LAST_POINTS_BY_TD
+                    Optional TD=POINTS or TD:N=POINTS rules applied before post-ingest steps.
+                    Keeps the last POINTS b_step values per (td_ms[, N]) group.
+                    Example: MASTER_LAST_POINTS_BY_TD="120:8=6,120:4=4,210=8"
+                    Unlisted td_ms/N combinations keep all points.
+  MASTER_LAST_POINTS_PARQUET
                     Optional filtered master output path. Default:
-                    $ANALYSIS_ROOT/master.first_points.long.parquet.
+                    $ANALYSIS_ROOT/master.last_points.long.parquet.
   TC_FIT_PARAMS     Fit-params parquet used by the tc step. Defaults to the
                     tc_peak_table.parquet produced by extract_tc_peak. Override
                     only if pointing to a non-default location.
@@ -287,17 +288,22 @@ Usage:
   bash run_dataset.sh <type_subj> <type_seq> filter_master_points
 
 What it does:
-  Writes an intermediate master table that keeps only the requested first b_step
-  values for each td_ms. The original master table is not modified.
+  Writes an intermediate master table that keeps only the last N b_step values
+  per (td_ms, N) group. The original master table is not modified.
+
+  Rules have the form TD=POINTS (all N values at that td_ms) or TD:N=POINTS
+  (specific td_ms AND N). More-specific TD:N rules take precedence over TD-only
+  rules when both match the same row.
 
 Variables for this step:
   MASTER_PARQUET              Input master table.
-  MASTER_FIRST_POINTS_BY_TD   TD=POINTS rules. Example: "120=8,210=6,90=ALL".
-                              Unlisted td_ms values keep all points.
+  MASTER_LAST_POINTS_BY_TD    TD=POINTS or TD:N=POINTS rules.
+                              Example: "120:8=6,120:4=4,210=8,90=ALL".
+                              Unlisted td_ms/N combinations keep all points.
   FILTERED_MASTER_PARQUET     Output filtered master table path.
-                              Also accepted as MASTER_FIRST_POINTS_PARQUET.
-                              Default: $ANALYSIS_ROOT/master.first_points.long.parquet
-  MASTER_FIRST_POINTS_DIR     Output directory override. Default: $ANALYSIS_ROOT
+                              Also accepted as MASTER_LAST_POINTS_PARQUET.
+                              Default: $ANALYSIS_ROOT/master.last_points.long.parquet
+  MASTER_LAST_POINTS_DIR      Output directory override. Default: $ANALYSIS_ROOT
   FILTER_MASTER_SCRIPT        Python script override.
 
 Note:
@@ -305,10 +311,15 @@ Note:
   to subsequent steps:
 
 Examples:
-  MASTER_FIRST_POINTS_BY_TD="120=8,210=6,90=ALL" \
+  # Keep last 6 points at td=120 N=8, last 4 at td=120 N=4, last 8 at td=210 (all N)
+  MASTER_LAST_POINTS_BY_TD="120:8=6,120:4=4,210=8" \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse filter_master_points
 
-  MASTER_PARQUET=analysis/brains/ogse_experiments/master.first_points.long.parquet \
+  # Keep all points at td=90, last 6 at td=120 (all N)
+  MASTER_LAST_POINTS_BY_TD="120=6,90=ALL" \
+    bash nogse_pipeline/bash_template/run_dataset.sh brain ogse filter_master_points
+
+  MASTER_PARQUET=analysis/brains/ogse_experiments/master.last_points.long.parquet \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse rotate contrast fit_signal
 EOF
             ;;
@@ -331,8 +342,8 @@ Variables for this step:
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse export_master_xlsx
 
-  MASTER_PARQUET=analysis/brains/ogse_experiments/master.first_points.long.parquet \
-  MASTER_XLSX=analysis/brains/ogse_experiments/master.first_points.xlsx \
+  MASTER_PARQUET=analysis/brains/ogse_experiments/master.last_points.long.parquet \
+  MASTER_XLSX=analysis/brains/ogse_experiments/master.last_points.xlsx \
     bash nogse_pipeline/bash_template/run_dataset.sh brain ogse export_master_xlsx
 EOF
             ;;
@@ -513,7 +524,7 @@ Variables for this step:
   SIGNAL_FIT_OUT_ROOT     Output root. Default: $ANALYSIS_ROOT/fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>
   SIGNAL_FIT_MODEL        Fallback model when the manifest "model" column is empty.
                           OGSE: monoexp|ogse_free|ogse_rest|ogse_rest_offset. Default: monoexp
-                          NOGSE: free_cpmg|nogse_free|mixed_global. Default: nogse_free
+                          NOGSE: nogse_free_cpmg|nogse_free|nogse_mixed_global. Default: nogse_free
   SIGNAL_FIT_G_TYPE       Gradient column (also sets the fit x-axis).
                           OGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: bvalue_thorsten
                           NOGSE: g|g_max|g_lin_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g
@@ -580,7 +591,7 @@ Useful SIGNAL_FIT_EXTRA_ARGS (NOGSE):
   --M0_bounds MIN MAX   Default: 0.0 inf.
   --D0_bounds MIN MAX   Default: 1e-16 inf.
   --tc_bounds MIN MAX   Default: 0.1 1000.0.
-  --tc_init F           Initial tc seed (ms) for model=mixed_global. Default: 5.0.
+  --tc_init F           Initial tc seed (ms) for model=ogse_mixed_global/nogse_mixed_global. Default: 5.0.
 
   Mixed-global fit
   ----------------
@@ -621,7 +632,7 @@ What it does:
   the same step script as fit_contrast and only set FIT_MODEL when FIT_MODEL is not
   already provided:
     fit_contrast_free         -> ogse_free (OGSE) / nogse_free (NOGSE)
-    fit_contrast_mixed_global -> mixed_global
+    fit_contrast_mixed_global -> ogse_mixed_global
 
   Therefore, these are equivalent:
     bash run_dataset.sh brain ogse fit_contrast_free
@@ -632,12 +643,15 @@ What it does:
 
 Variables for this step:
   MASTER_PARQUET        Input master table.
+  CONTRAST_PARQUET      Contrast table to fit. Default: $ANALYSIS_ROOT/contrast-data-master/master_contrast.parquet
+                        For resampled contrasts (from contrast_resampled step) set this to
+                        $ANALYSIS_ROOT/contrast-data-resampled/master_contrast_resampled.parquet
   FIT_CONTRAST_SCRIPT   Python script override.
   FIT_OUT_ROOT          Output root. Default: $ANALYSIS_ROOT/fits/<master_name>/<type_seq>_<ycol>_vs_<gtype>_<model>
-  FIT_MODEL             OGSE: ogse_free|ogse_tort|ogse_rest|ogse_rest_offset|ogse_mixed. Default: ogse_free
+  FIT_MODEL             OGSE: ogse_free|ogse_tort|ogse_rest|ogse_rest_offset|ogse_mixed|rest_offset_globC. Default: ogse_free
                         NOGSE: nogse_free|nogse_free_grad_offset|nogse_tort|nogse_rest. Default: nogse_free
                         fit_contrast_free         → presets ogse_free (OGSE) / nogse_free (NOGSE).
-                        fit_contrast_mixed_global → presets mixed_global.
+                        fit_contrast_mixed_global → presets ogse_mixed_global.
   FIT_GBASE             Gradient column for the x-axis.
                         g|g_lin_max|g_max|g_thorsten|bvalue|bvalue_g|bvalue_thorsten. Default: g_lin_max
   FIT_YCOL              value|value_norm. Default: value_norm
@@ -709,7 +723,7 @@ Useful FIT_EXTRA_ARGS (OGSE and NOGSE):
       Unlisted free parameters remain local to each td curve.
       Examples: --global_params tc_ms   or   --global_params tc_ms D0_m2_ms
   --alpha_table PATH
-      Fixed-alpha table for model=mixed_global.
+      Fixed-alpha table for model=ogse_mixed_global.
   --alpha_col COL
       Alpha column in --alpha_table. Default: alpha, then alpha_macro.
   --alpha_td_tol_ms F
@@ -1150,7 +1164,7 @@ pipeline_prepare_step_env() {
             export FIT_MODEL
             ;;
         fit_contrast_mixed_global)
-            FIT_MODEL="${FIT_MODEL:-mixed_global}"
+            FIT_MODEL="${FIT_MODEL:-ogse_mixed_global}"
             export FIT_MODEL
             ;;
     esac
@@ -1180,7 +1194,7 @@ pipeline_run_steps() {
             exit 2
         }
         if [[ "$step" != "ingest" && "$step" != "filter_master_points" && "$step" != "export_master_xlsx" ]]; then
-            pipeline_apply_master_first_points_by_td
+            pipeline_apply_master_last_points
         fi
         pipeline_prepare_step_env "$step"
         echo

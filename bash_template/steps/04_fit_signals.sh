@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/manifests/helpers/master_table_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/helpers/master_table_common.sh"
 pipeline_maybe_step_help fit_signal "$@"
 pipeline_setup_common
 pipeline_set_dataset_defaults "${TYPE_SUBJ:-${DATASET:?TYPE_SUBJ or DATASET is required}}"
@@ -12,7 +12,7 @@ if [[ "$TYPE_SEQ" == "nogse" ]]; then
     DEFAULT_SIGNAL_FIT_G_TYPE="${DEFAULT_SIGNAL_FIT_G_TYPE:-g}"
 else
     FIT_SIGNAL_SCRIPT="${FIT_SIGNAL_SCRIPT:-$REPO_ROOT/scripts/fitting/fit_ogse_signal_vs_g.py}"
-    DEFAULT_SIGNAL_FIT_MODEL="${DEFAULT_SIGNAL_FIT_MODEL:-monoexp}"
+    DEFAULT_SIGNAL_FIT_MODEL="${DEFAULT_SIGNAL_FIT_MODEL:-ogse_rest_offset}"
     DEFAULT_SIGNAL_FIT_G_TYPE="${DEFAULT_SIGNAL_FIT_G_TYPE:-bvalue_thorsten}"
 fi
 SIGNAL_FIT_MANIFEST="${SIGNAL_FIT_MANIFEST:-$MANIFEST_DIR/signal_fits.csv}"

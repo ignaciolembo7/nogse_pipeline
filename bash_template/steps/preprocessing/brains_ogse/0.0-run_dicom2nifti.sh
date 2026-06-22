@@ -5,9 +5,9 @@ set -u -o pipefail
 # Driver script for the brain DICOM-to-NIfTI conversion batch.
 
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_HOME/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_HOME/../../../.." && pwd)"
 
-source "$SCRIPT_HOME/../helpers/dicom2nifti_batch_lib.sh"
+source "$SCRIPT_HOME/../../../helpers/dicom2nifti_batch_lib.sh"
 
 
 # ------------------------------------------------------------------

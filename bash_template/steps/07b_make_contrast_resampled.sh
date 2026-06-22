@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/manifests/helpers/master_table_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/helpers/master_table_common.sh"
 pipeline_maybe_step_help contrast_resampled "$@"
 pipeline_setup_common
 pipeline_set_dataset_defaults "${TYPE_SUBJ:-${DATASET:?TYPE_SUBJ or DATASET is required}}"
@@ -33,9 +33,10 @@ mkdir -p "$CONTRAST_RESAMPLED_OUT_DIR"
     --out-dir "$CONTRAST_RESAMPLED_OUT_DIR" \
     --grid-min-mTm "${EXPORT_GRID_MIN_MTM:-0}" \
     --grid-max-mode "${EXPORT_GRID_MAX_MODE:-observed_pair_max}" \
-    --grid-n "${EXPORT_GRID_N:-1000}" \
+    --grid-n "${EXPORT_GRID_N:-100}" \
     --contrast-mode "${EXPORT_CONTRAST_MODE:-signal_fit}" \
     ${EXPORT_MODELS:+--models $EXPORT_MODELS} \
+    ${EXPORT_G_MIN_DERIVED:+--g-min-derived "$EXPORT_G_MIN_DERIVED"} \
     ${EXPORT_RESAMPLED_EXTRA_ARGS:-}
 
 echo "Concatenating resampled contrasts → $CONTRAST_RESAMPLED_PARQUET"

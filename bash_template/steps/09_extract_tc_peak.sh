@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/manifests/helpers/master_table_common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/helpers/master_table_common.sh"
 pipeline_maybe_step_help extract_tc_peak "$@"
 pipeline_setup_common
 pipeline_set_dataset_defaults "${TYPE_SUBJ:-${DATASET:?TYPE_SUBJ or DATASET is required}}"
@@ -51,8 +51,8 @@ if [[ "$TYPE_SEQ" == "ogse" ]]; then
         _tc_args=("$FIT_OUT_ROOT"
             --contrast-root "$TC_PEAKS_CONTRAST_ROOT"
             --out-dir "$TC_PEAKS_OUT_DIR"
-            --contrast-source "${TC_PEAKS_CONTRAST_SOURCE:-fitted_resampled}"
-            --peak-source "${TC_PEAKS_PEAK_SOURCE:-resampled}"
+            --contrast-source "${TC_PEAKS_CONTRAST_SOURCE:-auto}"
+            --peak-source "${TC_PEAKS_PEAK_SOURCE:-standard}"
         )
         [[ -n "${TC_PEAKS_MODELS:-}" ]] && _tc_args+=(--models ${TC_PEAKS_MODELS})
         [[ -n "${TC_PEAKS_SUBJS:-}" ]] && _tc_args+=(--subjs ${TC_PEAKS_SUBJS})

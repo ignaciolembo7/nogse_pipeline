@@ -18,7 +18,7 @@ if [[ -z "${PY:-}" ]]; then
     fi
 fi
 
-PLOT_SCRIPT="$REPO_ROOT/scripts/publication/plot_publication_tc_param_vars.py"
+PLOT_SCRIPT="$REPO_ROOT/scripts/plotting/plot_publication_tc_param_vars.py"
 OUT_DIR="${OUT_DIR:-$PROJECT_ROOT/analysis/publication_figures/tc_param_vars}"
 
 # Edit these lists to change what appears in the final figure.

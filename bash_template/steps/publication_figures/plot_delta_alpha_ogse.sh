@@ -17,7 +17,7 @@ if [[ -z "${PY:-}" ]]; then
         PY="python3"
     fi
 fi
-PLOT_SCRIPT="$REPO_ROOT/scripts/publication/plot_publication_delta_alpha.py"
+PLOT_SCRIPT="$REPO_ROOT/scripts/plotting/plot_publication_delta_alpha.py"
 OUT_DIR="${OUT_DIR:-$PROJECT_ROOT/analysis/publication_figures/delta_alpha_ogse}"
 
 # Edit these lists to change what appears in the final figure.

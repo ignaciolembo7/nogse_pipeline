@@ -7,7 +7,7 @@ set -u -o pipefail
 # execution helpers come from `coreg_batch_lib.sh`.
 
 SCRIPT_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_HOME/../../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_HOME/../../../../.." && pwd)"
 REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 SUBJECTS_DIR="$PROJECT_ROOT/Data-signals/DATA_PROCESSED/subjects"
@@ -41,7 +41,7 @@ esac
 export REUSE_REFERENCE
 
 # Load shared batch helpers after defining all required variables.
-source "$SCRIPT_HOME/../helpers/coreg_batch_lib.sh"
+source "$SCRIPT_HOME/../../../helpers/coreg_batch_lib.sh"
 
 init_run "run_BRAINS-denoised_topup_signal_extraction"
 
