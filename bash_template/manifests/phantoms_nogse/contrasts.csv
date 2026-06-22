@@ -1,1 +1,6 @@
 subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+# Contraste NOGSE: señal_1 = CPMG-like (N grande), señal_2 = Hahn-like (N pequeño)
+# td_ms = TN compartido, Hz_1/Hz_2 = frecuencia de cada señal
+#
+# EJEMPLO con un phantom y td=120ms
+# PHANTOM,20260519_PHANTOM,ALL,long,120,8,4,33,16

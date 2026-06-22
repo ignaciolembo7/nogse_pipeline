@@ -1,1 +1,13 @@
 subj,sheet,roi,direction,td_ms,N,Hz,model
+# td_ms = TN (tiempo total de refocalización, ms)
+# N     = número de lóbulos del gradiente
+# Hz    = frecuencia de oscilación ≈ N / (2 * td_ms * 1e-3)
+# model = nogse_free  (o nogse_rest, nogse_mixed para modelos con tc)
+#
+# EJEMPLO para td=120ms: N=8 (CPMG-like ~33Hz) y N=4 (Hahn-like ~16Hz)
+# ALL,ALL,ALL,ALL,120,8,33,nogse_free
+# ALL,ALL,ALL,ALL,120,4,16,nogse_free
+#
+# EJEMPLO para td=210ms: N=8 (~19Hz) y N=4 (~9Hz)
+# ALL,ALL,ALL,ALL,210,8,19,nogse_free
+# ALL,ALL,ALL,ALL,210,4,9,nogse_free

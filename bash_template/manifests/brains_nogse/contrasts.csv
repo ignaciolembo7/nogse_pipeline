@@ -1,1 +1,10 @@
 subj,sheet,roi,direction,td_ms,N_1,N_2,Hz_1,Hz_2
+# Contraste NOGSE: señal_1 = CPMG-like (N grande), señal_2 = Hahn-like (N pequeño)
+# td_ms = TN (tiempo total de refocalización compartido entre ambas señales)
+# Hz_1, Hz_2 = frecuencia de oscilación de cada señal ≈ N / (2 * td_ms * 1e-3)
+#
+# EJEMPLO para td=120ms: N=8 (~33Hz) vs N=4 (~16Hz)
+# ALL,ALL,ALL,ALL,120,8,4,33,16
+#
+# EJEMPLO para td=210ms: N=8 (~19Hz) vs N=4 (~9Hz)
+# ALL,ALL,ALL,ALL,210,8,4,19,9

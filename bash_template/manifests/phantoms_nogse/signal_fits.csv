@@ -1,1 +1,9 @@
 subj,sheet,roi,direction,td_ms,N,Hz,model
+# td_ms = TN (tiempo total de refocalización, ms)
+# N     = número de lóbulos del gradiente
+# Hz    = frecuencia de oscilación ≈ N / (2 * td_ms * 1e-3)
+# model = nogse_free  (o nogse_rest, nogse_mixed para modelos con tc)
+#
+# EJEMPLO con un phantom y td=120ms
+# PHANTOM,20260519_PHANTOM,ALL,long,120,8,33,nogse_free
+# PHANTOM,20260519_PHANTOM,ALL,long,120,4,16,nogse_free
