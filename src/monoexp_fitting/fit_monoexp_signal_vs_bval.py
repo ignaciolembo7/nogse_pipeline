@@ -15,7 +15,7 @@ from fitting.core import chi2 as _chi2
 from fitting.core import fit_curve_fit_parameters
 from fitting.core import rmse as _rmse
 from fitting.core import rmse_log as _rmse_log
-from plottings.core import compact_float, render_xy_plot
+from plotting.core import compact_float, render_xy_plot
 from tools.fit_params_schema import standardize_fit_params
 from tools.scalar import unique_float_strict as _unique_float_any, unique_str as _unique_str
 from tools.strict_columns import raise_on_unrecognized_column_names

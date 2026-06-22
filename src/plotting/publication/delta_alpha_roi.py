@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
+from plotting.publication._utils import _read_table, _normalize_direction
 
 
 DEFAULT_DIRECTION_COLORS = {
@@ -34,20 +35,6 @@ class DatasetFigureSpec:
     direction_aliases: Mapping[str, str]
 
 
-def _read_table(path: str | Path) -> pd.DataFrame:
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(path)
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        return pd.read_csv(path)
-    if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
-    if suffix == ".parquet":
-        return pd.read_parquet(path)
-    raise ValueError(f"Unsupported table format: {path}")
-
-
 def _pick_column(df: pd.DataFrame, candidates: Sequence[str], *, required: bool = True) -> str | None:
     lower_to_name = {str(col).strip().lower(): str(col) for col in df.columns}
     for candidate in candidates:
@@ -57,11 +44,6 @@ def _pick_column(df: pd.DataFrame, candidates: Sequence[str], *, required: bool 
     if required:
         raise KeyError(f"Could not resolve any of these columns: {list(candidates)}")
     return None
-
-
-def _normalize_direction(value: object, aliases: Mapping[str, str]) -> str:
-    text = str(value).strip()
-    return str(aliases.get(text, text)).strip()
 
 
 def _is_phantom_dataset(dataset: str) -> bool:

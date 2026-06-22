@@ -21,6 +21,7 @@ from ogse_fitting.contrast_tc_peak_panels import _transform_x
 from ogse_fitting.contrast_tc_peak_panels import add_resampled_data_peak_columns
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 from tc_fittings.tc_td_pseudohuber import tc_pseudohuber
+from plotting.publication._utils import _read_table, _normalize_direction
 
 
 DEFAULT_DIRECTION_COLORS = {
@@ -84,23 +85,6 @@ def _set_publication_rc() -> None:
     )
 
 
-def _read_table(path: str | Path) -> pd.DataFrame:
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(path)
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        return pd.read_csv(path)
-    if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
-    if suffix == ".parquet":
-        return pd.read_parquet(path)
-    raise ValueError(f"Unsupported table format: {path}")
-
-
-def _normalize_direction(value: object, aliases: Mapping[str, str]) -> str:
-    text = str(value).strip()
-    return str(aliases.get(text, text)).strip()
 
 
 def _exclude_td(df: pd.DataFrame, exclude_td_ms: Sequence[float]) -> pd.DataFrame:

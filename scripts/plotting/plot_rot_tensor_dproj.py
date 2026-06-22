@@ -5,7 +5,7 @@ from pathlib import Path
 import argparse
 import pandas as pd
 
-from plottings.plot_rotation import (
+from plotting.rotation import (
     load_dproj_parquet,
     plot_dproj_subplots_by_N,
     plot_dproj_gradient_xyz,

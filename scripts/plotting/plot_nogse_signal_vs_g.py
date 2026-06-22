@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from data_processing.master_table import build_analysis_id_from_columns, load_master_table, select_plot_signal, split_selector_values
-from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_table, split_all_or_values
+from plotting.nogse.signal_vs_g import plot_nogse_signal_table, split_all_or_values
 
 
 def _master_selectors(args: argparse.Namespace) -> dict[str, object]:

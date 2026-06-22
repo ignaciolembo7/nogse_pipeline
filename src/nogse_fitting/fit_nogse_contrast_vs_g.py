@@ -37,7 +37,7 @@ from models.model_fitting import (
     NOGSE_contrast_vs_g_rest,
     NOGSE_contrast_vs_g_tort,
 )
-from nogse_plotting.plot_nogse_contrast_vs_g import plot_nogse_contrast_fit
+from plotting.nogse.contrast_vs_g import plot_nogse_contrast_fit
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
 from tools.value_formatting import scalar_or_compact_series, truthy_series

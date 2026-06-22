@@ -8,6 +8,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from plotting.publication._utils import _read_table, _normalize_direction
 
 
 DEFAULT_BRAIN_MARKERS = ("o", "s", "^", "D", "v", "P")
@@ -71,22 +72,6 @@ def _set_publication_rc() -> None:
     )
 
 
-def _read_table(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        raise FileNotFoundError(path)
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        return pd.read_csv(path)
-    if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
-    if suffix == ".parquet":
-        return pd.read_parquet(path)
-    raise ValueError(f"Unsupported table format: {path}")
-
-
-def _normalize_direction(value: object, aliases: Mapping[str, str]) -> str:
-    text = str(value).strip()
-    return str(aliases.get(text, text)).strip()
 
 
 def _sanitize_token(value: object) -> str:

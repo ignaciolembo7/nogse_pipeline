@@ -8,8 +8,8 @@ from pathlib import Path
 import pandas as pd
 
 from data_processing.master_table import build_analysis_id_from_columns, load_master_table, select_contrast, split_selector_values
-from plottings.contrast_vs_g import filter_stat
-from ogse_plotting.plot_ogse_contrast_vs_g import plot_ogse_contrast_summary
+from plotting.contrast_vs_g import filter_stat
+from plotting.ogse.contrast_vs_g import plot_ogse_contrast_summary
 
 VALID_GBASES = {"g", "g_max", "g_lin_max", "g_thorsten"}
 

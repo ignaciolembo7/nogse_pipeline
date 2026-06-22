@@ -34,7 +34,7 @@ from fitting.core import fit_least_squares
 from fitting.core import parameter_error_column
 from fitting.core import rmse as _rmse
 from fitting.core import stderr_from_single_param_jacobian as _stderr_from_single_param_jacobian
-from ogse_plotting.plot_ogse_contrast_vs_g import FAMILY_LABEL, plot_contrast_fit
+from plotting.ogse.contrast_vs_g import FAMILY_LABEL, plot_contrast_fit
 from models.model_fitting import (
     M_ogse_free,
     M_ogse_mixed,
@@ -172,7 +172,7 @@ def _model_side_yhat(
             M_ogse_rest_offset(td_ms, G, n_1, x1, tc_ms, M0, D0, C),
             M_ogse_rest_offset(td_ms, G, n_2, x2, tc_ms, M0, D0, C),
         )
-    if model_name in {"mixed", "mixed_global", "ogse_mixed"}:
+    if model_name in {"mixed", "ogse_mixed_global", "ogse_mixed"}:
         tc_ms = float(fit_row["tc_ms"])
         alpha = float(fit_row["alpha"])
         return (
@@ -982,7 +982,7 @@ def _lookup_alpha_for_curve(
         if value is not None and np.isfinite(float(value)):
             return float(value), "input:alpha"
     if alpha_df is None or alpha_df.empty:
-        raise ValueError("mixed_global requires alpha values in the contrast table or via --alpha_table.")
+        raise ValueError("ogse_mixed_global requires alpha values in the contrast table or via --alpha_table.")
 
     candidates = alpha_df.copy()
     for col in ("subj", "roi", "direction"):
@@ -1376,7 +1376,7 @@ def _prepare_mixed_global_contrast_data(
         rows.append(out)
 
     if not rows:
-        raise ValueError("No valid curves remained for mixed_global.")
+        raise ValueError("No valid curves remained for ogse_mixed_global.")
     return pd.concat(rows, ignore_index=True)
 
 
@@ -1983,7 +1983,7 @@ def fit_ogse_contrast_mixed_global_long(
             "delta_ms_2": scalar_or_compact_series(group["delta_ms_2"], name="delta_ms_2", required=False),
             "Delta_app_ms_2": scalar_or_compact_series(group["Delta_app_ms_2"], name="Delta_app_ms_2", required=False),
             "fit_kind": "ogse_contrast",
-            "model": "mixed_global",
+            "model": "ogse_mixed_global",
             "ycol": ycol,
             "stat": key_dict.get("stat", stat_keep),
             "n_points": int(len(y)),
@@ -2090,8 +2090,16 @@ def fit_ogse_contrast_long(
 
     _require_cols(df, ["N_1", "N_2"], label="contrast_long (N_1/N_2)")
 
-    # group by ROI+direction (+stat if exists)
-    group_cols = ["roi", "direction"] + (["stat"] if "stat" in df.columns else [])
+    # group by subj+ROI+direction(+td_ms when present as a direct column, i.e. resampled contrast tables)+stat
+    # td_ms as a group key is needed when the table has multiple td values (resampled/concatenated contrast tables);
+    # single-td legacy tables encode timing in td_ms_1/td_ms_2 per-row scalars and don't need it here.
+    _has_td_col = "td_ms" in df.columns and "td_ms_1" not in df.columns
+    group_cols = (
+        (["subj"] if "subj" in df.columns else [])
+        + ["roi", "direction"]
+        + (["td_ms"] if _has_td_col else [])
+        + (["stat"] if "stat" in df.columns else [])
+    )
     rows: list[FitRow] = []
 
     for key, gg in df.groupby(group_cols, sort=False):
@@ -2172,7 +2180,7 @@ def fit_ogse_contrast_long(
         sequence_2 = _get_sequence("sequence_2")
         sheet_2 = _get_str("sheet_2")
 
-        # timing summary for fitting internals: prefer override > td_ms_1/2 > compute from side 1
+        # timing summary for fitting internals: prefer override > td_ms_1/2 > direct td_ms col > compute from side 1
         td_ms: float | None
         if td_override_ms is not None:
             td_ms = float(td_override_ms)
@@ -2186,6 +2194,8 @@ def fit_ogse_contrast_long(
                 td_ms = float(0.5 * (td_ms_1 + td_ms_2))
             elif td_ms_1 is not None:
                 td_ms = float(td_ms_1)
+            elif _get_float("td_ms") is not None:
+                td_ms = _get_float("td_ms")
             elif max_dur_ms_1 is not None and tm_ms_1 is not None:
                 td_ms = float(2.0 * max_dur_ms_1 + tm_ms_1)
             else:
@@ -2505,7 +2515,7 @@ def plot_fit_one_group(
         C = float(fit_row.get("C", 0.0))
         ys = OGSE_contrast_vs_g_rest_offset(td, G1s, G2s, n_1, n_2, tc, M0, D0, C)
 
-    if model in {"mixed", "mixed_global"} and bool(fit_row.get("ok", True)):
+    if model in {"mixed", "ogse_mixed_global"} and bool(fit_row.get("ok", True)):
         tc = float(fit_row["tc_ms"])
         alpha = float(fit_row["alpha"])
         M0 = float(fit_row["M0"])

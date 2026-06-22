@@ -5,7 +5,7 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
-from publication_figures.pseudohuber_simulation import (
+from plotting.publication.pseudohuber_simulation import (
     default_output_stem,
     plot_pseudohuber_transition_publication,
 )

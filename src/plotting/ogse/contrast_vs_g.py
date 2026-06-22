@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from plottings.contrast_vs_g import (
+from plotting.contrast_vs_g import (
     build_display_model_name,
     canonical_xcol,
     canonical_ycol,
     filter_stat,
     plot_contrast_summary as _plot_contrast_summary,
 )
-from plottings.core import compact_float, render_xy_plot
+from plotting.core import compact_float, render_xy_plot
 
 FAMILY_LABEL = "OGSE contrast"
 
@@ -20,9 +20,9 @@ FAMILY_LABEL = "OGSE contrast"
 def fit_parameter_fragments(fit_row: dict[str, object]) -> list[str]:
     model = str(fit_row.get("model", ""))
     fragments: list[str] = []
-    if model in {"tort", "mixed", "mixed_global"} and "alpha" in fit_row:
+    if model in {"tort", "mixed", "ogse_mixed_global"} and "alpha" in fit_row:
         fragments.append(f"alpha={compact_float(fit_row.get('alpha'))}")
-    if model in {"rest", "rest_offset", "rest_offset_globC", "mixed", "mixed_global"} and "tc_ms" in fit_row:
+    if model in {"rest", "rest_offset", "rest_offset_globC", "mixed", "ogse_mixed_global"} and "tc_ms" in fit_row:
         fragments.append(f"tc_ms={compact_float(fit_row.get('tc_ms'))}")
     if model in {"rest_offset", "rest_offset_globC"} and "C" in fit_row:
         fragments.append(f"C={compact_float(fit_row.get('C'))}")

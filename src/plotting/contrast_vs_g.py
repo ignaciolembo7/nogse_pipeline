@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from plottings.core import XYSeries, distinct_colors, ensure_dir, render_multi_series_plot
+from plotting.core import XYSeries, distinct_colors, ensure_dir, render_multi_series_plot
 
 VALID_YCOLS = {"value", "value_norm"}
 

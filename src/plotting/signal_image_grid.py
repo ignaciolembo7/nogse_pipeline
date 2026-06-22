@@ -10,7 +10,7 @@ import nibabel as nib
 import numpy as np
 import pandas as pd
 
-from plottings.core import compact_float, ensure_dir, sanitize_token
+from plotting.core import compact_float, ensure_dir, sanitize_token
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
-from publication_figures.tc_param_vars import (
+from plotting.publication.tc_param_vars import (
     TcParamVarsSpec,
     default_delta_vs_alpha_output_stem,
     default_output_stem,

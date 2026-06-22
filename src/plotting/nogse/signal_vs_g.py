@@ -6,7 +6,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from plottings.core import (
+from plotting.core import (
     XYSeries,
     compact_float,
     ensure_dir,

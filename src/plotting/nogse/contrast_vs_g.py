@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from plottings.contrast_vs_g import (
+from plotting.contrast_vs_g import (
     build_display_model_name,
     canonical_xcol,
     canonical_ycol,
     filter_stat,
     plot_contrast_summary,
 )
-from plottings.core import compact_float, render_xy_plot
+from plotting.core import compact_float, render_xy_plot
 
 FAMILY_LABEL = "NOGSE contrast"
 

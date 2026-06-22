@@ -5,7 +5,7 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
-from plottings.signal_image_grid import (
+from plotting.signal_image_grid import (
     build_grid_cells,
     collect_signal_image_entries,
     default_output_stem,

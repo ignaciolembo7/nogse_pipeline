@@ -22,7 +22,7 @@ from fitting.core import fit_least_squares
 from fitting.core import r2_score, rmse as fit_rmse
 from fitting.experiments import split_all_or_values
 from fitting.signal_tables import signal_table_analysis_id
-from nogse_plotting.plot_nogse_signal_vs_g import plot_nogse_signal_group
+from plotting.nogse.signal_vs_g import plot_nogse_signal_group
 from models.model_fitting import M_nogse_free, M_nogse_mixed
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.fit_params_schema import standardize_fit_params
@@ -60,16 +60,16 @@ class BuiltModel:
 
 
 SIGNAL_MODELS: dict[str, SignalModelSpec] = {
-    "free_cpmg": SignalModelSpec(
-        name="free_cpmg",
+    "nogse_free_cpmg": SignalModelSpec(
+        name="nogse_free_cpmg",
         evaluator=M_nogse_free,
         fit_params=(
             FitParameterSpec(name="M0", p0=1.0, bounds=(0.0, np.inf), log_scale=False),
             FitParameterSpec(name="D0_m2_ms", p0=2.3e-12, bounds=(1e-16, np.inf), log_scale=True),
         ),
     ),
-    "free_hahn": SignalModelSpec(
-        name="free_hahn",
+    "nogse_free_hahn": SignalModelSpec(
+        name="nogse_free_hahn",
         evaluator=M_nogse_free,
         fit_params=(
             FitParameterSpec(name="M0", p0=1.0, bounds=(0.0, np.inf), log_scale=False),
@@ -77,7 +77,7 @@ SIGNAL_MODELS: dict[str, SignalModelSpec] = {
         ),
     ),
 }
-GLOBAL_SIGNAL_MODELS = ("mixed_global",)
+GLOBAL_SIGNAL_MODELS = ("nogse_mixed_global",)
 VALID_MODELS = tuple(sorted((*SIGNAL_MODELS, *GLOBAL_SIGNAL_MODELS)))
 GAMMA_DEFAULT = 267.5221900
 
@@ -266,7 +266,7 @@ def _lookup_alpha_for_curve(
             return float(value), "input:alpha"
 
     if alpha_df is None or alpha_df.empty:
-        raise ValueError("mixed_global requires alpha values in the signal table or via --alpha_table.")
+        raise ValueError("nogse_mixed_global requires alpha values in the signal table or via --alpha_table.")
 
     candidates = alpha_df.copy()
     for col in ("subj", "roi", "direction"):
@@ -545,7 +545,7 @@ def _prepare_global_mixed_rows(
 
     group_cols = _curve_group_columns(avg_df)
     if not group_cols:
-        raise ValueError("Could not identify curve grouping columns for mixed_global.")
+        raise ValueError("Could not identify curve grouping columns for nogse_mixed_global.")
 
     for _key, curve in avg_df.groupby(group_cols, sort=False, dropna=False):
         curve_fit = curve.copy()
@@ -564,7 +564,7 @@ def _prepare_global_mixed_rows(
         )
         if not np.isfinite(alpha_value) or alpha_value < 0.0 or alpha_value > 1.0:
             raise ValueError(
-                f"Invalid alpha={alpha_value} for mixed_global at td_ms={td_ms}. "
+                f"Invalid alpha={alpha_value} for nogse_mixed_global at td_ms={td_ms}. "
                 "M_nogse_mixed requires alpha in [0, 1]."
             )
 
@@ -744,7 +744,7 @@ def fit_mixed_global_group(
     out_data["__yhat__"] = yhat
 
     row: dict[str, object] = {
-        "model": "mixed_global",
+        "model": "nogse_mixed_global",
         "ycol": ycol,
         "n_points": int(len(y)),
         "n_fit": int(len(y)),
@@ -916,7 +916,7 @@ def fit_nogse_signal_mixed_global_long(
         fit_rows.append(fit_row)
         if outdir_plots is not None:
             out_png = outdir_plots / (
-                f"{fit_row['analysis_id']}.roi-{fit_row['roi']}.dir-{fit_row['direction']}.mixed_global.png"
+                f"{fit_row['analysis_id']}.roi-{fit_row['roi']}.dir-{fit_row['direction']}.nogse_mixed_global.png"
             )
             plot_mixed_global_group(fit_data, fit_row, out_png=out_png, ycol=ycol)
             print("Saved:", out_png)
@@ -1216,7 +1216,7 @@ def run_global_mixed_fit_from_parquets(
 
     combined = pd.concat(frames, ignore_index=True)
     alpha_df = _read_table(alpha_table) if alpha_table is not None else None
-    analysis_id = "mixed_global"
+    analysis_id = "nogse_mixed_global"
     out_dir = Path(out_root) / analysis_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1245,7 +1245,7 @@ def run_global_mixed_fit_from_parquets(
     )
 
     fit_params_name = fit_params_output_basename(
-        model="mixed_global",
+        model="nogse_mixed_global",
         axis=str(xcol),
         ycol=str(ycol),
         directions=None if directions is None else [str(v) for v in directions],

@@ -25,7 +25,7 @@ from fitting.core import rmse_log as _rmse_log
 from fitting.signal_tables import normalize_signal_curve_keys, signal_table_analysis_id
 from models.model_fitting import M_ogse_free, M_ogse_rest, M_ogse_rest_offset
 from monoexp_fitting.fit_monoexp_signal_vs_bval import run_fit_from_parquet as run_fit_monoexp_from_parquet
-from ogse_plotting.plot_ogse_signal_vs_g import plot_ogse_signal_fit
+from plotting.ogse.signal_vs_g import plot_ogse_signal_fit
 from tools.fit_params_schema import standardize_fit_params
 from tools.scalar import unique_float_strict as _unique_float_any, unique_str as _unique_str
 from tools.strict_columns import raise_on_unrecognized_column_names

@@ -5,7 +5,7 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
-from publication_figures.delta_alpha_roi import (
+from plotting.publication.delta_alpha_roi import (
     DatasetFigureSpec,
     build_plot_tables,
     plot_delta_alpha_figure,
