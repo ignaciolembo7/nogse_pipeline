@@ -186,7 +186,7 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal_gradcorr
 
 # 9. Fit OGSE contrast curves (extracts tc_peak, D0, alpha per ROI/direction/Td)
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_free
-# or use the mixed_global model:
+# or use the ogse_mixed_global model:
 bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_contrast_mixed_global
 
 # 10. Fit tc vs Td (requires setting TC_FIT_PARAMS to the contrast fit-params parquet)
@@ -229,7 +229,7 @@ analysis/brains/ogse_experiments/
 |------|--------------|-------|
 | `fit_signal` | set in manifest | Extracts D0 per ROI (use model=monoexp in manifest) |
 | `fit_contrast_free` | `ogse_free` | Free fit: tc, D0 |
-| `fit_contrast_mixed_global` | `mixed_global` | Global tc across Td |
+| `fit_contrast_mixed_global` | `ogse_mixed_global` | Global tc across Td (OGSE) |
 | `fit_global_signal` | `ogse_mixed_offset` | Global fit on raw signals |
 | `tc` | `pseudohuber_fixed_macro` | Pseudo-Huber tc(Td) |
 
@@ -400,7 +400,7 @@ bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest --help
 | `fit_signal_gradcorr` | `06_fit_signals.sh` | Like fit\_signal but applies gradient correction |
 | `fit_contrast` | `07_fit_contrasts.sh` | Fit all contrast rows in master |
 | `fit_contrast_free` | `07_fit_contrasts.sh` | Like fit\_contrast but presets the free model when `FIT_MODEL` is unset |
-| `fit_contrast_mixed_global` | `07_fit_contrasts.sh` | Like fit\_contrast but presets `mixed_global` when `FIT_MODEL` is unset |
+| `fit_contrast_mixed_global` | `07_fit_contrasts.sh` | Like fit\_contrast but presets `ogse_mixed_global` when `FIT_MODEL` is unset |
 | `fit_global_signal` | `13_fit_global_signals.sh` | Fit global/mixed signal model on raw signals |
 | `alpha` | `08_alpha_macro.sh` | Compute α\_macro from D\_proj; writes `summary_alpha_values.xlsx` |
 | `tc` | `09_tc_vs_td.sh` | Fit tc(Td) from contrast fit-params (`TC_FIT_PARAMS` required) |
@@ -466,7 +466,7 @@ VAR=value bash nogse_pipeline/bash_template/run_dataset.sh brain ogse <step>
 | `SIGNAL_FIT_G_TYPE` | fit\_signal | Gradient column, e.g. `bvalue_thorsten`, `g` |
 | `SIGNAL_FIT_OUT_ROOT` | fit\_signal | Output root (derived dynamically; set to override) |
 | `SIGNAL_FIT_EXTRA_ARGS` | fit\_signal | Extra Python flags |
-| `FIT_MODEL` | fit\_contrast | Model name, e.g. `ogse_free`, `nogse_free`, `mixed_global` |
+| `FIT_MODEL` | fit\_contrast | Model name, e.g. `ogse_free`, `ogse_mixed_global`, `nogse_free`, `nogse_mixed_global` |
 | `FIT_GBASE` | fit\_contrast | Gradient axis, e.g. `g_lin_max`, `g_thorsten_1` |
 | `FIT_OUT_ROOT` | fit\_contrast | Output root (derived dynamically; set to override) |
 | `FIT_EXTRA_ARGS` | fit\_contrast | Extra Python flags |

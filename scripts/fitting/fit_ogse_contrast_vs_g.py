@@ -527,22 +527,30 @@ def main() -> None:
         selected.cleanup()
         return
 
-    # Plots: one per roi/direction/stat row
+    # Plots: one per (subj, td_ms, roi, direction) row
     for _, r in fit_df.iterrows():
         if not bool(r.get("ok", True)):
             continue
         roi = r["roi"]
         direction = r["direction"]
         stat = r.get("stat", None)
+        subj_val = r.get("subj")
+        td_val = r.get("td_ms")
 
         g = df[(df["roi"].astype(str) == str(roi)) & (df["direction"].astype(str) == str(direction))].copy()
         if stat is not None and "stat" in g.columns:
             g = g[g["stat"].astype(str) == str(stat)]
+        if subj_val is not None and "subj" in g.columns:
+            g = g[g["subj"].astype(str) == str(subj_val)]
+        if td_val is not None and pd.notna(td_val) and "td_ms" in g.columns:
+            g = g[(pd.to_numeric(g["td_ms"], errors="coerce") - float(td_val)).abs() < 0.1]
 
         if g.empty:
             continue
 
-        out_png = plots_dir / f"{roi}.{args.model}.{args.gbase}.{args.ycol}.direction_{direction}.png"
+        subj_tag = f".{subj_val}" if subj_val is not None else ""
+        td_tag = f".td{int(round(float(td_val)))}" if td_val is not None and pd.notna(td_val) else ""
+        out_png = plots_dir / f"{roi}{subj_tag}{td_tag}.{args.model}.{args.gbase}.{args.ycol}.direction_{direction}.png"
         plot_fit_one_group(g, r.to_dict(), out_png=out_png, gbase=args.gbase, ycol=args.ycol)
 
     print("Saved plots in:", plots_dir)

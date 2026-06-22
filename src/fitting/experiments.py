@@ -10,12 +10,12 @@ NOGSE_CONTRAST_MODELS = tuple(sorted({"free", "nogse_free_grad_offset", "rest", 
 # OGSE model names come directly from OGSE_CONTRAST_FIT_SPECS — adding a model
 # there automatically makes it available here without editing this file.
 OGSE_CONTRAST_MODELS = tuple(sorted({
-    "mixed_global",                          # alias kept for backward compat
+    "ogse_mixed_global",                     # prefixed canonical name
     *OGSE_CONTRAST_FIT_SPECS.keys(),         # all registered OGSE fit models
     *contrast_model_names(family="ogse"),    # ogse_* prefixed names from the rich registry
 }))
-NOGSE_SIGNAL_MODELS = ("free_cpmg", "free_hahn", "mixed_global", "nogse_free")
-OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse", "rest", "rest_offset", "ogse_free", "ogse_rest", "ogse_rest_offset")
+NOGSE_SIGNAL_MODELS = ("nogse_free_cpmg", "nogse_free_hahn", "nogse_mixed_global", "nogse_free")
+OGSE_SIGNAL_MODELS = ("monoexp", "free_ogse", "ogse_mixed_offset", "rest", "rest_offset", "ogse_free", "ogse_rest", "ogse_rest_offset")
 
 
 @dataclass(frozen=True)

@@ -196,7 +196,7 @@ Column meanings:
 | `td_ms` | Diffusion time in ms. |
 | `N` | Number of oscillations. |
 | `Hz` | Oscillation frequency. |
-| `model` | Model name. OGSE examples: `monoexp`, `ogse_free`, `ogse_rest`, `ogse_rest_offset`. NOGSE examples: `nogse_free`, `free_cpmg`, `mixed_global`. |
+| `model` | Model name. OGSE examples: `monoexp`, `ogse_free`, `ogse_rest`, `ogse_rest_offset`. NOGSE examples: `nogse_free`, `nogse_free_cpmg`, `nogse_mixed_global`. |
 
 If `model` is empty, the step uses `SIGNAL_FIT_MODEL`.
 

@@ -293,10 +293,15 @@ SIGNAL_MODEL_ALIASES: dict[tuple[str, str], str] = {
     ("ogse", "free"): "ogse_free",
     ("ogse", "rest"): "ogse_rest",
     ("ogse", "rest_offset"): "ogse_rest_offset",
-    ("nogse", "free_cpmg"): "nogse_free",
-    ("nogse", "free_hahn"): "nogse_free",
+    # NOGSE prefixed names (canonical)
+    ("nogse", "nogse_free_cpmg"): "nogse_free",
+    ("nogse", "nogse_free_hahn"): "nogse_free",
+    ("nogse", "nogse_mixed_global"): "nogse_mixed",
     ("nogse", "free"): "nogse_free",
     ("nogse", "rest"): "nogse_rest",
+    # backward-compat aliases
+    ("nogse", "free_cpmg"): "nogse_free",
+    ("nogse", "free_hahn"): "nogse_free",
     ("nogse", "mixed_global"): "nogse_mixed",
 }
 
@@ -308,10 +313,12 @@ CONTRAST_MODEL_ALIASES: dict[tuple[str, str], str] = {
     ("ogse", "rest_offset"): "ogse_rest_offset",
     ("ogse", "rest_offset_globC"): "ogse_rest_offset",
     ("ogse", "mixed"): "ogse_mixed",
-    ("ogse", "mixed_global"): "ogse_mixed",
+    ("ogse", "ogse_mixed_global"): "ogse_mixed",
     ("nogse", "free"): "nogse_free",
     ("nogse", "tort"): "nogse_tort",
     ("nogse", "rest"): "nogse_rest",
+    # backward-compat alias
+    ("ogse", "mixed_global"): "ogse_mixed",
 }
 
 
