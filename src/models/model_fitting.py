@@ -21,6 +21,16 @@ def _rest_log_attenuation(N, x, y, tc, bSE):
       phi_N     -- N-1 NOGSE/OGSE lobes
       phi_cross -- cross-correlation between the two groups of lobes
     """
+    # N=1: no oscillating lobes — only the SE lobe contributes (phi_N = phi_cross = 0)
+    if int(N) == 1:
+        phi_SE = bSE**2 * tc**2 * (
+            4 * np.exp(-y / tc / 2)
+            - np.exp(-y / tc)
+            - 3
+            + y / tc
+        )
+        return phi_SE, np.zeros_like(phi_SE), np.zeros_like(phi_SE)
+
     # --- sub-expressions that repeat inside the NOGSE/OGSE lobe sum ---
     e_train     = np.exp(-(N - 1) * x / tc)          # decay over all N-1 lobes
     e_lobe      = e_train ** (1 / (N - 1))            # single-lobe decay  = exp(-x/tc)
