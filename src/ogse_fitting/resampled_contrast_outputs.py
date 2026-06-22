@@ -8,6 +8,7 @@ import pandas as pd
 from scipy.optimize import least_squares
 
 from data_processing.io import write_table_outputs, write_xlsx_sheets
+from fitting.b_from_g import b_from_g
 from ogse_fitting.contrast_fit_panels import (
     _fit_row_correction_pair,
     _gcols,
@@ -19,7 +20,10 @@ from ogse_fitting.contrast_fit_panels import (
 )
 from ogse_fitting.contrast_tc_peak_panels import _derived_axes_from_g
 from ogse_fitting.fit_ogse_contrast_vs_g import _model_side_yhat
-from models.model_fitting import M_ogse_free, M_ogse_mixed, M_ogse_mixed_offset, M_ogse_rest, M_ogse_rest_offset
+from models.model_fitting import (
+    M_ogse_free, M_ogse_mixed, M_ogse_mixed_offset, M_ogse_rest, M_ogse_rest_offset,
+    M_nogse_free, M_nogse_rest, M_nogse_mixed,
+)
 from tc_fittings.contrast_fit_table import load_contrast_fit_params
 
 VALID_RESAMPLED_CONTRAST_MODES = ("signal_fit", "rest_only")
@@ -191,6 +195,22 @@ def _resampled_grid_for_row(
     return np.linspace(lo, hi, int(grid_n))
 
 
+_SIDE_META_SKIP_PREFIXES = ("value", "bvalue", "g", "Ld", "lcf", "Lcf", "tc", "contrast")
+
+
+def _scalar_side_meta(df_group: pd.DataFrame) -> dict[str, object]:
+    """Return scalar _1/_2 metadata from the first row of df_group, excluding per-point columns."""
+    if df_group.empty:
+        return {}
+    row0 = df_group.iloc[0]
+    return {
+        col: row0[col]
+        for col in df_group.columns
+        if (col.endswith("_1") or col.endswith("_2"))
+        and not any(col.startswith(p) for p in _SIDE_META_SKIP_PREFIXES)
+    }
+
+
 def _resampled_rows(row: pd.Series, g_common: np.ndarray, *, peak_D0_fix: float, peak_gamma: float) -> pd.DataFrame:
     curves, _ = _resampled_curves_table(row, g_common, experimental_points=pd.DataFrame())
     return _resampled_rows_from_curves(row, g_common, curves, peak_D0_fix=peak_D0_fix, peak_gamma=peak_gamma)
@@ -205,6 +225,9 @@ def _resampled_rows_from_curves(
     peak_gamma: float,
     contrast_mode: str = "signal_fit",
     grid_max_mode: str = "fixed",
+    g_min_derived: float = 0.0,
+    side_meta: dict[str, object] | None = None,
+    bvalue_arrs: dict[str, np.ndarray] | None = None,
 ) -> pd.DataFrame:
     td = float(row["td_ms"])
     n1 = int(row["N_1"])
@@ -220,6 +243,11 @@ def _resampled_rows_from_curves(
         peak_D0_fix=float(peak_D0_fix),
         peak_gamma=float(peak_gamma),
     )
+    below_min = g_common < float(g_min_derived)
+    Ld[below_min] = np.nan
+    lcf_um[below_min] = np.nan
+    Lcf[below_min] = np.nan
+    tc_ms[below_min] = np.nan
     gbase = str(row.get("gbase", "g"))
     ycol = str(row.get("ycol", "value_norm"))
     c_global_values = pd.to_numeric(curves.get("C_global", pd.Series(dtype=float)), errors="coerce").dropna().unique()
@@ -228,9 +256,12 @@ def _resampled_rows_from_curves(
     c_global_err = float(c_global_err_values[0]) if len(c_global_err_values) == 1 else np.nan
     contrast_definition_values = curves.get("contrast_definition", pd.Series(dtype=object)).astype(str).dropna().unique().tolist()
     contrast_definition = contrast_definition_values[0] if len(contrast_definition_values) == 1 else ""
+    _side_meta = side_meta or {}
+    _bvalue_arrs = bvalue_arrs or {}
     records: list[dict[str, object]] = []
     for i, g_val in enumerate(g_common, start=1):
-        record = {
+        record: dict[str, object] = {
+            "row_kind": "contrast",
             "analysis_id": row.get("analysis_id", ""),
             "subj": row.get("subj", ""),
             "sheet": row.get("sheet", ""),
@@ -256,17 +287,24 @@ def _resampled_rows_from_curves(
             f"{gbase}_2": float(g_val),
             "signal_fit_1": float(s1[i - 1]),
             "signal_fit_2": float(s2[i - 1]),
+            "value_1": float(s1[i - 1]),
+            "value_norm_1": float(s1[i - 1]),
+            "value_2": float(s2[i - 1]),
+            "value_norm_2": float(s2[i - 1]),
             "contrast_signal_fit_1": float(c1[i - 1]),
             "contrast_signal_fit_2": float(c2[i - 1]),
             "contrast_definition": contrast_definition,
-            "value": float(contrast[i - 1]),
-            "value_norm": float(contrast[i - 1]),
+            "contrast_value": float(contrast[i - 1]),
+            "contrast_value_norm": float(contrast[i - 1]),
             "Ld": float(Ld[i - 1]),
             "lcf": float(lcf_um[i - 1]),
             "Lcf": float(Lcf[i - 1]),
             "lcf_a": float(Lcf[i - 1]),
             "tc": float(tc_ms[i - 1]),
         }
+        for bv_col, bv_arr in _bvalue_arrs.items():
+            record[bv_col] = float(bv_arr[i - 1])
+        record.update(_side_meta)
         if np.isfinite(c_global):
             record["C_global"] = c_global
             record["C_global_err"] = c_global_err
@@ -310,8 +348,10 @@ def _signal_model_yhat(
     alpha: float,
     C: float = 0.0,
     RN: float = 0.0,
+    x_ms: float = np.nan,  # explicit lobe duration for NOGSE; if NaN falls back to td_ms/N
 ) -> np.ndarray:
-    x = float(td_ms) / float(N)
+    _x_ms = float(x_ms)
+    x = _x_ms if np.isfinite(_x_ms) else float(td_ms) / float(N)
     model_name = str(model)
     if model_name in {"free", "ogse_free"}:
         return M_ogse_free(td_ms, G, N, x, M0, D0)
@@ -321,19 +361,26 @@ def _signal_model_yhat(
         return M_ogse_rest(td_ms, G, N, x, tc_ms, M0, D0)
     if model_name in {"rest_offset", "rest_offset_globC", "ogse_rest_offset"}:
         return M_ogse_rest_offset(td_ms, G, N, x, tc_ms, M0, D0, C)
-    if model_name in {"mixed", "mixed_global", "ogse_mixed"}:
+    if model_name in {"mixed", "ogse_mixed_global", "ogse_mixed"}:
         return M_ogse_mixed(td_ms, G, N, x, tc_ms, alpha, M0, D0)
     if model_name == "ogse_mixed_offset":
         return M_ogse_mixed_offset(td_ms, G, N, x, tc_ms, alpha, M0, D0, C, RN)
+    # --- NOGSE models ---
+    if model_name in {"nogse_free", "nogse_free_cpmg", "nogse_free_hahn", "nogse_free_offset"}:
+        return M_nogse_free(TE=td_ms, G=G, N=N, x=x, M0=M0, D0=D0)
+    if model_name in {"nogse_rest", "nogse_rest_offset"}:
+        return M_nogse_rest(TE=td_ms, G=G, N=N, x=x, tc=tc_ms, M0=M0, D0=D0)
+    if model_name in {"nogse_mixed", "nogse_mixed_global"}:
+        return M_nogse_mixed(TE=td_ms, G=G, N=N, x=x, tc=tc_ms, alpha=alpha, M0=M0, D0=D0)
     raise ValueError(f"Unsupported model {model!r} for independent signal fitting.")
 
 
 def _uses_signal_alpha(model: str) -> bool:
-    return str(model) in {"tort", "mixed", "mixed_global", "ogse_mixed", "ogse_mixed_offset"}
+    return str(model) in {"tort", "mixed", "ogse_mixed_global", "ogse_mixed", "ogse_mixed_offset", "nogse_mixed", "nogse_mixed_global"}
 
 
 def _uses_independent_signal_C(model: str) -> bool:
-    return str(model) in {"rest_offset", "ogse_rest_offset", "ogse_mixed_offset"}
+    return str(model) in {"rest_offset", "ogse_rest_offset", "ogse_mixed_offset", "nogse_free_offset", "nogse_rest_offset"}
 
 
 def _uses_signal_RN(model: str) -> bool:
@@ -381,7 +428,8 @@ def _fit_independent_signal_curve(
 ) -> tuple[np.ndarray, dict[str, object]]:
     model = str(row.get("model", "rest"))
     td_ms = float(row["td_ms"])
-    n = int(row[f"N_{side}"])
+    n = int(row.get(f"N_{side}", row.get("N", 1)))
+    x_ms = float(row.get("x_model_ms", np.nan))  # explicit lobe duration for NOGSE
     obs_g, obs_y = _observed_side_arrays(experimental_points, row, side=side)
 
     M0 = _finite_float(row.get("M0", 1.0), 1.0)
@@ -471,7 +519,28 @@ def _fit_independent_signal_curve(
         def unpack(p: np.ndarray) -> tuple[float, float, float, float]:
             return D0, float(p[0]), alpha, float(p[1])
 
-    elif model in {"mixed", "mixed_global"}:
+    elif model in {"mixed", "ogse_mixed_global"}:
+        p0 = np.array([np.clip(tc_ms, tc_lo, tc_hi), np.clip(alpha, alpha_lo, alpha_hi)], dtype=float)
+        bounds = (np.array([tc_lo, alpha_lo]), np.array([tc_hi, alpha_hi]))
+
+        def unpack(p: np.ndarray) -> tuple[float, float, float, float]:
+            return D0, float(p[0]), float(p[1]), C
+
+    elif model in {"nogse_free", "nogse_free_cpmg", "nogse_free_hahn"}:
+        p0 = np.array([np.log10(np.clip(D0, d0_lo, d0_hi))], dtype=float)
+        bounds = (np.array([np.log10(d0_lo)]), np.array([np.log10(d0_hi)]))
+
+        def unpack(p: np.ndarray) -> tuple[float, float, float, float]:
+            return 10.0 ** float(p[0]), tc_ms, alpha, C
+
+    elif model == "nogse_rest":
+        p0 = np.array([np.clip(tc_ms, tc_lo, tc_hi)], dtype=float)
+        bounds = (np.array([tc_lo]), np.array([tc_hi]))
+
+        def unpack(p: np.ndarray) -> tuple[float, float, float, float]:
+            return D0, float(p[0]), alpha, C
+
+    elif model == "nogse_mixed":
         p0 = np.array([np.clip(tc_ms, tc_lo, tc_hi), np.clip(alpha, alpha_lo, alpha_hi)], dtype=float)
         bounds = (np.array([tc_lo, alpha_lo]), np.array([tc_hi, alpha_hi]))
 
@@ -494,6 +563,7 @@ def _fit_independent_signal_curve(
                 tc_ms=tc_fit,
                 alpha=alpha_fit,
                 C=c_fit,
+                x_ms=x_ms,
             )
         resid = np.asarray(yhat, dtype=float) - obs_y
         return np.where(np.isfinite(resid), resid, 1e6)
@@ -517,6 +587,7 @@ def _fit_independent_signal_curve(
         tc_ms=tc_ms,
         alpha=alpha,
         C=C,
+        x_ms=x_ms,
     )
     yhat_obs = _signal_model_yhat(
         model=model,
@@ -528,6 +599,7 @@ def _fit_independent_signal_curve(
         tc_ms=tc_ms,
         alpha=alpha,
         C=C,
+        x_ms=x_ms,
     )
     return np.asarray(yhat_grid, dtype=float), record(yhat_grid, yhat_obs)
 
@@ -1052,6 +1124,7 @@ def export_resampled_contrasts_from_fits(
     ok_only: bool = True,
     contrast_mode: str = "signal_fit",
     grid_max_mode: str = "fixed",
+    g_min_derived: float = 0.0,
 ) -> list[Path]:
     if contrast_mode not in VALID_RESAMPLED_CONTRAST_MODES:
         raise ValueError(f"Invalid resampled contrast mode {contrast_mode!r}. Expected one of {VALID_RESAMPLED_CONTRAST_MODES}.")
@@ -1099,6 +1172,7 @@ def export_resampled_contrasts_from_fits(
             # For rows produced by fit_global_signal (fit_kind="ogse_contrast_from_global_signal_fit"),
             # the model parameters are already stored in the fit row and curves are reconstructed
             # analytically by _resampled_curves_table — no contrast parquet lookup is needed.
+            df_group: pd.DataFrame = pd.DataFrame()
             if str(row.get("fit_kind", "")) == "ogse_contrast_from_global_signal_fit":
                 experimental_points = pd.DataFrame()
                 grid_max_mode_eff = "fixed"
@@ -1132,6 +1206,35 @@ def export_resampled_contrasts_from_fits(
                 experimental_points=experimental_points,
                 contrast_mode=contrast_mode,
             )
+            side_meta = _scalar_side_meta(df_group)
+            n1_val = int(row["N_1"])
+            n2_val = int(row["N_2"])
+            bvalue_arrs: dict[str, np.ndarray] = {}
+            for side, n_val in ((1, n1_val), (2, n2_val)):
+                delta_ms_val = float(side_meta.get(f"delta_ms_{side}", np.nan))
+                dapp_ms_val = float(side_meta.get(f"Delta_app_ms_{side}", np.nan))
+                if np.isfinite(delta_ms_val) and np.isfinite(dapp_ms_val):
+                    # OGSE bvalue
+                    bvalue_arrs[f"bvalue_{side}"] = b_from_g(
+                        g_common,
+                        N=float(n_val),
+                        gamma=267.5221900,
+                        delta_ms=delta_ms_val,
+                        delta_app_ms=dapp_ms_val,
+                        g_type="g",
+                    )
+                else:
+                    # NOGSE bvalue: b = (1/12) * gamma² * G² * ((N-1)*x³ + y³) / 1e9
+                    # where y = TN - (N-1)*x, TN = total refocusing time, x = lobe duration
+                    TN_v = float(side_meta.get(f"TN_{side}", np.nan))
+                    x_v = float(side_meta.get(f"x_model_ms_{side}", np.nan))
+                    if np.isfinite(TN_v) and np.isfinite(x_v):
+                        Nf = float(n_val)
+                        y_ms = TN_v - (Nf - 1) * x_v
+                        bvalue_arrs[f"bvalue_{side}"] = (
+                            (1.0 / 12) * 267.5221900 ** 2 * g_common ** 2
+                            * ((Nf - 1) * x_v ** 3 + y_ms ** 3) / 1e9
+                        )
             table = _resampled_rows_from_curves(
                 row,
                 g_common,
@@ -1140,6 +1243,9 @@ def export_resampled_contrasts_from_fits(
                 peak_gamma=peak_gamma,
                 contrast_mode=contrast_mode,
                 grid_max_mode=grid_max_mode_eff,
+                g_min_derived=g_min_derived,
+                side_meta=side_meta,
+                bvalue_arrs=bvalue_arrs,
             )
             roi_tables.append(table)
 

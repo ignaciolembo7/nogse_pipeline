@@ -68,23 +68,24 @@ def _resolve_contrast_parquet(
     contrast_root: str | Path,
 ) -> Path:
     table_root = _table_root(contrast_root)
-    target_name = f"{analysis_id}.long.parquet"
 
-    if sheet:
-        candidate = table_root / str(sheet) / target_name
-        if candidate.exists():
-            return candidate
+    for target_name in (f"{analysis_id}.long.parquet", f"{analysis_id}.parquet"):
+        if sheet:
+            candidate = table_root / str(sheet) / target_name
+            if candidate.exists():
+                return candidate
 
-    matches = sorted(table_root.glob(f"**/{target_name}"))
-    if len(matches) == 1:
-        return matches[0]
-    if not matches:
-        raise FileNotFoundError(
-            f"Could not find contrast table for analysis_id={analysis_id!r} in {table_root}"
-        )
+        matches = sorted(table_root.glob(f"**/{target_name}"))
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise FileNotFoundError(
+                f"Found multiple tables for analysis_id={analysis_id!r} in {table_root}: "
+                f"{[str(p) for p in matches[:5]]}"
+            )
+
     raise FileNotFoundError(
-        f"Found multiple tables for analysis_id={analysis_id!r} in {table_root}: "
-        f"{[str(p) for p in matches[:5]]}"
+        f"Could not find contrast table for analysis_id={analysis_id!r} in {table_root}"
     )
 
 
@@ -232,8 +233,16 @@ def _subset_group(df: pd.DataFrame, fit_row: pd.Series) -> pd.DataFrame:
 
     # Match the same acquisition, anatomical, statistical and model group when
     # the columns are present in both the fit row and the contrast table.
+    # Some columns are applied permissively: when an aggregated master table is
+    # used, analysis_id/model/gbase/ycol in the contrast parquet refer to the
+    # signal model/parameters (not the contrast fitting model), so they may not
+    # match the fit_params values. Skip those filters when they would empty the result.
+    _permissive = {"analysis_id", "model", "gbase", "ycol"}
     for col in ("analysis_id", "sheet", "subj", "roi", "direction", "stat", "model", "gbase", "ycol"):
-        out = _filter_string_column(out, fit_row, col)
+        filtered = _filter_string_column(out, fit_row, col)
+        if col in _permissive and filtered.empty and not out.empty:
+            continue
+        out = filtered
 
     # Match the same diffusion time and OGSE contrast pair.
     out = _filter_numeric_column(out, fit_row, "td_ms", atol=1e-3)

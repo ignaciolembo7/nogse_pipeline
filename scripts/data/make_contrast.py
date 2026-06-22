@@ -5,6 +5,7 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 import re
+import numpy as np
 import pandas as pd
 
 from data_processing.io import write_table_outputs
@@ -12,6 +13,7 @@ from data_processing.master_table import append_master_rows, build_analysis_id_f
 from fitting.b_from_g import VALID_G_TYPES as _GRADIENT_G_TYPES
 from fitting.cli_common import signal_correction_factors_from_rows
 from fitting.contrast import make_contrast
+from ogse_fitting.contrast_tc_peak_panels import _derived_axes_from_g
 from tools.brain_labels import canonical_sheet_name, infer_subj_label
 from tools.strict_columns import find_unrecognized_column_names
 from tools.value_formatting import compact_unique_values, truthy_series
@@ -306,7 +308,7 @@ def _order_columns(out: pd.DataFrame) -> pd.DataFrame:
         return [x for x in xs if x in cols]
 
     id_cols = present(["analysis_id", "subj", "sheet", "roi", "direction", "b_step", "stat"])
-    head = id_cols + present(["value", "value_norm"])
+    head = id_cols + present(["contrast_value", "contrast_value_norm", "td_ms", "Ld_1", "lcf_1", "Lcf_1", "tc_1", "Ld_2", "lcf_2", "Lcf_2", "tc_2"])
 
     def side_block(suf: str) -> list[str]:
         block: list[str] = []
@@ -392,6 +394,48 @@ _GRADIENT_COLS = frozenset(_GRADIENT_G_TYPES)
 _BVALUE_COLS = frozenset({"bvalue", "bvalue_g", "bvalue_g_lin_max", "bvalue_thorsten"})
 
 
+def _add_derived_axes(
+    out: pd.DataFrame,
+    *,
+    g_min_derived: float,
+    D0_derived: float,
+    gamma_derived: float,
+) -> pd.DataFrame:
+    """Add td_ms top-level column and per-side Ld/lcf/Lcf/tc columns."""
+    out = out.copy()
+
+    td1 = pd.to_numeric(out.get("td_ms_1", pd.Series(dtype=float)), errors="coerce").to_numpy(float)
+    td2 = pd.to_numeric(out.get("td_ms_2", pd.Series(dtype=float)), errors="coerce").to_numpy(float)
+    out["td_ms"] = np.where(np.isfinite(td1), td1, td2)
+
+    for side, td_arr in ((1, td1), (2, td2)):
+        g_col = f"g_{side}"
+        g_vals = pd.to_numeric(out.get(g_col, pd.Series(dtype=float)), errors="coerce").to_numpy(float)
+        Ld = np.full(len(out), np.nan)
+        lcf = np.full(len(out), np.nan)
+        Lcf = np.full(len(out), np.nan)
+        tc = np.full(len(out), np.nan)
+        for td_val in np.unique(td_arr[np.isfinite(td_arr)]):
+            mask = np.isfinite(td_arr) & (td_arr == td_val)
+            Ld[mask], lcf[mask], Lcf[mask], tc[mask] = _derived_axes_from_g(
+                g_vals[mask],
+                td_ms=float(td_val),
+                peak_D0_fix=float(D0_derived),
+                peak_gamma=float(gamma_derived),
+            )
+        below = ~np.isfinite(g_vals) | (g_vals < float(g_min_derived))
+        Ld[below] = np.nan
+        lcf[below] = np.nan
+        Lcf[below] = np.nan
+        tc[below] = np.nan
+        out[f"Ld_{side}"] = Ld
+        out[f"lcf_{side}"] = lcf
+        out[f"Lcf_{side}"] = Lcf
+        out[f"tc_{side}"] = tc
+
+    return out
+
+
 def _apply_grad_correction(df: pd.DataFrame, f_by_direction: dict[str, float]) -> pd.DataFrame:
     """Scale gradient columns by f and bvalue columns by f² per direction."""
     out = df.copy()
@@ -436,6 +480,9 @@ def main():
     ap.add_argument("--g_1", type=float, default=None, help="Optional master side-1 gradient selector using --g_pair_col.")
     ap.add_argument("--g_2", type=float, default=None, help="Optional master side-2 gradient selector using --g_pair_col.")
     ap.add_argument("--td_ms", type=float, default=None, help="Optional td_ms selector for master table rows.")
+    ap.add_argument("--g_min_derived", type=float, default=0.0, help="Minimum g (mT/m) above which to compute Ld/lcf/Lcf/tc per side; below this threshold values are NaN.")
+    ap.add_argument("--D0_derived", type=float, default=3.2e-12, help="D0 in m²/ms used for Ld/lcf/Lcf/tc computation.")
+    ap.add_argument("--gamma_derived", type=float, default=267.5221900, help="Gamma in rad/(ms·mT) used for Ld/lcf/Lcf/tc computation.")
     corr_group = ap.add_mutually_exclusive_group()
     corr_group.add_argument(
         "--apply_grad_corr",
@@ -530,6 +577,17 @@ def main():
     out["analysis_id"] = str(analysis_id)
     out["sheet"] = sheet
     out["subj"] = str(subj)
+
+    # Add td_ms top-level and per-side derived axes (Ld, lcf, Lcf, tc)
+    out = _add_derived_axes(
+        out,
+        g_min_derived=args.g_min_derived,
+        D0_derived=args.D0_derived,
+        gamma_derived=args.gamma_derived,
+    )
+
+    # Rename contrast columns for clarity: value -> contrast_value, value_norm -> contrast_value_norm
+    out = out.rename(columns={"value": "contrast_value", "value_norm": "contrast_value_norm"})
 
     # Final column order
     out = _order_columns(out)

@@ -53,6 +53,7 @@ def main() -> None:
     ap.add_argument("--directions", default=None, help="Comma- or space-separated direction filter, or ALL.")
     ap.add_argument("--peak-D0-fix", type=float, default=3.2e-12, help="Fixed D0 used for derived axes.")
     ap.add_argument("--peak-gamma", type=float, default=267.5221900, help="Gamma in rad/(ms*mT) used for derived axes.")
+    ap.add_argument("--g-min-derived", type=float, default=0.0, help="Minimum g (mT/m) above which to compute Ld/lcf/Lcf/tc; below this threshold values are NaN.")
     ap.add_argument("--include-failed", action="store_true", help="Include rows with ok=False.")
     args = ap.parse_args()
 
@@ -73,6 +74,7 @@ def main() -> None:
         peak_D0_fix=float(args.peak_D0_fix),
         peak_gamma=float(args.peak_gamma),
         ok_only=not bool(args.include_failed),
+        g_min_derived=float(args.g_min_derived),
     )
     print(f"[OK] Exported resampled contrast tables: {len(outputs)}")
     for path in outputs[:20]:

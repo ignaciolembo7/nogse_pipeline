@@ -75,6 +75,9 @@ def canonicalize_contrast_fit_params(df: pd.DataFrame) -> pd.DataFrame:
             out["td_ms"] = pd.to_numeric(out["td_ms_1"], errors="coerce")
         elif "td_ms_2" in out.columns:
             out["td_ms"] = pd.to_numeric(out["td_ms_2"], errors="coerce")
+        elif "TN" in out.columns:
+            # NOGSE: TN is the total refocusing time, equivalent to td_ms for OGSE
+            out["td_ms"] = pd.to_numeric(out["TN"], errors="coerce")
 
     if "tc_peak_ms" not in out.columns and "tc_at_max" in out.columns:
         out["tc_peak_ms"] = pd.to_numeric(out["tc_at_max"], errors="coerce")
