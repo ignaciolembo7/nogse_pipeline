@@ -5,6 +5,8 @@ import repo_bootstrap  # noqa: F401
 import argparse
 from pathlib import Path
 
+import pandas as pd
+
 from data_processing.master_table import filter_master_rows, load_master_table, split_selector_values
 from data_processing.io import write_xlsx_csv_outputs
 from monoexp_fitting.plot_D0_vs_Delta import (
@@ -13,6 +15,59 @@ from monoexp_fitting.plot_D0_vs_Delta import (
     plot_all_groups,
 )
 from tc_fittings.alpha_macro_summary import load_dproj_measurements_from_table
+
+
+def _pick_column(df: pd.DataFrame, candidates: list[str]) -> str:
+    lower_to_name = {str(col).strip().lower(): str(col) for col in df.columns}
+    for candidate in candidates:
+        col = lower_to_name.get(candidate.lower())
+        if col is not None:
+            return col
+    raise KeyError(f"Missing one of columns {candidates}. Available columns: {list(df.columns)}")
+
+
+def _read_summary_alpha_groups(path: Path) -> set[tuple[str, str, str]]:
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        summary = pd.read_csv(path)
+    elif suffix in {".xlsx", ".xls"}:
+        summary = pd.read_excel(path)
+    elif suffix == ".parquet":
+        summary = pd.read_parquet(path)
+    else:
+        raise ValueError(f"Unsupported summary format: {path}")
+
+    subj_col = _pick_column(summary, ["subj", "brain"])
+    roi_col = _pick_column(summary, ["roi", "region"])
+    direction_col = _pick_column(summary, ["direction", "direccion"])
+    groups: set[tuple[str, str, str]] = set()
+    for _, row in summary[[subj_col, roi_col, direction_col]].dropna().iterrows():
+        groups.add(
+            (
+                str(row[subj_col]).strip(),
+                str(row[roi_col]).strip().replace("_norm", "").lower(),
+                str(row[direction_col]).strip(),
+            )
+        )
+    return groups
+
+
+def _filter_to_summary_groups(df: pd.DataFrame, groups: set[tuple[str, str, str]]) -> pd.DataFrame:
+    keys = pd.DataFrame(
+        {
+            "subj": df["subj"].astype(str).str.strip(),
+            "roi": df["roi"].astype(str).str.strip().str.replace("_norm", "", regex=False).str.lower(),
+            "direction": df["direction"].astype(str).str.strip(),
+        },
+        index=df.index,
+    )
+    row_keys = list(zip(keys["subj"], keys["roi"], keys["direction"]))
+    return df.loc[[key in groups for key in row_keys]].copy()
+
+
+def _clean_old_d_vs_delta_pngs(out_dir: Path) -> None:
+    for path in out_dir.glob("D_vs_delta_app_*.png"):
+        path.unlink()
 
 
 def _master_selectors(args: argparse.Namespace, *, N: float | None) -> dict[str, object]:
@@ -46,7 +101,7 @@ def main() -> None:
     ap.add_argument("--out-dir", required=True, help="Output folder for plots and the combined table.")
     ap.add_argument("--subjs", nargs="+", default=None, help="Subjects/phantoms to include, for example: BRAIN-3 LUDG-2 PHANTOM3.")
     ap.add_argument("--rois", nargs="+", default=None, help="ROIs to include.")
-    ap.add_argument("--dirs", nargs="+", default=["x", "y", "z"], help="Directions to include.")
+    ap.add_argument("--dirs", nargs="+", default=None, help="Directions to include. Default: all directions, or summary_alpha groups when --summary-alpha is available.")
 
     selector = ap.add_mutually_exclusive_group()
     selector.add_argument("--N", type=float, default=None, help="Filter by N.")
@@ -112,6 +167,16 @@ def main() -> None:
     selected_bstep_by_group = None
     if summary_alpha_path is not None:
         selected_bstep_by_group = load_selected_bstep_map(summary_alpha_path)
+        if args.dirs is None:
+            summary_groups = _read_summary_alpha_groups(summary_alpha_path)
+            before = len(df)
+            df = _filter_to_summary_groups(df, summary_groups)
+            if df.empty:
+                raise ValueError(
+                    f"No D-vs-Delta groups matched summary_alpha={summary_alpha_path}. "
+                    "Check that subj/roi/direction labels agree."
+                )
+            print(f"[INFO] Filtered plot data to summary_alpha groups: {len(df)}/{before} rows.")
         print(
             f"[INFO] Loaded selected_bstep map from {summary_alpha_path} "
             f"({len(selected_bstep_by_group)} group entries)."
@@ -121,6 +186,7 @@ def main() -> None:
                 "[INFO] --bvalmax is used only as fallback for groups missing in summary_alpha."
             )
 
+    _clean_old_d_vs_delta_pngs(out_dir)
     plot_all_groups(
         df,
         out_dir=out_dir,

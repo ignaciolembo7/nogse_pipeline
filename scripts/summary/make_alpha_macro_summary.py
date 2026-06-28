@@ -8,7 +8,13 @@ from pathlib import Path
 import pandas as pd
 
 from data_processing.io import write_table_outputs
-from data_processing.master_table import filter_master_rows, load_fit_params_table, load_master_table, split_selector_values
+from data_processing.master_table import (
+    filter_master_rows,
+    load_fit_params_table,
+    load_master_table,
+    split_selector_values,
+    write_master_table,
+)
 from tc_fittings.alpha_macro_summary import (
     compute_alpha_macro_summary,
     load_dproj_measurements,
@@ -173,6 +179,43 @@ def _append_alpha_macro_fit_params(df_summary: pd.DataFrame, args: argparse.Name
     return out_path
 
 
+def _annotate_master_alpha_macro(df_summary: pd.DataFrame, args: argparse.Namespace) -> tuple[Path, int] | None:
+    if args.master_parquet is None or args.no_annotate_master_alpha:
+        return None
+
+    master = load_master_table(args.master_parquet)
+    if "alpha_macro" not in master.columns:
+        master["alpha_macro"] = pd.NA
+
+    alpha = df_summary[["subj", "roi", "direction", "alpha_macro"]].copy()
+    alpha["alpha_macro"] = pd.to_numeric(alpha["alpha_macro"], errors="coerce")
+    alpha = alpha.dropna(subset=["alpha_macro"]).copy()
+    alpha["_subj_key"] = alpha["subj"].astype(str).str.strip()
+    alpha["_roi_key"] = alpha["roi"].astype(str).str.strip().str.replace("_norm", "", regex=False).str.lower()
+    alpha["_direction_key"] = alpha["direction"].astype(str).str.strip()
+    alpha = alpha.groupby(["_subj_key", "_roi_key", "_direction_key"], as_index=False).agg(alpha_macro=("alpha_macro", "mean"))
+
+    eligible = pd.Series(True, index=master.index)
+    if "value" in master.columns:
+        eligible &= pd.to_numeric(master["value"], errors="coerce").notna()
+
+    keys = pd.DataFrame(
+        {
+            "_row_index": master.index,
+            "_subj_key": master["subj"].astype(str).str.strip(),
+            "_roi_key": master["roi"].astype(str).str.strip().str.replace("_norm", "", regex=False).str.lower(),
+            "_direction_key": master["direction"].astype(str).str.strip(),
+        }
+    ).loc[eligible]
+    matched = keys.merge(alpha, on=["_subj_key", "_roi_key", "_direction_key"], how="left").dropna(subset=["alpha_macro"])
+    if not matched.empty:
+        values = matched.set_index("_row_index")["alpha_macro"]
+        master.loc[values.index, "alpha_macro"] = values.astype(float)
+
+    write_master_table(master, args.master_parquet)
+    return args.master_parquet, int(len(matched))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Compute alpha_macro = <D0>/0.0032 for a given N/Hz and plot alpha_macro vs ROI."
@@ -181,6 +224,7 @@ def main() -> None:
     ap.add_argument("--master-parquet", type=Path, default=None, help="Read D_proj values from signal_rotated rows in the master table.")
     ap.add_argument("--master-fit-params", type=Path, default=None, help="Append alpha_macro rows to this cumulative fit params table.")
     ap.add_argument("--no-master-fit-params", action="store_true", help="Do not append alpha_macro rows to master_fit_params.parquet.")
+    ap.add_argument("--no-annotate-master-alpha", action="store_true", help="Do not write alpha_macro back to --master-parquet.")
     ap.add_argument("--dproj-root", default=None, help="Root with *.Dproj.long.parquet files when --combined-table is not passed.")
     ap.add_argument("--pattern", default="**/*.Dproj.long.parquet", help="Relative glob inside dproj-root.")
     ap.add_argument("--analysis-id", action="append", default=None, help="Master analysis_id selector. Can be repeated or comma-separated.")
@@ -277,6 +321,7 @@ def main() -> None:
         out_avg_xlsx=args.out_avg,
     )
     master_fit_params = _append_alpha_macro_fit_params(df_summary, args)
+    master_alpha = _annotate_master_alpha_macro(df_summary, args)
 
     out_dir = args.out_summary.parent
     roi_order = args.plot_rois or args.rois or _ordered_unique(df_summary["roi"])
@@ -296,6 +341,9 @@ def main() -> None:
         print(f"[OK] avg:     {args.out_avg}")
     if master_fit_params is not None:
         print(f"[OK] master fit params: {master_fit_params}")
+    if master_alpha is not None:
+        path, n_rows = master_alpha
+        print(f"[OK] master alpha_macro: {path} ({n_rows} rows)")
     print(f"[OK] plot:    {out_plot}")
 
 

@@ -29,6 +29,7 @@ MASTER_BASE_COLUMNS = [
     "value_norm",
     "D_proj",
     "grad_correction_factor",
+    "alpha_macro",
     "td_ms",
     "N",
     "Hz",

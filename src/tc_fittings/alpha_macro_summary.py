@@ -257,8 +257,12 @@ def plot_d_vs_delta_curves(
         cmap = plt.get_cmap("viridis")
         group_key = (str(subj), str(roi), str(direction))
         group_selected_bstep = selected_bstep
-        if selected_bstep_by_group is not None and group_key in selected_bstep_by_group:
-            group_selected_bstep = int(selected_bstep_by_group[group_key])
+        if selected_bstep_by_group is not None:
+            roi_norm_key = (str(subj), str(roi).replace("_norm", "").lower(), str(direction))
+            if group_key in selected_bstep_by_group:
+                group_selected_bstep = int(selected_bstep_by_group[group_key])
+            elif roi_norm_key in selected_bstep_by_group:
+                group_selected_bstep = int(selected_bstep_by_group[roi_norm_key])
         selected_bvalue, chosen_bstep = _select_bvalue_and_bstep(
             bvalues,
             selected_bstep=group_selected_bstep,

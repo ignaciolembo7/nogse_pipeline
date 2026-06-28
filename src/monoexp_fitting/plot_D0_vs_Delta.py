@@ -31,6 +31,10 @@ def _read_table(path: Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported summary format: {path}")
 
 
+def _norm_roi(value: object) -> str:
+    return str(value).strip().replace("_norm", "").lower()
+
+
 def load_selected_bstep_map(summary_alpha: str | Path) -> dict[tuple[str, str, str], int]:
     path = Path(summary_alpha)
     if not path.exists():
@@ -48,7 +52,8 @@ def load_selected_bstep_map(summary_alpha: str | Path) -> dict[tuple[str, str, s
     if bstep_col is None:
         return {}
 
-    out = df[[subj_col, roi_col, direction_col, bstep_col] + (["direction_kind"] if "direction_kind" in df.columns else [])].copy()
+    extra_cols = [c for c in ["direction_kind", "direction_components"] if c in df.columns]
+    out = df[[subj_col, roi_col, direction_col, bstep_col] + extra_cols].copy()
     out[subj_col] = out[subj_col].astype(str).str.strip()
     out[roi_col] = out[roi_col].astype(str).str.strip()
     out[direction_col] = out[direction_col].astype(str).str.strip()
@@ -59,7 +64,7 @@ def load_selected_bstep_map(summary_alpha: str | Path) -> dict[tuple[str, str, s
         return {}
 
     if "direction_kind" in out.columns:
-        out["_pref"] = out["direction_kind"].astype(str).str.lower().map(lambda v: 0 if v == "raw" else 1)
+        out["_pref"] = out["direction_kind"].astype(str).str.lower().map(lambda v: 0 if v == "derived" else 1)
     else:
         out["_pref"] = 0
 
@@ -73,6 +78,13 @@ def load_selected_bstep_map(summary_alpha: str | Path) -> dict[tuple[str, str, s
         direction = str(row[direction_col])
         bstep = int(round(float(row[bstep_col])))
         mapping[(subj, roi, direction)] = bstep
+        mapping[(subj, _norm_roi(roi), direction)] = bstep
+        if "direction_components" in out.columns:
+            for component in str(row.get("direction_components", "")).split("|"):
+                component = component.strip()
+                if component:
+                    mapping[(subj, roi, component)] = bstep
+                    mapping[(subj, _norm_roi(roi), component)] = bstep
     return mapping
 
 
