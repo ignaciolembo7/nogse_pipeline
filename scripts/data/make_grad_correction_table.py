@@ -73,6 +73,22 @@ def main() -> None:
     )
 
     ap.add_argument(
+        '--avg-N',
+        nargs='*',
+        type=int,
+        default=None,
+        metavar='N',
+        help=(
+            'Average D0_monoexp across N values (in addition to directions) when '
+            'computing the correction factor. '
+            'No values: average over ALL N values. '
+            'Specific values: average only over those N (e.g. --avg-N 4 8). '
+            'Omit entirely (default): no averaging over N, one D0_monoexp per '
+            '(subj, sheet, roi, td_ms, N).'
+        ),
+    )
+
+    ap.add_argument(
         '--no-fill-missing',
         action='store_true',
         help=(
@@ -109,6 +125,7 @@ def main() -> None:
         M0_value=M0_value,
         D0_init=args.D0_init,
         tol_ms=args.tol_ms,
+        avg_N=args.avg_N,
         plot_dir=args.plot_dir,
     )
 

@@ -290,13 +290,27 @@ def make_grad_correction_from_manifest(
     M0_value: float = 1.0,
     D0_init: float = 2.3e-12,
     tol_ms: float = 1e-3,
+    avg_N: list[int] | None = None,
     plot_dir: Path | None = None,
 ) -> pd.DataFrame:
     """
     Read the grad-correction manifest and the master parquet, then for each
     listed curve fit it with both M_nogse_free and monoexp.
 
-    correction_factor = sqrt(D0_nogse / D0_monoexp)
+    correction_factor = sqrt(D0_nogse / D0_monoexp_avg)
+
+    D0_monoexp is always averaged across all directions that share the same
+    (subj, sheet, roi, td_ms, N).
+
+    avg_N controls additional averaging across N values:
+      None  – no N averaging; group key = (subj, sheet, roi, td_ms, N)
+      []    – average over ALL N values; group key = (subj, sheet, roi, td_ms)
+      [4,8] – average only over the listed N values (e.g. N=4 and N=8),
+              still grouped by (subj, sheet, roi, td_ms); the resulting
+              D0_monoexp_avg is then applied to every row regardless of its N.
+
+    D0_nogse is kept per-row (direction- and N-specific) so the correction
+    captures the direction/N-dependent gradient error.
 
     The manifest must have columns: subj, sheet, roi, direction, td_ms, N
     (Hz and model are optional and ignored).
@@ -378,14 +392,6 @@ def make_grad_correction_from_manifest(
         D0_nogse = fit_nogse.get('D0_m2_ms', np.nan)
         D0_mono = fit_mono.get('D0_m2_ms', np.nan)
 
-        both_ok = bool(fit_nogse.get('ok', False)) and bool(fit_mono.get('ok', False))
-        if both_ok and np.isfinite(D0_nogse) and np.isfinite(D0_mono) and D0_mono > 0:
-            ratio = D0_nogse / D0_mono
-            correction_factor = float(np.sqrt(ratio)) if ratio > 0 else np.nan
-        else:
-            ratio = np.nan
-            correction_factor = np.nan
-
         if plot_dir is not None:
             plot_items.append({
                 'subj': subj,
@@ -397,7 +403,7 @@ def make_grad_correction_from_manifest(
                 'G': G,
                 'y': y,
                 'fit_nogse': fit_nogse,
-                'correction_factor': correction_factor,
+                'correction_factor': np.nan,  # filled after averaging
                 'g_col': g_col,
                 'M0_vary': M0_vary,
                 'M0_value': M0_value,
@@ -421,8 +427,6 @@ def make_grad_correction_from_manifest(
             'D0_fit_monoexp_m2_ms': float(D0_mono) if np.isfinite(D0_mono) else np.nan,
             'rmse_nogse': float(fit_nogse.get('rmse', np.nan)),
             'rmse_monoexp': float(fit_mono.get('rmse', np.nan)),
-            'ratio': float(ratio) if np.isfinite(ratio) else np.nan,
-            'correction_factor': correction_factor,
             'g_col': g_col,
             'b_col': b_col,
             'msg_nogse': str(fit_nogse.get('msg', '')),
@@ -435,9 +439,61 @@ def make_grad_correction_from_manifest(
         )
 
     out = pd.DataFrame(rows)
+
+    # -------------------------------------------------------------------
+    # Average D0_monoexp across directions (always) and optionally across
+    # N values, then recompute correction_factor per row.
+    #   avg_N=None  → group by (subj, sheet, roi, td_ms, N)
+    #   avg_N=[]    → group by (subj, sheet, roi, td_ms), use all N
+    #   avg_N=[4,8] → group by (subj, sheet, roi, td_ms), use only N in list
+    # -------------------------------------------------------------------
+    if avg_N is None:
+        mono_group_keys = ['subj', 'sheet', 'roi', 'td_ms', 'N']
+        N_filter: list[int] | None = None
+    else:
+        mono_group_keys = ['subj', 'sheet', 'roi', 'td_ms']
+        N_filter = list(avg_N) if avg_N else None  # None → all N
+
+    valid_mono = out['ok_monoexp'] & out['D0_fit_monoexp_m2_ms'].notna()
+    source_mono = out.loc[valid_mono]
+    if N_filter is not None:
+        source_mono = source_mono.loc[source_mono['N'].isin(N_filter)]
+
+    avg_mono = (
+        source_mono
+        .groupby(mono_group_keys)['D0_fit_monoexp_m2_ms']
+        .mean()
+        .rename('D0_monoexp_avg_m2_ms')
+    )
+    out = out.join(avg_mono, on=mono_group_keys)
+    out['D0_monoexp_avg_mm2_s'] = out['D0_monoexp_avg_m2_ms'] * 1e9
+
+    def _compute_cf(row: pd.Series) -> tuple[float, float]:
+        D0_n = row['D0_fit_nogse_m2_ms']
+        D0_m = row['D0_monoexp_avg_m2_ms']  # averaged across dirs (and N if avg_N)
+        if row['ok_nogse'] and np.isfinite(D0_n) and np.isfinite(D0_m) and D0_m > 0:
+            ratio = D0_n / D0_m
+            cf = float(np.sqrt(ratio)) if ratio > 0 else np.nan
+            return float(ratio), cf
+        return np.nan, np.nan
+
+    out[['ratio', 'correction_factor']] = out.apply(
+        lambda r: pd.Series(_compute_cf(r)), axis=1
+    )
+
     out = out.sort_values(['subj', 'sheet', 'direction', 'td_ms', 'N'], kind='stable').reset_index(drop=True)
 
+    # Update plot_items with the final correction factors
     if plot_dir is not None and plot_items:
+        cf_lookup = {
+            (str(r.subj), str(r.sheet), str(r.roi), str(r.direction), float(r.td_ms), int(r.N)):
+            float(r.correction_factor) if np.isfinite(r.correction_factor) else np.nan
+            for r in out.itertuples()
+        }
+        for item in plot_items:
+            key = (item['subj'], item['sheet'], item['roi'], item['direction'],
+                   float(item['td_ms']), int(item['N']))
+            item['correction_factor'] = cf_lookup.get(key, np.nan)
         n_plots = len(_plot_correction_fits(plot_items, Path(plot_dir)))
         print(f'Saved {n_plots} comparison plot(s) to: {plot_dir}')
 
