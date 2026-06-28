@@ -4,6 +4,23 @@ import numpy as np
 
 _GYRO = 267.52218744  # gyromagnetic ratio of 1H, units: ms^-1 mT^-1; [D0] = m2/ms
 
+# ---------------------------------------------------------------------------
+# Anomalous diffusion signal model  
+# ---------------------------------------------------------------------------
+
+def M_anom_ogse(TE, G, N, M0, beta, C):
+    return M0*np.exp((-1.0/12.0) * (_GYRO**2) * (G**2) * C * TE**(beta+1) / ((N)**beta))
+
+
+# ---------------------------------------------------------------------------
+# PGSE signal models
+# ---------------------------------------------------------------------------
+
+def M_pgse_free(TE, G, M0, alpha, D0):
+    return M0*np.exp( (-1.0/12.0) * _GYRO**2 * G**2 * (alpha*D0) * TE**3)
+
+def M_pgse_rest(TE, G, tc, M0, D0):
+    return M0*np.exp( (-1.0) * _GYRO**2 * G**2 * (D0*(tc**2)*TE - D0*(tc**3)*(1 - np.exp(-TE/(2*tc)))**2))
 
 # ---------------------------------------------------------------------------
 # Internal helper: restricted-diffusion log-attenuation terms
@@ -99,7 +116,7 @@ def M_nogse_free(TE, G, N, x, M0, D0):
 
     y = TE - (N - 1) * x
 
-    return M0 * np.exp(-1.0 / 12 * _GYRO**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
+    return M0 * np.exp( (-1.0 / 12) * _GYRO**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
 
 
 def M_nogse_free_offset(TE, G, N, x, M0, D0, C):
@@ -245,6 +262,8 @@ def M_ogse_free(TE, G, N, x, M0, D0):
 
     return M0 * np.exp(-1.0 / 12 * _GYRO**2 * G**2 * D0 * ((N - 1) * x**3 + y**3))
 
+def M_ogse_tort(TE, G, N, x, alpha, M0, D0):
+    return M_ogse_free(TE, G, N, x, M0, alpha*D0)
 
 def M_ogse_rest(TE, G, N, x, tc, M0, D0):
     x  = np.array(x)
