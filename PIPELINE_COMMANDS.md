@@ -308,6 +308,58 @@ SIGNAL_FITS_ROOT=analysis/brains/ogse_experiments/fits/master/ogse_value_norm_vs
 
 ---
 
+### `grad_correction` — calcular factores de corrección de gradiente
+
+Ajusta D0_nogse y D0_monoexp sobre las curvas de señal de la jeringilla (u otro phantom de referencia) listadas en el manifest, y calcula `correction_factor = sqrt(D0_nogse / D0_monoexp_avg)`.
+
+**Cómo se promedia D0_monoexp:**
+
+- D0_monoexp **siempre** se promedia entre todas las direcciones del manifest que comparten el mismo (subj, sheet, roi, td_ms, N). El D0_nogse se mantiene por fila (direction- y N-específico) para capturar el error de gradiente por dirección.
+- Con `--avg-N` (sin valores): además se promedia entre todos los N → un solo D0_monoexp por (subj, sheet, roi, td_ms).
+- Con `--avg-N 4 8`: igual, pero el promedio usa solo las filas con N=4 y N=8 → el valor se aplica a todos los N.
+
+El factor resultante se escribe en el `master.long.parquet` para todas las rois que compartan los mismos parámetros de adquisición.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `GRAD_CORR_SCRIPT` | `$REPO_ROOT/scripts/data/make_grad_correction_table.py` | Script Python |
+| `GRAD_CORR_MANIFEST` | `$MANIFEST_DIR/grad_correction.csv` | CSV con columnas subj, sheet, roi, direction, td_ms, N |
+| `GRAD_CORR_OUT_DIR` | `$ANALYSIS_ROOT/fits/grad_correction` | Directorio de salida (.xlsx, .csv) |
+| `GRAD_CORR_PLOT_DIR` | `$GRAD_CORR_OUT_DIR/plots` | Directorio de plots comparativos (antes/después de corrección) |
+| `GRAD_CORR_EXTRA_ARGS` | — | Args extra para `make_grad_correction_table.py` (ver abajo) |
+
+Args útiles en `GRAD_CORR_EXTRA_ARGS`:
+
+| Argumento | Descripción |
+|---|---|
+| `--avg-N` | Promediar D0_monoexp entre todos los N (además de entre dirs) |
+| `--avg-N 4 8` | Ídem, usando solo N=4 y N=8 para el promedio |
+| `--no-fill-missing` | No rellenar con promedio entre sujetos los factores faltantes |
+| `--row-kind signal_rotated` | Tipo de fila a usar del master (default: `signal_rotated`) |
+| `--stat avg` | Estadístico a usar del master (default: `avg`) |
+| `--free-M0` | Dejar variar M0 en el fit (default: M0 fijo a 1.0) |
+
+```bash
+# Corrección estándar (D0_monoexp promediado entre dirs, un factor por dir×td×N)
+nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction \
+  > logs/05_grad_correction.log 2>&1 &
+
+# Promediar también entre todos los N → un factor por dir×td
+GRAD_CORR_EXTRA_ARGS="--avg-N" \
+  nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction \
+  > logs/05_grad_correction.log 2>&1 &
+
+# Promediar entre dirs y entre N=4 y N=8 solamente
+GRAD_CORR_EXTRA_ARGS="--avg-N 1 4 8" nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction > logs/05_grad_correction.log 2>&1 &
+
+# Sin rellenar factores faltantes con promedio entre sujetos
+GRAD_CORR_EXTRA_ARGS="--no-fill-missing" \
+  nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction \
+  > logs/05_grad_correction.log 2>&1 &
+```
+
+---
+
 ### `fit_signal_gradcorr` — fit de señal con corrección de gradiente
 
 Equivale a `fit_signal` con `--apply_grad_corr` activo en todos los fits. Usa el mismo manifest `signal_fits.csv` y las mismas variables que `fit_signal`, pero requiere haber corrido `grad_correction` antes.
@@ -441,13 +493,10 @@ Salidas en `$ALPHA_OUT_DIR/`:
 
 ```
 # Alpha estándar para brains (N=1)
-ALPHA_N=1 \
-ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax AntCC=7 --roi-bvalmax CSF=3 --dirs long tra" \
-  nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha > logs/alpha.log 2>&1 &
+ALPHA_N=1 ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax Left-Lateral-Ventricle=5 --roi-bvalmax Right-Lateral-Ventricle=5 --roi-bvalmax Syringe=7 --dirs long tra" nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha > logs/alpha.log 2>&1 &
 
 # Alpha para phantoms
-ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax Syringe=7" \
-  nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse alpha > logs/alpha.log 2>&1 &
+ALPHA_EXTRA_ARGS="--bvalmax 5 --roi-bvalmax Syringe=7" nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse alpha > logs/alpha.log 2>&1 &
 ```
 
 El archivo `summary_alpha_values.xlsx` producido aquí es el que se pasa a `tc` con `--summary-alpha` cuando se usa `TC_METHOD=pseudohuber_fixed_macro`.

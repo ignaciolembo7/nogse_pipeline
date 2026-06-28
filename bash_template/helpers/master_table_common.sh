@@ -954,7 +954,8 @@ Usage:
 What it does:
   1. Computes alpha_macro from D_proj values in signal_rotated rows and writes
      summary_alpha_values.xlsx (make_alpha_macro_summary.py).
-  2. Generates per-group D vs Delta_app_ms plots with a dotted alpha annotation
+  2. Adds alpha_macro back into matching MASTER_PARQUET rows by subj/roi/direction.
+  3. Generates per-group D vs Delta_app_ms plots with a dotted alpha annotation
      at the selected bvalue (plot_D0_vs_Delta.py). The bvalue per ROI is read
      automatically from the summary written in step 1, so --roi-bvalmax is
      respected in the plots without extra configuration.
@@ -975,7 +976,9 @@ Variables for this step:
 
 Note:
   This step always passes --no-master-fit-params, so alpha_macro results are NOT
-  appended to any cumulative fit-params table. The outputs are the xlsx/png files below.
+  appended to any cumulative fit-params table. Instead, the scalar alpha_macro column
+  is written directly onto matching master rows; matching rows with the same
+  subj/roi/direction receive repeated alpha_macro values as expected.
 
 Useful ALPHA_EXTRA_ARGS (passed to make_alpha_macro_summary.py):
   --bvalmax N              Use the N-th bvalue (1-based ascending) for all ROIs.
@@ -988,6 +991,8 @@ Useful ALPHA_EXTRA_ARGS (passed to make_alpha_macro_summary.py):
   --rois ROI1 ROI2         Restrict summary to specific ROIs.
   --subjs S1 S2            Restrict summary to specific subjects.
   --reference-D0 F         Reference D0 used to compute alpha_macro. Default: 0.0032
+  --no-annotate-master-alpha
+                           Do not write alpha_macro back to MASTER_PARQUET.
   --out-plot PATH          Override output path for alpha_macro_vs_roi.png.
 
 Useful PLOT_D0_EXTRA_ARGS (passed only to plot_D0_vs_Delta.py):
@@ -995,6 +1000,7 @@ Useful PLOT_D0_EXTRA_ARGS (passed only to plot_D0_vs_Delta.py):
   --reference-D0 F         Reference D0 used for the horizontal annotation. Default: 0.0032
 
 Outputs:
+  $MASTER_PARQUET                                updated with alpha_macro column
   $ALPHA_OUT_DIR/summary_alpha_values.xlsx      alpha_macro per subj/roi/direction
   $ALPHA_OUT_DIR/D_vs_delta_app.combined.xlsx   aggregated D vs Delta_app table
   $ALPHA_OUT_DIR/alpha_macro_vs_roi.png         bar summary plot
