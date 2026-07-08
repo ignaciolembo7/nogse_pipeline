@@ -22,26 +22,19 @@ from extract_roi_tables import (
     extract_tables,
     write_excel_like_matlab,
 )
-from plotting.roi_intensity_histograms import render_roi_intensity_histograms
 
 """
 coreg_extract_brain.py
 
 Brain-oriented pipeline:
-1) Prepare FastSurfer structural files:
-   - orig_nu.mgz
-   - orig_nu_brain.mgz
-   - callosum.CC.orig.mgz
-   - aparc.DKTatlas+aseg.deep.mgz
-2) Compute b0_mean from DWI
-3) BET skull-strip b0_mean
-4) Register b0_brain -> orig_nu_brain with ANTs
-5) Read CC labels 251..255 from callosum.CC.orig
-6) Read ventricular labels from aparc.DKTatlas+aseg.deep
-7) Warp the selected labels from T1 to DWI space
-8) Build ROI binary masks and a single multi-label image
-9) Extract ROI tables and write Excel
-10) Also warp orig_nu and orig_nu_brain to DWI space
+1) Compute b0_mean from DWI
+2) BET skull-strip b0_mean
+3) Register b0_brain -> T1_brain with ANTs
+4) Warp selected atlas labels from T1 to DWI
+5) Optionally warp syringe mask from T1 to DWI
+6) Build ROI binary masks and a single multi-label image
+7) Extract ROI tables and write Excel
+8) Also warp T1 and T1_brain to DWI space
 """
 
 
@@ -192,36 +185,6 @@ def count_nonzero_mask_voxels(mask_path: Path) -> int:
     return int(np.count_nonzero(data))
 
 
-def resolve_fastsurfer_subject_dir(subjects_dir: Path, subject_id: str) -> Path:
-    """
-    Resolve a FastSurfer subject directory.
-
-    Supported layouts:
-      <subjects_dir>/<subject_id>
-      <subjects_dir>/sub-<subject_id>
-    """
-    candidates = [
-        subjects_dir / subject_id,
-        subjects_dir / f"sub-{subject_id}",
-    ]
-
-    existing = [candidate for candidate in candidates if candidate.exists()]
-
-    if len(existing) == 1:
-        return existing[0]
-
-    if len(existing) > 1:
-        raise SystemExit(
-            "[STOP] Multiple FastSurfer subject directories were found:\n"
-            + "\n".join(f"  {candidate}" for candidate in existing)
-        )
-
-    raise SystemExit(
-        "[STOP] FastSurfer subject directory was not found. Tried:\n"
-        + "\n".join(f"  {candidate}" for candidate in candidates)
-    )
-
-
 # ---------------------------------------------------------------------
 # DWI discovery
 # ---------------------------------------------------------------------
@@ -269,97 +232,78 @@ def find_dwis(
 
 
 # ---------------------------------------------------------------------
-# FastSurfer export (once per subject)
+# FreeSurfer export (once per subject)
 # ---------------------------------------------------------------------
 def prep_struct_once(
-    subjects_dir: Path,
-    subject_id: str,
+    fs_subj: Path,
     out_root: Path,
     dry_run: bool = False,
     fail_on_existing: bool = False,
-) -> tuple[Path, Path, Path, Path]:
+) -> tuple[Path, Path, Path]:
     """
-    Prepare FastSurfer structural files in out_root:
+    Prepare structural files in out_root:
 
-      - orig_nu.nii.gz
-      - orig_nu_brain.nii.gz
-      - callosum.CC.orig.nii.gz
-      - aparc.DKTatlas+aseg.deep.nii.gz
+      - T1.nii.gz
+      - T1_brain.nii.gz
+      - wmparc.nii.gz
 
-    Corpus callosum labels 251..255 are read only from
-    callosum.CC.orig.mgz.
-
-    Ventricular and additional subcortical labels are read only from
-    aparc.DKTatlas+aseg.deep.mgz.
-
-    The FastSurfer subject directory under subjects_dir is only resolved
-    (and required to exist) if at least one of the NIfTI outputs above is
-    still missing from out_root. If they were all placed there by hand,
-    this function never looks at subjects_dir.
+    Logic:
+      1) If the NIfTI files already exist in out_root, reuse them.
+      2) For any missing file, try to create it from FreeSurfer .mgz.
+      3) Only fail if, after that, some required output is still missing.
     """
     out_root.mkdir(parents=True, exist_ok=True)
 
-    t1_full = out_root / "orig_nu.nii.gz"
-    t1_brain = out_root / "orig_nu_brain.nii.gz"
-    cc_labels_t1 = out_root / "callosum.CC.orig.nii.gz"
-    aseg_labels_t1 = out_root / "aparc.DKTatlas+aseg.deep.nii.gz"
+    t1_full = out_root / "T1.nii.gz"
+    t1_brain = out_root / "T1_brain.nii.gz"
+    wmparc = out_root / "wmparc.nii.gz"
 
-    outputs = [
-        (t1_full, "orig_nu.nii.gz"),
-        (t1_brain, "orig_nu_brain.nii.gz"),
-        (cc_labels_t1, "callosum.CC.orig.nii.gz"),
-        (aseg_labels_t1, "aparc.DKTatlas+aseg.deep.nii.gz"),
+    maybe_reuse_existing(t1_full, "T1.nii.gz", fail_on_existing)
+    maybe_reuse_existing(t1_brain, "T1_brain.nii.gz", fail_on_existing)
+    maybe_reuse_existing(wmparc, "wmparc.nii.gz", fail_on_existing)
+
+    t1_mgz = fs_subj / "mri" / "T1.mgz"
+    brain_mgz = fs_subj / "mri" / "brain.mgz"
+    wmparc_mgz = fs_subj / "mri" / "wmparc.mgz"
+
+    sources = [
+        (t1_full, t1_mgz, "T1"),
+        (t1_brain, brain_mgz, "T1_brain"),
+        (wmparc, wmparc_mgz, "wmparc"),
     ]
 
-    for output_path, description in outputs:
-        maybe_reuse_existing(output_path, description, fail_on_existing)
+    for out_nii, src_mgz, label in sources:
+        if out_nii.exists():
+            continue
 
-    source_names = [
-        (t1_full, "orig_nu.mgz", "orig_nu"),
-        (t1_brain, "orig_nu_brain.mgz", "orig_nu_brain"),
-        (cc_labels_t1, "callosum.CC.orig.mgz", "callosum.CC.orig"),
-        (aseg_labels_t1, "aparc.DKTatlas+aseg.deep.mgz", "aparc.DKTatlas+aseg.deep"),
-    ]
-    missing_sources = [spec for spec in source_names if not spec[0].exists()]
+        if not src_mgz.exists():
+            print(f"[WARN] Missing FreeSurfer source for {label}: {src_mgz}")
+            continue
 
-    if missing_sources:
-        fs_subj = resolve_fastsurfer_subject_dir(subjects_dir, subject_id)
-        mri_dir = fs_subj / "mri"
+        run(
+            ["mri_convert", "-it", "mgz", "-ot", "nii", str(src_mgz), str(out_nii)],
+            dry_run=dry_run,
+        )
 
-        for out_nii, mgz_name, label in missing_sources:
-            src_mgz = mri_dir / mgz_name
-            if not src_mgz.exists():
-                raise SystemExit(
-                    f"[STOP] Missing FastSurfer source for {label}: {src_mgz}"
-                )
+    missing_outputs = [str(p) for p in (t1_full, t1_brain, wmparc) if not p.exists()]
+    if missing_outputs:
+        raise SystemExit(
+            "[STOP] Could not prepare structural files.\n"
+            "The following required NIfTI files are still missing:\n"
+            + "\n".join(f"  {p}" for p in missing_outputs)
+            + "\n\n"
+            "If you want to reuse already exported files, place them exactly here with these names:\n"
+            f"  {t1_full}\n"
+            f"  {t1_brain}\n"
+            f"  {wmparc}\n"
+            "\n"
+            "Otherwise the script expects the corresponding FreeSurfer files here:\n"
+            f"  {t1_mgz}\n"
+            f"  {brain_mgz}\n"
+            f"  {wmparc_mgz}"
+        )
 
-            run(
-                [
-                    "mri_convert",
-                    "-it",
-                    "mgz",
-                    "-ot",
-                    "nii",
-                    str(src_mgz),
-                    str(out_nii),
-                ],
-                dry_run=dry_run,
-            )
-
-    if not dry_run:
-        missing_outputs = [
-            str(path)
-            for path, _description in outputs
-            if not path.exists()
-        ]
-
-        if missing_outputs:
-            raise SystemExit(
-                "[STOP] Could not prepare all FastSurfer structural files:\n"
-                + "\n".join(f"  {path}" for path in missing_outputs)
-            )
-
-    return t1_full, t1_brain, cc_labels_t1, aseg_labels_t1
+    return t1_full, t1_brain, wmparc
 
 
 # ---------------------------------------------------------------------
@@ -691,104 +635,30 @@ def write_binary_mask_from_label_image(
     return nvox
 
 
-def write_selected_label_image_from_sources(
-    sources: list[tuple[Path, list[tuple[int, str]], str]],
+def write_selected_label_image(
+    label_img_path: Path,
+    label_specs: list[tuple[int, str]],
     out_img_path: Path,
 ) -> int:
     """
-    Merge selected labels from multiple images that share the same T1 grid.
-
-    Each source tuple contains:
-      (label_image_path, label_specs, source_name)
-
-    CC labels must be supplied from callosum.CC.orig.
-    Ventricular labels must be supplied from aparc.DKTatlas+aseg.deep.
-
-    Sources are merged in the order given, and later sources win on
-    conflicting voxels. Since callosum.CC.orig and aparc.DKTatlas+aseg.deep
-    are independent segmentations, they can disagree at CC/ventricle
-    boundaries; any voxel a later source also claims is removed from the
-    earlier (CC) assignment, so the CC ROI only keeps voxels that are
-    unambiguously CC.
+    Create a label image in the same space as label_img_path, but keeping only labels in label_specs.
+    All other voxels are set to 0.
     """
-    if not sources:
-        raise SystemExit("[STOP] No label sources were provided.")
+    img, data = load_nifti_3d(label_img_path)
+    data_i = np.rint(data).astype(np.int32)
 
-    reference_path = sources[0][0]
-    reference_img, reference_data = load_nifti_3d(reference_path)
-    output = np.zeros(reference_data.shape, dtype=np.int16)
+    out = np.zeros(data_i.shape, dtype=np.int16)
+    for label_value, _roi_name in label_specs:
+        out[data_i == int(label_value)] = int(label_value)
 
-    for source_path, label_specs, source_name in sources:
-        source_img, source_data = load_nifti_3d(source_path)
-
-        if source_data.shape != reference_data.shape:
-            raise SystemExit(
-                "[STOP] Label images have different shapes:\n"
-                f"  reference: {reference_path} {reference_data.shape}\n"
-                f"  source:    {source_path} {source_data.shape}"
-            )
-
-        if not np.allclose(
-            source_img.affine,
-            reference_img.affine,
-            rtol=0.0,
-            atol=1e-5,
-        ):
-            raise SystemExit(
-                "[STOP] Label images do not share the same affine:\n"
-                f"  reference: {reference_path}\n"
-                f"  source:    {source_path}"
-            )
-
-        source_labels = np.rint(source_data).astype(np.int32)
-
-        for label_value, roi_name in label_specs:
-            mask = source_labels == int(label_value)
-            nvox = int(mask.sum())
-
-            if nvox == 0:
-                print(
-                    f"[WARN] Label {label_value} ({roi_name}) was not found "
-                    f"in {source_name}: {source_path}"
-                )
-                continue
-
-            overlap = mask & (output != 0)
-            if np.any(overlap):
-                overlap_nvox = int(overlap.sum())
-                prev_values, prev_counts = np.unique(
-                    output[overlap], return_counts=True
-                )
-                prev_summary = ", ".join(
-                    f"label {int(v)} ({int(c)} voxels)"
-                    for v, c in zip(prev_values, prev_counts)
-                )
-                print(
-                    f"[WARN] {overlap_nvox} voxel(s) ambiguous between "
-                    f"{prev_summary} and label {label_value} ({roi_name}) "
-                    f"from {source_name}: removed from the earlier label(s) "
-                    f"and kept as {label_value} ({roi_name})."
-                )
-
-            output[mask] = int(label_value)
-
-            print(
-                f"[INFO] Selected label {label_value} ({roi_name}) "
-                f"from {source_name}: {nvox} voxels"
-            )
-
-    nonzero_voxels = int(np.count_nonzero(output))
+    nvox = int(np.count_nonzero(out))
 
     out_img_path.parent.mkdir(parents=True, exist_ok=True)
-    output_img = nib.Nifti1Image(
-        output,
-        reference_img.affine,
-        reference_img.header.copy(),
-    )
-    output_img.set_data_dtype(np.int16)
-    nib.save(output_img, str(out_img_path))
+    out_img = nib.Nifti1Image(out, img.affine, img.header.copy())
+    out_img.set_data_dtype(np.int16)
+    nib.save(out_img, str(out_img_path))
 
-    return nonzero_voxels
+    return nvox
 
 
 def build_all_rois_multilabel(
@@ -912,7 +782,7 @@ def main() -> None:
 
     ap.add_argument("--exp-root", type=Path, required=True, help="Folder containing denoised/topup DWI NIfTIs.")
     ap.add_argument("--out-root", type=Path, required=True, help="Base output folder.")
-    ap.add_argument("--subjects-dir", type=Path, required=True, help="FastSurfer output root containing one folder per subject.")
+    ap.add_argument("--subjects-dir", type=Path, required=True, help="FreeSurfer SUBJECTS_DIR root (contains sub-<subj>).")
     ap.add_argument("--grad-root", type=Path, default=None, help="Folder with .bval/.bvec or .gval/.gvec. Defaults to --exp-root if omitted.")
 
     ap.add_argument("--dwi-glob", default="*.nii.gz", help="Glob pattern to find DWI NIfTIs within --exp-root.")
@@ -941,11 +811,10 @@ def main() -> None:
     ap.add_argument("--syringe-mask-dwi", type=Path, default=None, help="Syringe mask already in DWI space (used directly).")
     ap.add_argument("--manual-mask-dwi", action="append", default=[], help='Manual binary mask in DWI space: "Name=mask.nii.gz"')
 
-    ap.add_argument("--atlas-roi", action="append", default=[], help='Additional aparc.DKTatlas+aseg.deep ROI: "LABEL:Name"')
-    ap.add_argument("--no-default-cc", action="store_true", help="Do not auto-add CC ROIs 251..255 from callosum.CC.orig.")
-    ap.add_argument("--no-default-ventricles", action="store_true", help="Do not auto-add lateral ventricles 4 and 43 from aparc.DKTatlas+aseg.deep.")
+    ap.add_argument("--atlas-roi", action="append", default=[], help='FreeSurfer atlas ROI spec: "LABEL:Name"')
+    ap.add_argument("--no-default-cc", action="store_true", help="Do not auto-add CC ROIs (251..255).")
 
-    ap.add_argument("--export-t1-only", action="store_true", help="Only export/reuse FastSurfer structural files and exit.")
+    ap.add_argument("--export-t1-only", action="store_true", help="Only export/reuse FreeSurfer T1/T1_brain/wmparc and exit.")
     ap.add_argument("--write-fslmeants", action="store_true", help="Write fslmeants .txt files in addition to the Excel table.")
     ap.add_argument("--dry-run", action="store_true", help="Print commands but do not execute external commands.")
     ap.add_argument("--fail-on-existing", action="store_true", help="Stop if any output to be reused already exists.")
@@ -966,29 +835,22 @@ def main() -> None:
     out_root = args.out_root.resolve()
 
     subj = exp_root.name
-
+    fs_subj = subjects_dir / f"sub-{subj}"
     out_subj = out_root / subj
     out_subj.mkdir(parents=True, exist_ok=True)
 
-    (
-        t1_full,
-        t1_brain,
-        cc_labels_t1,
-        aseg_labels_t1,
-    ) = prep_struct_once(
-        subjects_dir,
-        subj,
+    t1_full, t1_brain, wmparc_t1 = prep_struct_once(
+        fs_subj,
         out_subj,
         dry_run=args.dry_run,
         fail_on_existing=args.fail_on_existing,
     )
 
     if args.export_t1_only:
-        print(f"[OK] FastSurfer structural export done for {subj}")
-        print(f"     orig_nu:                       {t1_full}")
-        print(f"     orig_nu_brain:                 {t1_brain}")
-        print(f"     callosum.CC.orig:              {cc_labels_t1}")
-        print(f"     aparc.DKTatlas+aseg.deep:      {aseg_labels_t1}")
+        print(f"[OK] Structural export done for {subj}")
+        print(f"     T1 full:   {t1_full}")
+        print(f"     T1 brain:  {t1_brain}")
+        print(f"     wmparc:    {wmparc_t1}")
         return
 
     dwis = find_dwis(exp_root, grad_root, args.dwi_glob, args.cut_token, args.dwi_variant)
@@ -1010,9 +872,9 @@ def main() -> None:
             mpath = exp_root / mpath
         manual_specs.append((name.strip(), mpath))
 
-    cc_specs: list[tuple[int, str]] = []
+    default_atlas_rois: list[tuple[int, str]] = []
     if not args.no_default_cc:
-        cc_specs = [
+        default_atlas_rois = [
             (251, "PostCC"),
             (252, "MidPostCC"),
             (253, "CentralCC"),
@@ -1020,82 +882,24 @@ def main() -> None:
             (255, "AntCC"),
         ]
 
-    ventricle_specs: list[tuple[int, str]] = []
-    if not args.no_default_ventricles:
-        ventricle_specs = [
-            (4, "Left-Lateral-Ventricle"),
-            (43, "Right-Lateral-Ventricle"),
-        ]
-
-    additional_aseg_specs = [
-        parse_atlas_roi_spec(spec)
-        for spec in args.atlas_roi
-    ]
-
-    aseg_specs = dedupe_label_specs(
-        ventricle_specs + additional_aseg_specs
-    )
-
-    atlas_specs = dedupe_label_specs(
-        cc_specs + aseg_specs
-    )
+    atlas_specs_raw = default_atlas_rois + [parse_atlas_roi_spec(spec) for spec in args.atlas_roi]
+    atlas_specs = dedupe_label_specs(atlas_specs_raw)
 
     atlas_t1_selected: Path | None = None
     if atlas_specs:
-        atlas_t1_selected = (
-            out_subj / "fastsurfer_requested_rois_T1.nii.gz"
-        )
+        atlas_t1_selected = out_subj / "atlas_requested_rois_T1.nii.gz"
 
         if not atlas_t1_selected.exists():
             if args.dry_run:
-                print(
-                    "[DRY] Would create selected FastSurfer atlas in T1: "
-                    f"{atlas_t1_selected}"
-                )
+                print(f"[DRY] Would create selected atlas in T1: {atlas_t1_selected}")
             else:
-                label_sources: list[
-                    tuple[Path, list[tuple[int, str]], str]
-                ] = []
-
-                if cc_specs:
-                    label_sources.append(
-                        (
-                            cc_labels_t1,
-                            cc_specs,
-                            "callosum.CC.orig",
-                        )
-                    )
-
-                if aseg_specs:
-                    label_sources.append(
-                        (
-                            aseg_labels_t1,
-                            aseg_specs,
-                            "aparc.DKTatlas+aseg.deep",
-                        )
-                    )
-
-                nvox_t1 = write_selected_label_image_from_sources(
-                    label_sources,
-                    atlas_t1_selected,
-                )
-
+                nvox_t1 = write_selected_label_image(wmparc_t1, atlas_specs, atlas_t1_selected)
                 if nvox_t1 == 0:
-                    raise SystemExit(
-                        "[STOP] None of the requested labels were found "
-                        "in the FastSurfer outputs."
-                    )
-
-                print(
-                    f"[INFO] Wrote selected FastSurfer atlas: "
-                    f"{atlas_t1_selected} "
-                    f"(nonzero voxels: {nvox_t1})"
-                )
+                    print(f"[WARN] None of the requested labels were found in wmparc (T1): {atlas_t1_selected}")
+                else:
+                    print(f"[INFO] Wrote selected atlas in T1: {atlas_t1_selected} (nonzero voxels: {nvox_t1})")
         else:
-            print(
-                "[INFO] Reusing selected FastSurfer atlas in T1: "
-                f"{atlas_t1_selected}"
-            )
+            print(f"[INFO] Reusing selected atlas in T1: {atlas_t1_selected}")
 
     for dwi_nii, grad_values, grad_vectors, grad_kind, seq_name_full, seq_no_ext in dwis:
         out_seq = out_subj / seq_no_ext
@@ -1146,8 +950,8 @@ def main() -> None:
         )
 
         if not args.dry_run:
-            t1_in_dwi = out_seq / f"orig_nu_2_{seq_name_full}.nii.gz"
-            t1_brain_in_dwi = out_seq / f"orig_nu_brain_2_{seq_name_full}.nii.gz"
+            t1_in_dwi = out_seq / f"T1_2_{seq_name_full}.nii.gz"
+            t1_brain_in_dwi = out_seq / f"T1_brain_2_{seq_name_full}.nii.gz"
 
             ants_apply_inverse_image(
                 moving_img_t1=t1_full,
@@ -1169,11 +973,11 @@ def main() -> None:
                 fail_on_existing=args.fail_on_existing,
             )
         else:
-            print(f"[DRY] Would warp orig_nu and orig_nu_brain into DWI space in: {out_seq}")
+            print(f"[DRY] Would warp T1 and T1_brain into DWI space in: {out_seq}")
 
         atlas_in_dwi: Path | None = None
         if atlas_t1_selected is not None:
-            atlas_in_dwi = out_seq / f"fastsurfer_requested_rois_2_{seq_name_full}.nii.gz"
+            atlas_in_dwi = out_seq / f"atlas_requested_rois_2_{seq_name_full}.nii.gz"
             ants_apply_inverse_label(
                 moving_label_t1=atlas_t1_selected,
                 ref_dwi=ref_img,
@@ -1262,18 +1066,6 @@ def main() -> None:
 
         if syr_in_dwi is not None:
             rois.append(build_roi_from_binary_mask(syr_in_dwi, dwi_img, "Syringe"))
-
-        if not args.dry_run and rois:
-            hist_png = out_seq / f"{seq_name_full}_ROI_intensity_histograms.png"
-            render_roi_intensity_histograms(
-                ref_img,
-                rois,
-                hist_png,
-                title=f"{subj} / {seq_name_full}",
-            )
-            print(f"[OK] Wrote ROI intensity histograms: {hist_png}")
-        elif args.dry_run:
-            print(f"[DRY] Would render ROI intensity histograms in: {out_seq}")
 
         for name, mpath in manual_specs:
             rois.append(build_roi_from_binary_mask(mpath, dwi_img, name))
