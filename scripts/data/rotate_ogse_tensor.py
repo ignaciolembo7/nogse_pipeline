@@ -128,6 +128,32 @@ def main() -> None:
     ap.add_argument("--s0_mode", type=str, default="dir1", choices=["dir1", "mean"])
     ap.add_argument("--b_col", type=str, default="bvalue")
     ap.add_argument(
+        "--g_type",
+        type=str,
+        default="g",
+        choices=["g", "g_lin_max", "g_thorsten"],
+        help=(
+            "Gradient basis used to compute the b-value that drives the tensor fit "
+            "(and that gets stamped on the rotated/derived directions' 'bvalue' column). "
+            "'g' uses the actual measured gradient per b_step (matches the original signal "
+            "rows' bvalue exactly); 'g_lin_max'/'g_thorsten' substitute an idealized gradient "
+            "ramp, which only coincides with the real bvalue if the acquisition itself used "
+            "a linear ramp."
+        ),
+    )
+    ap.add_argument(
+        "--tra_axes",
+        type=str,
+        default="y,z",
+        help="Comma-separated axes averaged to build the 'tra' direction, e.g. 'x,y'.",
+    )
+    ap.add_argument(
+        "--long_axes",
+        type=str,
+        default="x",
+        help="Comma-separated axes averaged to build the 'long' direction, e.g. 'z'.",
+    )
+    ap.add_argument(
         "--dirs_txt",
         type=Path,
         default=None,
@@ -149,13 +175,18 @@ def main() -> None:
         raise SystemExit("No input rows were selected.")
     input_kind = selected.source
     dirs_file = args.dirs_txt if args.dirs_txt is not None else args.dirs_csv
+    tra_axes = tuple(a.strip().lower() for a in args.tra_axes.split(",") if a.strip())
+    long_axes = tuple(a.strip().lower() for a in args.long_axes.split(",") if a.strip())
 
     res = rotate_signals_tensor(
         df,
         solver=args.solver,
         s0_mode=args.s0_mode,
         b_col=args.b_col,
+        g_type=args.g_type,
         dirs_file=dirs_file,
+        tra_axes=tra_axes,
+        long_axes=long_axes,
     )
 
     if args.master_parquet is not None:

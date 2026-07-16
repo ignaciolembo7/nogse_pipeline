@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -193,8 +195,10 @@ def rotate_signals_tensor(
     solver: str = "lstsq",
     b_col: str = "bvalue",
     gamma: float = 267.5221900,
-    g_type: str = "g_lin_max",
+    g_type: str = "g",
     dirs_file: str | Path | None = None,
+    tra_axes: tuple[str, ...] = ("y", "z"),
+    long_axes: tuple[str, ...] = ("x",),
 ) -> RotResult:
     """
     Take one long-format file DataFrame and produce:
@@ -203,6 +207,12 @@ def rotate_signals_tensor(
     """
     if b_col != "bvalue":
         raise ValueError("rotate_signals_tensor expects clean tables and uses b_col='bvalue'.")
+
+    base_axes = {"x", "y", "z", "eig1", "eig2", "eig3"}
+    for axes_arg_name, axes_arg in (("tra_axes", tra_axes), ("long_axes", long_axes)):
+        unknown = [a for a in axes_arg if a not in base_axes]
+        if unknown:
+            raise ValueError(f"{axes_arg_name} contains unknown axis names {unknown}; expected one of {sorted(base_axes)}.")
 
     clean = finalize_clean_signal_long(df_long)
     gradient_axis_kind = _unique_str_from_aliases(clean, ["gradient_axis_kind"])
@@ -353,6 +363,14 @@ def rotate_signals_tensor(
                     raise ValueError(f"ROI={roi}, b_step={b_step}: g_type='g_lin_max' but bvalue_g_lin_max is missing.")
                 b_fit = bvalue_g_lin_max
 
+            if not np.isfinite(b_fit) or b_fit <= 0:
+                warnings.warn(
+                    f"ROI={roi}, b_step={b_step}: resolved b-value is {b_fit} for g_type={g_type!r} "
+                    "(likely a zero-gradient step in the raw acquisition); skipping tensor rotation "
+                    "for this b_step."
+                )
+                continue
+
             s = pd.to_numeric(d_bs["value"], errors="coerce").to_numpy(dtype=float)
             s_norm = s / S0
             D = fit_tensor_from_signals(b=b_fit, s_norm=s_norm, n_dirs=n_dirs, solver=solver)
@@ -370,7 +388,6 @@ def rotate_signals_tensor(
                 "eig1": v1,
                 "eig2": v2,
                 "eig3": v3,
-                "long": np.array([1.0, 0.0, 0.0]),
             }
 
             signal_cache: dict[str, float] = {}
@@ -400,7 +417,7 @@ def rotate_signals_tensor(
                     )
                 )
 
-                if axis_name in {"x", "y", "z", "eig1", "eig2", "eig3", "long"}:
+                if axis_name in {"x", "y", "z", "eig1", "eig2", "eig3"}:
                     dproj_rows.append(
                         _build_dproj_row(
                             template,
@@ -418,22 +435,23 @@ def rotate_signals_tensor(
                         )
                     )
 
-            dproj_rows.append(
-                _build_dproj_row(
-                    template,
-                    direction="tra",
-                    b_step=int(b_step),
-                    bvalue=b_fit,
-                    D_proj=0.5 * (dproj_cache["y"] + dproj_cache["z"]),
-                    g=g_dir1,
-                    g_max=g_max_for_lin,
-                    g_lin_max=g_lin,
-                    g_thorsten=g_th_dir1,
-                    bvalue_g=bvalue_g,
-                    bvalue_g_lin_max=bvalue_g_lin_max,
-                    bvalue_thorsten=bvalue_thorsten,
+            for avg_name, avg_axes in (("tra", tra_axes), ("long", long_axes)):
+                dproj_rows.append(
+                    _build_dproj_row(
+                        template,
+                        direction=avg_name,
+                        b_step=int(b_step),
+                        bvalue=b_fit,
+                        D_proj=np.mean([dproj_cache[a] for a in avg_axes]),
+                        g=g_dir1,
+                        g_max=g_max_for_lin,
+                        g_lin_max=g_lin,
+                        g_thorsten=g_th_dir1,
+                        bvalue_g=bvalue_g,
+                        bvalue_g_lin_max=bvalue_g_lin_max,
+                        bvalue_thorsten=bvalue_thorsten,
+                    )
                 )
-            )
 
             original_direction_labels = d_bs["direction"].astype(str).tolist()
             for k, direction_label in enumerate(original_direction_labels):
@@ -455,24 +473,25 @@ def rotate_signals_tensor(
                     )
                 )
 
-            rotated_rows.append(
-                _build_signal_row(
-                    template,
-                    direction="tra",
-                    b_step=int(b_step),
-                    bvalue=b_fit,
-                    value=0.5 * (signal_cache["y"] + signal_cache["z"]),
-                    S0=S0,
-                    g=g_dir1,
-                    g_max=g_max_for_lin,
-                    g_lin_max=g_lin,
-                    g_thorsten=g_th_dir1,
-                    bvalue_g=bvalue_g,
-                    bvalue_g_lin_max=bvalue_g_lin_max,
-                    bvalue_thorsten=bvalue_thorsten,
-                    D_proj_value=0.5 * (dproj_cache["y"] + dproj_cache["z"]),
+            for avg_name, avg_axes in (("tra", tra_axes), ("long", long_axes)):
+                rotated_rows.append(
+                    _build_signal_row(
+                        template,
+                        direction=avg_name,
+                        b_step=int(b_step),
+                        bvalue=b_fit,
+                        value=np.mean([signal_cache[a] for a in avg_axes]),
+                        S0=S0,
+                        g=g_dir1,
+                        g_max=g_max_for_lin,
+                        g_lin_max=g_lin,
+                        g_thorsten=g_th_dir1,
+                        bvalue_g=bvalue_g,
+                        bvalue_g_lin_max=bvalue_g_lin_max,
+                        bvalue_thorsten=bvalue_thorsten,
+                        D_proj_value=np.mean([dproj_cache[a] for a in avg_axes]),
+                    )
                 )
-            )
 
     df_rot = pd.DataFrame(rotated_rows)
     df_rot["direction"] = pd.Categorical(df_rot["direction"], categories=ROTATED_DIRECTION_ORDER, ordered=True)

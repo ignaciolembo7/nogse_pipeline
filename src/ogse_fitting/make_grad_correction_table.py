@@ -292,6 +292,7 @@ def make_grad_correction_from_manifest(
     tol_ms: float = 1e-3,
     avg_N: list[int] | None = None,
     plot_dir: Path | None = None,
+    roi_override: str | None = None,
 ) -> pd.DataFrame:
     """
     Read the grad-correction manifest and the master parquet, then for each
@@ -315,24 +316,37 @@ def make_grad_correction_from_manifest(
     The manifest must have columns: subj, sheet, roi, direction, td_ms, N
     (Hz and model are optional and ignored).
 
+    roi_override, if given, replaces the manifest's roi column for every row
+    (e.g. to point all curves at a dataset-wide reference ROI such as
+    "Syringe" or "Water1" without editing the manifest CSV). Matching against
+    the master table's roi column is case-insensitive, so the override's
+    casing does not need to match the master table exactly.
+
     Returns one row per manifest entry with fitting results and correction_factor.
     """
     manifest = Path(manifest)
     master_parquet = Path(master_parquet)
 
-    mf = pd.read_csv(manifest)
+    mf = pd.read_csv(manifest, comment='#')
     if mf.empty:
         raise ValueError(f'Manifest {manifest} is empty.')
+
+    if roi_override is not None:
+        mf = mf.copy()
+        mf['roi'] = str(roi_override)
 
     master = pd.read_parquet(master_parquet)
 
     rois = set(mf['roi'].astype(str).str.strip().unique())
+    rois_lower = {r.lower() for r in rois}
     row_kinds = {row_kind, 'signal_rotated', 'signal'}
 
+    master_roi_norm = master['roi'].astype(str).str.strip().str.lower()
     signal = master[
         master['row_kind'].astype(str).isin(row_kinds) &
-        master['roi'].astype(str).str.strip().isin(rois)
+        master_roi_norm.isin(rois_lower)
     ].copy()
+    signal['_roi_norm'] = master_roi_norm[signal.index]
 
     if stat_keep and str(stat_keep).upper() != 'ALL' and 'stat' in signal.columns:
         signal = signal[signal['stat'].astype(str) == str(stat_keep)].copy()
@@ -359,7 +373,7 @@ def make_grad_correction_from_manifest(
 
         mask = (
             (signal['subj'].astype(str).str.strip() == subj) &
-            (signal['roi'].astype(str).str.strip() == roi) &
+            (signal['_roi_norm'] == roi.lower()) &
             (signal['direction'].astype(str) == direction) &
             np.isclose(pd.to_numeric(signal['td_ms'], errors='coerce'), td_ms, atol=tol_ms) &
             np.isclose(pd.to_numeric(signal['N'], errors='coerce'), float(N), atol=0.5)

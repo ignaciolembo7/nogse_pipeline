@@ -5,7 +5,7 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-SUBJ="20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
+SUBJ="20260706_BRAIN-TEST/"
 EXP_PARENT="Data-NIFTI"
 OUT_ROOT_REL="Data-signals"
 CUT_TOKEN=""
@@ -14,9 +14,9 @@ DWI_VARIANT="none"
 # Reference mode:
 #   - mean: average all DWI volumes and write NII_mean.nii.gz + mean.nii.gz
 #   - b0  : extract only b=0 volumes and write NII_b0.nii.gz + b0_mean.nii.gz
-REF_MODE="mean"
+REF_MODE="b0"
 # Number of initial volumes to discard when REF_MODE="mean".
-DUMMY_SCANS="5"
+DUMMY_SCANS="0"
 # Set to 1 to reuse existing reference images, or 0 to overwrite them.
 REUSE_REFERENCE="0"
 
@@ -144,7 +144,7 @@ dwi_variant_matches() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
 EXP_ROOT="$PROJECT_ROOT/$EXP_PARENT/$SUBJ"
 OUT_SUBJ="$PROJECT_ROOT/$OUT_ROOT_REL/$SUBJ"
 

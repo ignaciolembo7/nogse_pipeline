@@ -363,6 +363,10 @@ Variables for this step:
   MASTER_SHEET        Optional selector for the master column 'sheet'.
                       Example values may be 20220622_BRAIN or 20230619_BRAIN-3.
   DIRS_TXT            Direction table. Default: assets/dirs/dirs_6.txt
+  TRA_AXES            Comma-separated axes averaged into direction='tra'.
+                      Default: y,z for brain; x,y for phantom.
+  LONG_AXES           Comma-separated axes averaged into direction='long'.
+                      Default: x for brain; z for phantom.
   ROTATE_SCRIPT       Python script override.
   ROTATED_OUT_ROOT    Legacy rotated output root. Default: $ANALYSIS_ROOT/data-rotated/tables
   ROTATE_EXTRA_ARGS   Extra rotate_ogse_tensor.py options.
@@ -902,6 +906,10 @@ Variables for this step:
                         Columns: subj,sheet,roi,direction,td_ms,N,Hz,model
   MASTER_PARQUET        Input/output master table. Must contain signal_rotated rows.
   GRAD_CORR_OUT_DIR     Audit output directory. Default: $ANALYSIS_ROOT/fits/grad_correction
+  GRAD_CORR_ROI         Reference ROI matched against the master table for every
+                        manifest row (overrides the manifest's own roi column;
+                        matching is case-insensitive). Default: Syringe for brains,
+                        Water1 for phantoms.
   GRAD_CORR_EXTRA_ARGS  Extra make_grad_correction_table.py options.
 
 Useful GRAD_CORR_EXTRA_ARGS:
@@ -918,6 +926,11 @@ Useful GRAD_CORR_EXTRA_ARGS:
 
 Examples:
   bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction
+
+  bash nogse_pipeline/bash_template/run_dataset.sh phantoms ogse grad_correction
+
+  GRAD_CORR_ROI=Water2 \
+    bash nogse_pipeline/bash_template/run_dataset.sh phantoms ogse grad_correction
 
   GRAD_CORR_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/grad_correction.csv \
   GRAD_CORR_EXTRA_ARGS="--bbase bvalue_thorsten --fix-M0 1.0" \

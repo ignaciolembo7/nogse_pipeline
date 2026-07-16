@@ -22,6 +22,7 @@ from extract_roi_tables import (
     extract_tables,
     write_excel_like_matlab,
 )
+from plotting.roi_intensity_histograms import render_roi_intensity_histograms
 
 """
 coreg_extract_phantom.py
@@ -654,6 +655,16 @@ def main() -> None:
 
         dwi_img = nib.load(str(dwi_nii))
         rois = [build_roi_from_binary_mask(mask_path, dwi_img, roi_name) for roi_name, mask_path in mask_specs]
+
+        if rois:
+            hist_png = out_seq / f"{seq_name_full}_ROI_intensity_histograms.png"
+            render_roi_intensity_histograms(
+                ref_img,
+                rois,
+                hist_png,
+                title=f"{subj} / {seq_name_full}",
+            )
+            print(f"[OK] Wrote ROI intensity histograms: {hist_png}")
 
         print("[INFO] Extracting ROI tables (this can take a while)...")
         tables = extract_tables(

@@ -20,16 +20,20 @@ LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/brains}"
 
 init_run "run_brains_dicom2nifti"
 
-run_case "20220622_BRAIN-1"
+# run_case "20260706_OGSETEST"
+run_case "19911123ARVE_202607100850"
+run_case "19970514SNVN_202607101030"
+run_case "19991012ADBN_202607101540"
+# run_case "20220622_BRAIN-1"
 # run_case "20220624_BRAIN-2"
 # run_case "202207081020_19760622MBBL"
 # run_case "202207081630_19941220LUDG"
-run_case "20230619_BRAIN-3"
-run_case "20230623_BRAIN-4"
-run_case "20230623_LUDG-2"
-run_case "20230629_MBBL-2"
-run_case "20230630_MBBL-3"
-run_case "20230710_LUDG-3"
+# run_case "20230619_BRAIN-3"
+# run_case "20230623_BRAIN-4"
+# run_case "20230623_LUDG-2"
+# run_case "20230629_MBBL-2"
+# run_case "20230630_MBBL-3"
+# run_case "20230710_LUDG-3"
 # ------------------------------------------------------------------
 # ------------------------------------------------------------------
 

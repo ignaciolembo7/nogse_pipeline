@@ -15,9 +15,9 @@ REPO_ROOT="$PROJECT_ROOT/nogse_pipeline"
 COREG_SCRIPT="$REPO_ROOT/src/signal_extraction/coreg_extract.py"
 OUT_ROOT="$PROJECT_ROOT/Data-signals"
 LOG_ROOT="${LOG_ROOT:-$REPO_ROOT/logs/phantoms}"
-EXP_ROOT="$PROJECT_ROOT/Data-NIFTI-PHANTOM-denoised/20220610-PHANTOM3"
-OUT_SUBJ_REL="20220610-PHANTOM3"
-CUT_TOKEN="_den_grc"
+EXP_ROOT="$PROJECT_ROOT/Data-NIFTI/20260706_BRAIN-TEST"
+OUT_SUBJ_REL="20260706_BRAIN-TEST"
+CUT_TOKEN="" #"_den_grc" ""-> no cut
 # Which dcm2niix conflict variant to use: "none", "a", "b", ... or "all".
 DWI_VARIANT="none"
 # Set to 1 only for acquisitions that must be collapsed into one mean image

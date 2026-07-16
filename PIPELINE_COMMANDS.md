@@ -1,6 +1,55 @@
 # Pipeline commands
 
-Run from the project root. El modelo default para OGSE es `ogse_mixed_offset`.
+---
+
+## Preprocessing
+
+Los scripts de preprocessing se corren **directamente** (no vía `run_dataset.sh`). Correr en el orden indicado, esperar que cada uno termine antes del siguiente.
+
+### Brains — OGSE (DICOM → NIfTI → extracción de señal)
+
+```
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/brains_ogse/0.0-run_dicom2nifti.sh > logs/pre_brains_ogse_dicom.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/brains_ogse/1.0-run_BRAINS-denoised_topup_signal_extraction.sh > logs/pre_brains_ogse_extract.log 2>&1 &
+```
+
+### Phantoms — OGSE (DICOM → NIfTI → gval/gvec → b0 → masks → extracción)
+
+```
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.0-run_dicom2nifti.sh > logs/pre_phantoms_ogse_dicom.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.1-run_make_gval_gvec.sh > logs/pre_phantoms_ogse_gvec.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.2-prep_phantom_b0.sh > logs/pre_phantoms_ogse_b0.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.3-copy_selected_files.sh > logs/pre_phantoms_ogse_copy.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/1.0-run_PHANTOM-denoised_signal_extraction.sh > logs/pre_phantoms_ogse_extract.log 2>&1 &
+```
+
+### Phantoms — NOGSE (mismo orden que OGSE)
+
+```
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.0-run_dicom2nifti.sh > logs/pre_phantoms_nogse_dicom.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.1-run_make_gval_gvec.sh > logs/pre_phantoms_nogse_gvec.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.2-prep_phantom_b0.sh > logs/pre_phantoms_nogse_b0.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.3-copy_selected_files.sh > logs/pre_phantoms_nogse_copy.log 2>&1 &
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/1.0-run_PHANTOM-denoised_signal_extraction.sh > logs/pre_phantoms_nogse_extract.log 2>&1 &
+```
+
+> **Nota:** No existe `preprocessing/brains_nogse/` todavía. Si tenés sesiones NOGSE de brains, hay que crear esa carpeta siguiendo el patrón de `brains_ogse/`.
+
+### Parámetros DICOM (independiente del tipo de secuencia)
+
+```
+nohup bash nogse_pipeline/bash_template/steps/preprocessing/dicom_params/0.0-run_extract_dicom_sequence_metadata.sh > logs/dicom_params.log 2>&1 &
+```
+
+### Exportar tabla master como .xslx (para visualizacion)
+
+```
+MASTER_PARQUET=analysis/brains/ogse_experiments/master.long.parquet MASTER_XLSX=analysis/brains/ogse_experiments/master.xlsx nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse export_master_xlsx > logs/export_master_xlsx.log 2>&1 &
+```
+
+```
+MASTER_PARQUET=analysis/phantoms/ogse_experiments/master.long.parquet MASTER_XLSX=analysis/phantoms/ogse_experiments/master.xlsx nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse export_master_xlsx > logs/export_master_xlsx.log 2>&1 &
+```
 
 ---
 
@@ -25,12 +74,12 @@ Conflictos entre pasos: no hay, porque cada paso corre en subshell aislado. Si d
 
 ```
 nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse ingest > logs/01_ingest.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse rotate > logs/02_rotate.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_signal > logs/03_plot_signal.log 2>&1 &
+ROTATE_EXTRA_ARGS="--solver solve" nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse rotate > logs/02_rotate.log 2>&1 &
+PLOT_SIGNAL_YCOL=value nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_signal > logs/03_plot_signal.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction > logs/05_grad_correction.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_signal > logs/04_fit_signal.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse plot_monoexp_d > logs/06b_plot_monoexp_d.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha > logs/06_alpha.log 2>&1 &
+ALPHA_EXTRA_ARGS="--bvalmax 10 --roi-bvalmax Syringe=7 --roi-bvalmax Right-Lateral-Ventricle=5 --roi-bvalmax Left-Lateral-Ventricle=5" DPROJ_DIRS="long tra" nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse alpha > logs/06_alpha.log 2>&1 &
 GLOBAL_SIGNAL_MODEL=ogse_mixed_offset GLOBAL_SIGNAL_G_TYPE=g_thorsten GLOBAL_SIGNAL_YCOL=value GLOBAL_SIGNAL_ROW_KIND=signal_rotated GLOBAL_SIGNAL_STAT=avg GLOBAL_SIGNAL_MIN_POINTS=4 GLOBAL_SIGNAL_DIRECTIONS="long tra" GLOBAL_SIGNAL_ROIS=ALL GLOBAL_SIGNAL_SUBJS=ALL GLOBAL_SIGNAL_TC_MODE=global_td GLOBAL_SIGNAL_ALPHA_MODE=global_td GLOBAL_SIGNAL_RN_MODE=fixed GLOBAL_SIGNAL_RN_FIXED=15 GLOBAL_SIGNAL_M0_MODE=global_contrast GLOBAL_SIGNAL_C_MODE=global_contrast GLOBAL_SIGNAL_D0_MODE=fixed GLOBAL_SIGNAL_D0_FIXED=3.2e-12 GLOBAL_SIGNAL_APPLY_GRAD_CORR=true GLOBAL_SIGNAL_MANIFEST=nogse_pipeline/bash_template/manifests/brains_ogse/contrasts.csv GLOBAL_SIGNAL_OUT_ROOT=analysis/brains/ogse_experiments/fits/ogse_signal_ogse_mixed_offset nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse fit_global_signal > logs/04b_fit_global_signal.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast > logs/07_contrast.log 2>&1 &
 SIGNAL_FIT_OUT_ROOT=analysis/brains/ogse_experiments/fits/master/ogse_value_norm_vs_bvaluethorsten_ogse_mixed_offset nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse contrast_resampled > logs/07b_contrast_resampled.log 2>&1 &
@@ -52,8 +101,8 @@ SIGNAL_FIT_OUT_ROOT=analysis/brains/ogse_experiments/fits/master/ogse_value_norm
 ### Paso a paso
 
 ```
-nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest > logs/01_ingest.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse rotate > logs/02_rotate.log 2>&1 &
+PARAMS_XLSX=Data-signals/sequence_parameters_phantoms.xlsx nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse ingest > logs/01_ingest.log 2>&1 &
+ROTATE_EXTRA_ARGS="--solver solve" nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse rotate > logs/02_rotate.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse plot_signal > logs/03_plot_signal.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse grad_correction > logs/05_grad_correction.log 2>&1 &
 nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse fit_signal > logs/04_fit_signal.log 2>&1 &
@@ -203,56 +252,7 @@ SIGNAL_FIT_OUT_ROOT=analysis/phantoms/nogse_experiments/fits/master/nogse_value_
 MASTER_LAST_POINTS_BY_TD="120:8=6,120:4=4,210=8" SIGNAL_FIT_OUT_ROOT=analysis/phantoms/nogse_experiments/fits/master.last_points/nogse_value_norm_vs_g_nogse_free nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom nogse ingest rotate fit_signal contrast contrast_resampled fit_contrast extract_tc_peak tc > logs/phantom_nogse_filtered.log 2>&1 &
 ```
 
----
 
-## Preprocessing
-
-Los scripts de preprocessing se corren **directamente** (no vía `run_dataset.sh`). Correr en el orden indicado, esperar que cada uno termine antes del siguiente.
-
-### Brains — OGSE (DICOM → NIfTI → extracción de señal)
-
-```
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/brains_ogse/0.0-run_dicom2nifti.sh > logs/pre_brains_ogse_dicom.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/brains_ogse/1.0-run_BRAINS-denoised_topup_signal_extraction.sh > logs/pre_brains_ogse_extract.log 2>&1 &
-```
-
-### Phantoms — OGSE (DICOM → NIfTI → gval/gvec → b0 → masks → extracción)
-
-```
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.0-run_dicom2nifti.sh > logs/pre_phantoms_ogse_dicom.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.1-run_make_gval_gvec.sh > logs/pre_phantoms_ogse_gvec.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.2-prep_phantom_b0.sh > logs/pre_phantoms_ogse_b0.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/0.3-copy_selected_files.sh > logs/pre_phantoms_ogse_copy.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_ogse/1.0-run_PHANTOM-denoised_signal_extraction.sh > logs/pre_phantoms_ogse_extract.log 2>&1 &
-```
-
-### Phantoms — NOGSE (mismo orden que OGSE)
-
-```
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.0-run_dicom2nifti.sh > logs/pre_phantoms_nogse_dicom.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.1-run_make_gval_gvec.sh > logs/pre_phantoms_nogse_gvec.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.2-prep_phantom_b0.sh > logs/pre_phantoms_nogse_b0.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/0.3-copy_selected_files.sh > logs/pre_phantoms_nogse_copy.log 2>&1 &
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/phantoms_nogse/1.0-run_PHANTOM-denoised_signal_extraction.sh > logs/pre_phantoms_nogse_extract.log 2>&1 &
-```
-
-> **Nota:** No existe `preprocessing/brains_nogse/` todavía. Si tenés sesiones NOGSE de brains, hay que crear esa carpeta siguiendo el patrón de `brains_ogse/`.
-
-### Parámetros DICOM (independiente del tipo de secuencia)
-
-```
-nohup bash nogse_pipeline/bash_template/steps/preprocessing/dicom_params/0.0-run_extract_dicom_sequence_metadata.sh > logs/dicom_params.log 2>&1 &
-```
-
-### Exportar tabla master como .xslx (para visualizacion)
-
-```
-MASTER_PARQUET=analysis/brains/ogse_experiments/master.long.parquet MASTER_XLSX=analysis/brains/ogse_experiments/master.xlsx nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse export_master_xlsx > logs/export_master_xlsx.log 2>&1 &
-```
-
-```
-MASTER_PARQUET=analysis/phantoms/ogse_experiments/master.long.parquet MASTER_XLSX=analysis/phantoms/ogse_experiments/master.xlsx nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse export_master_xlsx > logs/export_master_xlsx.log 2>&1 &
-```
 
 ---
 
@@ -326,6 +326,7 @@ El factor resultante se escribe en el `master.long.parquet` para todas las rois 
 | `GRAD_CORR_MANIFEST` | `$MANIFEST_DIR/grad_correction.csv` | CSV con columnas subj, sheet, roi, direction, td_ms, N |
 | `GRAD_CORR_OUT_DIR` | `$ANALYSIS_ROOT/fits/grad_correction` | Directorio de salida (.xlsx, .csv) |
 | `GRAD_CORR_PLOT_DIR` | `$GRAD_CORR_OUT_DIR/plots` | Directorio de plots comparativos (antes/después de corrección) |
+| `GRAD_CORR_ROI` | `Syringe` (brains) / `Water1` (phantoms) | ROI de referencia a matchear en el master table para todas las filas del manifest (pisa la columna `roi` del manifest; el match es case-insensitive) |
 | `GRAD_CORR_EXTRA_ARGS` | — | Args extra para `make_grad_correction_table.py` (ver abajo) |
 
 Args útiles en `GRAD_CORR_EXTRA_ARGS`:
@@ -355,6 +356,11 @@ GRAD_CORR_EXTRA_ARGS="--avg-N 1 4 8" nohup bash nogse_pipeline/bash_template/run
 # Sin rellenar factores faltantes con promedio entre sujetos
 GRAD_CORR_EXTRA_ARGS="--no-fill-missing" \
   nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse grad_correction \
+  > logs/05_grad_correction.log 2>&1 &
+
+# Usar otro ROI de referencia (por default: Syringe en brains, Water1 en phantoms)
+GRAD_CORR_ROI=Water2 \
+  nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse grad_correction \
   > logs/05_grad_correction.log 2>&1 &
 ```
 
@@ -569,3 +575,14 @@ TC_METHOD=pseudohuber_fixed_macro \
 TC_EXTRA_ARGS="--summary-alpha analysis/brains/ogse_experiments/alpha_macro/master/summary_alpha_values.xlsx" \
   nohup bash nogse_pipeline/bash_template/run_dataset.sh brain ogse tc > logs/tc.log 2>&1 &
 ```
+
+
+# 1. Re-rotar con el gradiente real (recalcula D_proj y bvalue para signal_rotated)
+ROTATE_EXTRA_ARGS="--g_type g" \
+  bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse rotate \
+  > logs/02_rotate_g.log 2>&1
+
+# 2. Alpha, igual que antes — no necesita ningún override, ya consume bvalue/D_proj correctos
+DPROJ_DIRS="long tra" \
+  nohup bash nogse_pipeline/bash_template/run_dataset.sh phantom ogse alpha \
+  > logs/ogsetest/alpha.log 2>&1 &

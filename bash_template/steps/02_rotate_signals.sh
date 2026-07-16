@@ -10,6 +10,14 @@ ROTATE_SCRIPT="${ROTATE_SCRIPT:-$REPO_ROOT/scripts/data/rotate_ogse_tensor.py}"
 DIRS_TXT="${DIRS_TXT:-$REPO_ROOT/assets/dirs/dirs_6.txt}"
 ROTATED_OUT_ROOT="${ROTATED_OUT_ROOT:-$ANALYSIS_ROOT/data-rotated/tables}"
 
+if [[ "$TYPE_SUBJ" == "phantom" ]]; then
+    TRA_AXES="${TRA_AXES:-x,y}"
+    LONG_AXES="${LONG_AXES:-z}"
+else
+    TRA_AXES="${TRA_AXES:-y,z}"
+    LONG_AXES="${LONG_AXES:-x}"
+fi
+
 pipeline_require_file "$ROTATE_SCRIPT" "rotate script"
 pipeline_require_file "$MASTER_PARQUET" "master table"
 pipeline_require_file "$DIRS_TXT" "dirs txt"
@@ -27,6 +35,8 @@ while IFS=$'\t' read -r subj sheet td_ms n hz; do
         --N "$n" \
         --Hz "$hz" \
         --dirs_txt "$DIRS_TXT" \
+        --tra_axes "$TRA_AXES" \
+        --long_axes "$LONG_AXES" \
         --out_dir "$ROTATED_OUT_ROOT" \
         ${ROTATE_EXTRA_ARGS:-}
 done < <("$PY" - "$MASTER_PARQUET" "${MASTER_SUBJ:-ALL}" "${MASTER_SHEET:-ALL}" <<'PY'

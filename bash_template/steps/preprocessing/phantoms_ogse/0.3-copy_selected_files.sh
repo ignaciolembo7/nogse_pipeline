@@ -5,8 +5,8 @@ set -euo pipefail
 # ------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------
-BASE="Data-signals/20260122-PHANTOM_FIBER/QUALITY_JACK_19800122TMSF"
-SRC="$BASE/QUALITY_JACK_19800122TMSF_002_NOGSE_CPMG_N2_TN50_G00_20260122125354_3"
+BASE="Data-signals/20260706_BRAIN-TEST"
+SRC="$BASE/QUALITY_JACK_19800122TMSF_ep2d_advdiff_AP_919D_OGSE_4bval_06dir_d40_Hz000_b2000_20260706143803_10"
 
 FILES=(
   # "niso4-1_mask.nii.gz"
@@ -15,7 +15,7 @@ FILES=(
   # "niso4-4_mask.nii.gz"
   # "niso4-5_mask.nii.gz"
   "fiber1_mask.nii.gz"
-  "fiber2_mask.nii.gz"
+  # "fiber2_mask.nii.gz"
   "water1_mask.nii.gz"
 )
 # ------------------------------------------------------------------

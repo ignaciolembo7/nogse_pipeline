@@ -1,3 +1,31 @@
 subj,sheet,roi,direction,td_ms,N,Hz,model
 # Example:
 # PHANTOM,20260122-PHANTOM_FIBER,Bundle,long,90,4,25,monoexp
+#
+# BRAINTEST water1 diagnostic: monoexp fit with --auto_fit_points (enabled by
+# default for ogse type_seq in 04_fit_signals.sh) to check whether trimming
+# noise-floor-affected high-b points fixes the D0 estimates from grad_correction.
+BRAINTEST,20260706_BRAIN-TEST,water1,long,90,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,90,4,25,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,90,8,50,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,120,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,120,4,20,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,120,8,40,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,143.4,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,143.4,4,15,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,143.4,8,30,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,210,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,210,4,10,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,long,210,8,20,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,90,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,90,4,25,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,90,8,50,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,120,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,120,4,20,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,120,8,40,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,143.4,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,143.4,4,15,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,143.4,8,30,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,210,1,0,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,210,4,10,monoexp
+BRAINTEST,20260706_BRAIN-TEST,water1,tra,210,8,20,monoexp

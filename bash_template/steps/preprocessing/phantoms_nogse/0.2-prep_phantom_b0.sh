@@ -146,7 +146,7 @@ dwi_variant_matches() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../../.." && pwd)"
 EXP_ROOT="$PROJECT_ROOT/$EXP_PARENT/$SUBJ"
 OUT_SUBJ="$PROJECT_ROOT/$OUT_ROOT_REL/$SUBJ"
 

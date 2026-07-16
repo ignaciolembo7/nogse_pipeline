@@ -42,6 +42,14 @@ def main() -> None:
         '--plot-dir', type=Path, default=None,
         help='Directory to save per-curve comparison plots (NOGSE fit vs monoexp fit).',
     )
+    ap.add_argument(
+        '--roi', default=None,
+        help='Override the manifest roi column for every row, so all curves are '
+             'matched against this reference ROI in the master table instead of '
+             "whatever the manifest's roi column says (e.g. 'Syringe' for brains, "
+             "'Water1' for phantoms). Matching against the master table is "
+             'case-insensitive. Default: use each row\'s roi as given in the manifest.',
+    )
 
     ap.add_argument(
         '--stat', default='avg',
@@ -127,6 +135,7 @@ def main() -> None:
         tol_ms=args.tol_ms,
         avg_N=args.avg_N,
         plot_dir=args.plot_dir,
+        roi_override=args.roi,
     )
 
     out_xlsx = Path(args.out_xlsx)

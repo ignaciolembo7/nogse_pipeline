@@ -341,6 +341,8 @@ Variables:
 | `MASTER_SUBJ` | empty | Optional `subj` selector. |
 | `MASTER_SHEET` | empty | Optional `sheet` selector. |
 | `DIRS_TXT` | `assets/dirs/dirs_6.txt` | Direction table. |
+| `TRA_AXES` | `y,z` (brain) / `x,y` (phantom) | Axes averaged into `direction=tra`. |
+| `LONG_AXES` | `x` (brain) / `z` (phantom) | Axes averaged into `direction=long`. |
 | `ROTATE_SCRIPT` | `scripts/data/rotate_ogse_tensor.py` | Python script override. |
 | `ROTATED_OUT_ROOT` | `$ANALYSIS_ROOT/data-rotated/tables` | Legacy output root. |
 | `ROTATE_EXTRA_ARGS` | empty | Extra Python flags. |
