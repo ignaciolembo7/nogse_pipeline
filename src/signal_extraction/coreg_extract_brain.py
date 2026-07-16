@@ -222,6 +222,12 @@ def resolve_fastsurfer_subject_dir(subjects_dir: Path, subject_id: str) -> Path:
     )
 
 
+def resolve_output_dirs(out_root: Path, subj: str) -> tuple[Path, Path]:
+    if out_root.name.startswith("ses-") and out_root.parent.name.startswith("sub-"):
+        return out_root, out_root / "Results"
+    return out_root / subj, out_root / "Results" / subj
+
+
 # ---------------------------------------------------------------------
 # DWI discovery
 # ---------------------------------------------------------------------
@@ -967,7 +973,7 @@ def main() -> None:
 
     subj = exp_root.name
 
-    out_subj = out_root / subj
+    out_subj, out_results = resolve_output_dirs(out_root, subj)
     out_subj.mkdir(parents=True, exist_ok=True)
 
     (
@@ -1288,7 +1294,7 @@ def main() -> None:
         )
         print("[INFO] Writing Excel...")
 
-        out_xlsx = out_root / "Results" / subj / f"{seq_no_ext}_results.xlsx"
+        out_xlsx = out_results / f"{seq_no_ext}_results.xlsx"
         write_excel_like_matlab(tables, out_xlsx)
 
         print(f"[OK] Wrote: {out_xlsx}")
